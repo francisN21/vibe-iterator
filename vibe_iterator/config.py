@@ -123,11 +123,11 @@ def load_config(
     target_from_env = os.getenv("VIBE_ITERATOR_TARGET", "")
     target_from_yaml = str(yaml_data.get("target", "")).strip()
 
-    # Resolve target: CLI > YAML > env
+    # Resolve target: CLI > env > YAML
     target = (
         target_override
-        or target_from_yaml
         or target_from_env
+        or target_from_yaml
     ).rstrip("/")
 
     missing: list[str] = []

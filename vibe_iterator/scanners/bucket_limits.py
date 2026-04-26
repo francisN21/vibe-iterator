@@ -123,17 +123,10 @@ class Scanner(BaseScanner):
                     ),
                     category=self.category, page=config.target,
                 ))
+                _delete_test_object(url, auth_header, anon_key)
                 break  # one finding per bucket for size
 
-            # Clean up test file if it was uploaded
-            try:
-                del_req = urllib.request.Request(
-                    url, method="DELETE",
-                    headers={"Authorization": auth_header, "apikey": anon_key},
-                )
-                urllib.request.urlopen(del_req, timeout=5)
-            except Exception:
-                pass
+            _delete_test_object(url, auth_header, anon_key)
 
     def _check_type_restrictions(
         self, bucket: str, base_url: str, anon_key: str, token: str | None,
@@ -207,15 +200,7 @@ class Scanner(BaseScanner):
                     category=self.category, page=config.target,
                 ))
 
-                # Clean up
-                try:
-                    del_req = urllib.request.Request(
-                        url, method="DELETE",
-                        headers={"Authorization": auth_header, "apikey": anon_key},
-                    )
-                    urllib.request.urlopen(del_req, timeout=5)
-                except Exception:
-                    pass
+                _delete_test_object(url, auth_header, anon_key)
 
 
 def _discover_buckets(network: Any) -> list[str]:
@@ -232,3 +217,18 @@ def _discover_buckets(network: Any) -> list[str]:
                 seen.add(bucket)
                 buckets.append(bucket)
     return buckets
+
+
+def _delete_test_object(url: str, auth_header: str, anon_key: str) -> None:
+    """Best-effort cleanup for objects uploaded during bucket limit checks."""
+    import urllib.request
+
+    try:
+        del_req = urllib.request.Request(
+            url,
+            method="DELETE",
+            headers={"Authorization": auth_header, "apikey": anon_key},
+        )
+        urllib.request.urlopen(del_req, timeout=5)
+    except Exception:
+        pass

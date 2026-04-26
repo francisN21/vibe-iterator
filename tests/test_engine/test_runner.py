@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
+from types import SimpleNamespace
 
 import pytest
 
@@ -119,6 +120,51 @@ class TestScanRunnerEvents:
         events.append(event)
 
         assert any(e.type == "scan_started" for e in events)
+
+    @pytest.mark.asyncio
+    async def test_run_uses_headless_browser_and_preserves_page_status_codes(self) -> None:
+        events: list[ScanEvent] = []
+        config = _make_config(["data_leakage"])
+        runner = ScanRunner(config, on_event=events.append, browser_headless=True)
+
+        mock_scanner = MagicMock()
+        mock_scanner.name = "data_leakage"
+        mock_scanner.category = "Data Leakage"
+        mock_scanner.requires_stack = ["any"]
+        mock_scanner.requires_second_account = False
+        mock_scanner.run.return_value = []
+
+        pages = [
+            SimpleNamespace(url="http://localhost:3000/", status_code=200),
+            SimpleNamespace(url="http://localhost:3000/dashboard", status_code=302),
+        ]
+
+        def crawl_side_effect(session, cfg, *, on_page=None):
+            for page in pages:
+                if on_page:
+                    on_page(page)
+            return pages
+
+        mock_session = MagicMock()
+
+        with patch("vibe_iterator.engine.runner._load_scanner", return_value=mock_scanner), \
+                patch("vibe_iterator.crawler.browser.launch", return_value=mock_session) as launch, \
+                patch("vibe_iterator.crawler.auth.login"), \
+                patch("vibe_iterator.crawler.navigator.crawl_pages", side_effect=crawl_side_effect), \
+                patch("vibe_iterator.listeners.network.NetworkListener.attach"), \
+                patch("vibe_iterator.listeners.console.ConsoleListener.attach"), \
+                patch("vibe_iterator.listeners.storage.StorageListener.capture"), \
+                patch("vibe_iterator.listeners.network.NetworkListener.summary", return_value={"total": 0}), \
+                patch("vibe_iterator.listeners.network.NetworkListener.detach"), \
+                patch("vibe_iterator.listeners.console.ConsoleListener.detach"):
+            result = await runner.run("dev")
+
+        launch.assert_called_once_with(headless=True)
+        assert result.status == "completed"
+        assert result.pages_crawled == [
+            {"url": "http://localhost:3000/", "status_code": 200},
+            {"url": "http://localhost:3000/dashboard", "status_code": 302},
+        ]
 
     @pytest.mark.asyncio
     async def test_result_is_stored_after_run(self) -> None:

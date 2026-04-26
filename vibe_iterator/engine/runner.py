@@ -125,10 +125,12 @@ class ScanRunner:
         config: Config,
         on_event: Callable[[ScanEvent], None],
         scanner_overrides: list[str] | None = None,
+        browser_headless: bool = False,
     ) -> None:
         self.config = config
         self.on_event = on_event
         self.scanner_overrides = scanner_overrides
+        self.browser_headless = browser_headless
         self._cancel_requested: bool = False
         self._active_task: asyncio.Task | None = None
         self._result: ScanResult | None = None
@@ -215,7 +217,7 @@ class ScanRunner:
         storage = StorageListener()
 
         try:
-            session = browser_mod.launch(headless=False)
+            session = browser_mod.launch(headless=self.browser_headless)
             network.attach(session)
             console.attach(session)
 
@@ -251,9 +253,9 @@ class ScanRunner:
                 self._emit("page_navigated", {"url": meta.url, "status_code": meta.status_code})
                 storage.capture(session)
 
-            nav_mod.crawl_pages(session, self.config, on_page=_on_page)
+            crawled_pages = nav_mod.crawl_pages(session, self.config, on_page=_on_page)
             self._result.pages_crawled = [
-                {"url": s.url, "status_code": 0} for s in storage.get_snapshots()
+                {"url": page.url, "status_code": page.status_code} for page in crawled_pages
             ]
 
             # ---------------------------------------------------------------- #
