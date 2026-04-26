@@ -87,9 +87,13 @@ It then gives you a **copy-paste prompt** you can feed right back to your AI cod
 
 ## Quick Start
 
+> **Note:** Vibe Iterator is pre-release. Install from source while PyPI publishing is pending.
+
 ```bash
-# Install
-pip install vibe-iterator
+# Clone and install
+git clone https://github.com/francisN21/vibe-iterator.git
+cd vibe-iterator
+pip install -e .
 
 # Create your config
 cp .env.example .env
@@ -104,7 +108,7 @@ Your browser opens to `http://localhost:3001` — select a scan stage, hit **STA
 **Prefer the CLI?**
 
 ```bash
-vibe-iterator scan --headless --stage pre-deploy
+vibe-iterator scan --stage pre-deploy
 ```
 
 ---
@@ -339,14 +343,28 @@ See `docs/ADDING_SCANNERS.md` for the full guide.
 
 ---
 
+## Status
+
+> **Active development — Phase 2 of 5 complete.**
+
+| Phase | What | Status |
+|-------|------|--------|
+| 1 | Foundation — config, CLI, browser/crawler, listeners, base scanner | ✅ Done |
+| 2 | Scan engine + core scanners (auth, SQL injection, RLS, tiers, buckets, client tampering, data leakage) | ✅ Done |
+| 3 | Live hacker-themed dashboard (FastAPI + WebSocket + GUI) | 🔨 In progress |
+| 4 | Exportable HTML reports + extended scanners (XSS, CORS, API exposure) | ⏳ Pending |
+| 5 | Polish, PyPI release, CI/CD integration | ⏳ Pending |
+
+---
+
 ## Roadmap
 
 - [x] Core architecture + scan engine
 - [x] Supabase-focused scanners (RLS, tiers, buckets)
 - [x] Extensive SQL injection scanner (PostgREST, ORM bypass, blind injection)
 - [x] Extensive auth scanner (tokens, sessions, brute force, OAuth)
-- [x] Live hacker-themed dashboard
-- [x] Exportable HTML report with LLM prompts
+- [ ] Live hacker-themed dashboard
+- [ ] Exportable HTML report with LLM prompts
 - [ ] Firebase scanner module
 - [ ] Automatic endpoint discovery / spidering
 - [ ] CI/CD integration (GitHub Actions)
