@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>vibe-iterator — Security Control Center</title>
+  <link rel="stylesheet" href="/static/css/dashboard.css">
+</head>
+<body>
+
+<header class="header">
+  <div class="logo">VIBE<span> ITERATOR</span></div>
+  <div class="header-meta">
+    <div class="target-badge" id="target-badge">
+      <span class="status-dot checking" id="status-dot"></span>
+      <span id="target-url">loading...</span>
+    </div>
+    <span id="header-version" style="color:var(--text-muted);font-size:10px">v0.1.0</span>
+  </div>
+</header>
+
+<main class="page-main">
+
+  <!-- Config error banner (hidden until errors detected) -->
+  <div class="config-errors hidden" id="config-errors">
+    <h4>⚠ CONFIGURATION REQUIRED</h4>
+    <ul id="config-error-list"></ul>
+  </div>
+
+  <p class="section-title">Select Scan Stage</p>
+
+  <!-- Stage cards -->
+  <div class="stage-grid" id="stage-grid">
+    <!-- Populated by app.js -->
+    <div class="stage-card skeleton" style="height:140px"></div>
+    <div class="stage-card skeleton" style="height:140px"></div>
+    <div class="stage-card skeleton" style="height:140px"></div>
+    <div class="stage-card skeleton" style="height:140px"></div>
+  </div>
+
+  <!-- Advanced — custom scanner overrides -->
+  <details class="config-panel" id="advanced-panel" style="margin-bottom:1.5rem">
+    <summary>⚙ Advanced — Scanner Overrides</summary>
+    <div class="config-body" id="advanced-body">
+      <p style="color:var(--text-muted);font-size:12px;padding:0.5rem 0">
+        Uncheck scanners to skip them in this run. Session-only — does not modify your config file.
+      </p>
+      <div id="override-checkboxes" style="display:flex;flex-wrap:wrap;gap:0.5rem;padding:0.25rem 0"></div>
+    </div>
+  </details>
+
+  <!-- Config summary -->
+  <details class="config-panel" id="config-summary">
+    <summary>⚙ Config Summary</summary>
+    <div class="config-body" id="config-body">
+      <div class="config-row">
+        <span class="config-label">Test account</span>
+        <span class="config-value" id="cfg-email">—</span>
+      </div>
+      <div class="config-row">
+        <span class="config-label">Target</span>
+        <span class="config-value" id="cfg-target">—</span>
+      </div>
+      <div class="config-row">
+        <span class="config-label">Pages to crawl</span>
+        <span class="config-value" id="cfg-pages">—</span>
+      </div>
+      <div class="config-row">
+        <span class="config-label">Stack</span>
+        <span class="config-value" id="cfg-stack">—</span>
+      </div>
+      <div class="config-row">
+        <span class="config-label">Second test account</span>
+        <span class="config-value" id="cfg-second">—</span>
+      </div>
+    </div>
+  </details>
+
+  <!-- Start scan -->
+  <button class="btn btn-primary btn-start-scan" id="start-btn" disabled>
+    START SCAN
+  </button>
+
+</main>
+
+<!-- Cancel confirm modal -->
+<div class="modal-overlay" id="running-modal">
+  <div class="modal">
+    <h3>SCAN IN PROGRESS</h3>
+    <p>A scan is already running. Cancel it before starting a new one.</p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="document.getElementById('running-modal').classList.remove('open')">DISMISS</button>
+      <button class="btn btn-danger" id="cancel-existing-btn">CANCEL RUNNING SCAN</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script src="/static/js/app.js"></script>
+<script src="/static/js/clipboard.js"></script>
+<script>
+  initHomePage();
+</script>
+</body>
+</html>

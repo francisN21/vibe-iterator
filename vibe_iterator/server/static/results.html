@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>vibe-iterator — Results</title>
+  <link rel="stylesheet" href="/static/css/dashboard.css">
+</head>
+<body>
+
+<header class="results-header">
+  <div class="logo">VIBE<span> ITERATOR</span></div>
+  <div class="action-bar">
+    <button class="btn btn-ghost" id="compare-btn" style="display:none">
+      ⟺ Compare
+    </button>
+    <div style="position:relative">
+      <button class="btn btn-ghost" id="copy-all-btn">COPY PROMPTS ▾</button>
+      <div id="copy-menu" style="display:none;position:absolute;right:0;top:calc(100%+4px);background:var(--bg-card-2);border:1px solid var(--border-bright);border-radius:6px;min-width:220px;z-index:50;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,0.4)">
+        <button class="mark-option" onclick="copyAllPrompts('all')">Copy all prompts</button>
+        <button class="mark-option" onclick="copyAllPrompts('critical_high')">Copy Critical + High only</button>
+        <button class="mark-option" onclick="copyAllPrompts('filtered')">Copy filtered findings</button>
+      </div>
+    </div>
+    <button class="btn btn-ghost" id="rescan-btn">↺ RE-SCAN</button>
+    <button class="btn btn-primary" id="export-btn" disabled title="Available in Phase 4">EXPORT REPORT</button>
+  </div>
+</header>
+
+<!-- Executive Summary -->
+<div class="exec-summary" id="exec-summary">
+  <div class="score-block">
+    <div class="score-number" id="score-number">—</div>
+    <div class="score-grade" id="score-grade">—</div>
+    <div class="score-label">SECURITY SCORE</div>
+  </div>
+
+  <div class="summary-right">
+    <div class="sev-bar-wrap">
+      <div class="sev-bar-label">
+        <span>Severity distribution</span>
+        <span id="total-findings-label">0 findings</span>
+      </div>
+      <div class="sev-bar" id="sev-bar">
+        <div class="sev-bar-seg passed" style="width:100%"></div>
+      </div>
+    </div>
+
+    <div class="stats-row" id="stats-row">
+      <div class="stat-item"><div class="stat-value skeleton" style="width:40px;height:1.1rem"></div><div class="stat-label">Findings</div></div>
+      <div class="stat-item"><div class="stat-value skeleton" style="width:40px;height:1.1rem"></div><div class="stat-label">Pages</div></div>
+      <div class="stat-item"><div class="stat-value skeleton" style="width:60px;height:1.1rem"></div><div class="stat-label">Requests</div></div>
+      <div class="stat-item"><div class="stat-value skeleton" style="width:50px;height:1.1rem"></div><div class="stat-label">Scanners Run</div></div>
+      <div class="stat-item"><div class="stat-value skeleton" style="width:50px;height:1.1rem"></div><div class="stat-label">Duration</div></div>
+    </div>
+
+    <!-- Scanner breakdown (collapsible) -->
+    <details class="config-panel" style="margin-top:1rem;background:transparent;border-color:var(--border)">
+      <summary style="font-size:11px">Scan Metadata</summary>
+      <div class="config-body" id="scan-meta-body" style="font-size:11px">Loading...</div>
+    </details>
+  </div>
+</div>
+
+<!-- Sticky filter bar -->
+<div class="results-filter-bar" id="filter-bar">
+  <button class="filter-pill active" data-sev="all">All</button>
+  <button class="filter-pill" data-sev="critical">Critical</button>
+  <button class="filter-pill" data-sev="high">High</button>
+  <button class="filter-pill" data-sev="medium">Medium</button>
+  <button class="filter-pill" data-sev="low">Low</button>
+
+  <div class="filter-sep"></div>
+
+  <input type="text" class="search-input" id="search-input" placeholder="Search findings...">
+
+  <div class="filter-sep"></div>
+
+  <button class="filter-pill" id="toggle-skipped">Show skipped</button>
+  <button class="filter-pill" id="toggle-passed">Show passed</button>
+
+  <button class="filter-clear hidden" id="filter-clear" onclick="clearFilters()">✕ Clear filters</button>
+</div>
+
+<!-- Findings container (populated by app.js) -->
+<div class="findings-container" id="findings-container">
+  <div style="padding:3rem;text-align:center;color:var(--text-muted)">
+    <span class="loading-spinner"></span>
+    <br><br>Loading results...
+  </div>
+</div>
+
+<!-- Passed checks -->
+<details class="collapsible-section" id="passed-section" style="display:none">
+  <summary>✓ Passed Checks <span id="passed-count" style="color:var(--text-muted)"></span></summary>
+  <div class="collapsible-body" id="passed-body"></div>
+</details>
+
+<!-- Resolved findings -->
+<details class="collapsible-section" id="resolved-section" style="display:none">
+  <summary>Resolved <span id="resolved-count" style="color:var(--text-muted)"></span></summary>
+  <div class="collapsible-body" id="resolved-body"></div>
+</details>
+
+<!-- Dismissed findings -->
+<details class="collapsible-section" id="dismissed-section" style="display:none">
+  <summary>Dismissed <span id="dismissed-count" style="color:var(--text-muted)"></span></summary>
+  <div class="collapsible-body" id="dismissed-body"></div>
+</details>
+
+<!-- Compare modal -->
+<div class="modal-overlay" id="compare-modal">
+  <div class="modal" style="max-width:560px;text-align:left">
+    <h3 style="color:var(--cyan);margin-bottom:1rem">⟺ Compare with Last Scan</h3>
+    <div id="compare-body" style="font-size:12px;max-height:400px;overflow-y:auto"></div>
+    <div class="modal-actions" style="margin-top:1rem">
+      <button class="btn btn-ghost" onclick="document.getElementById('compare-modal').classList.remove('open')">CLOSE</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script src="/static/js/app.js"></script>
+<script src="/static/js/clipboard.js"></script>
+<script>
+  initResultsPage();
+</script>
+</body>
+</html>

@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>vibe-iterator — Live Scan</title>
+  <link rel="stylesheet" href="/static/css/dashboard.css">
+</head>
+<body style="height:100vh;overflow:hidden;display:flex;flex-direction:column">
+
+<header class="header">
+  <div class="logo">VIBE<span> ITERATOR</span></div>
+  <div class="header-meta">
+    <div class="target-badge">
+      <span class="status-dot" id="cdp-dot" style="background:var(--amber);animation:pulse 1s infinite"></span>
+      <span id="cdp-label" style="font-size:11px">Connecting...</span>
+    </div>
+    <a href="/" class="btn btn-ghost" style="font-size:10px;padding:2px 10px">← Home</a>
+  </div>
+</header>
+
+<div class="scan-layout" style="flex:1;overflow:hidden">
+
+  <!-- Top control bar -->
+  <div class="scan-topbar">
+    <div class="scan-title" id="scan-title">
+      SCANNING — INITIALIZING...
+      <span class="cdp-indicator" id="cdp-indicator" style="display:none">CDP ●</span>
+    </div>
+    <button class="btn btn-danger" id="cancel-btn" style="font-size:11px;padding:4px 12px">
+      ✕ CANCEL SCAN
+    </button>
+  </div>
+
+  <!-- Progress bar -->
+  <div class="scan-progress-wrap">
+    <div class="scan-progress-label">
+      <span id="progress-label">Waiting...</span>
+      <span id="progress-right" style="color:var(--text-muted)"></span>
+    </div>
+    <div class="progress-bar-track" id="progress-track"></div>
+  </div>
+
+  <!-- Split panels -->
+  <div class="scan-panels">
+
+    <!-- Left: Terminal -->
+    <div class="terminal-panel">
+      <div class="terminal-header">
+        <span class="terminal-title">TERMINAL OUTPUT</span>
+        <div style="display:flex;gap:0.5rem;align-items:center">
+          <a id="download-log-btn" href="#" class="btn btn-ghost" style="font-size:10px;padding:2px 8px" download="vibe-iterator-scan.txt">⬇ LOG</a>
+        </div>
+      </div>
+      <div class="terminal-body" id="terminal-body">
+        <div class="terminal-line">
+          <span class="t-time">--:--:--</span>
+          <span class="t-muted">Waiting for scan to start...</span>
+        </div>
+      </div>
+      <button class="resume-scroll-btn" id="resume-scroll" onclick="resumeScroll()">↓ Resume auto-scroll</button>
+    </div>
+
+    <!-- Right: Live findings feed -->
+    <div class="findings-panel">
+      <div class="findings-header">
+        <div class="severity-counters">
+          <span class="sev-count critical" id="cnt-critical">0 CRIT</span>
+          <span class="sev-count high"     id="cnt-high">0 HIGH</span>
+          <span class="sev-count medium"   id="cnt-medium">0 MED</span>
+          <span class="sev-count low"      id="cnt-low">0 LOW</span>
+        </div>
+      </div>
+      <div class="severity-filter-pills">
+        <button class="filter-pill active" data-sev="all">All</button>
+        <button class="filter-pill" data-sev="critical">Critical</button>
+        <button class="filter-pill" data-sev="high">High</button>
+        <button class="filter-pill" data-sev="medium">Medium</button>
+        <button class="filter-pill" data-sev="low">Low</button>
+      </div>
+      <div class="findings-body" id="findings-body">
+        <div style="color:var(--text-muted);font-size:12px;padding:1rem;text-align:center">
+          No findings yet...
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Status bar -->
+  <div class="scan-statusbar">
+    <div class="scan-status-label running" id="status-label">
+      <span class="loading-spinner"></span>
+      SCANNING...
+    </div>
+    <span id="elapsed-time">0s elapsed</span>
+    <span id="requests-count" style="margin-left:auto"></span>
+    <span id="current-page" style="color:var(--text-muted);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+  </div>
+
+</div>
+
+<!-- Scan complete banner -->
+<div class="scan-complete-banner" id="complete-banner">
+  <h3>✓ SCAN COMPLETE</h3>
+  <p id="complete-summary">Loading results...</p>
+  <div style="display:flex;gap:0.75rem;justify-content:center">
+    <button class="btn btn-primary" onclick="window.location.href='/results'">VIEW RESULTS →</button>
+    <button class="btn btn-ghost" id="stay-btn" onclick="dismissBanner()">Stay here</button>
+  </div>
+</div>
+
+<!-- Cancel confirm modal -->
+<div class="modal-overlay" id="cancel-modal">
+  <div class="modal">
+    <h3>CANCEL SCAN?</h3>
+    <p>All current progress will be lost. You can view partial results.</p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="document.getElementById('cancel-modal').classList.remove('open')">KEEP SCANNING</button>
+      <button class="btn btn-danger" id="confirm-cancel-btn">CANCEL</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script src="/static/js/websocket.js"></script>
+<script src="/static/js/app.js"></script>
+<script src="/static/js/clipboard.js"></script>
+<script>
+  initScanPage();
+</script>
+</body>
+</html>
