@@ -41,6 +41,12 @@ Issues = "https://github.com/francisN21/vibe-iterator/issues"
 where = ["."]
 include = ["vibe_iterator*"]
 
+[tool.setuptools.package-data]
+"vibe_iterator.server.static" = ["**/*"]
+"vibe_iterator.server.static.css" = ["*.css"]
+"vibe_iterator.server.static.js" = ["*.js"]
+"vibe_iterator.report.templates" = ["*.j2"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]

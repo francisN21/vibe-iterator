@@ -679,6 +679,7 @@ async function initResultsPage() {
   setupMarkActions();
   setupActionBar(_results);
   checkCompareAvailability(_results);
+  checkDeepDiveHash();
 
   // Re-scan goes back home with same stage pre-selected
   document.getElementById('rescan-btn').addEventListener('click', () => {
@@ -879,9 +880,14 @@ function buildFindingCard(f) {
         <div class="rf-section-label">How to fix</div>
         <div class="remediation-block">${escHtml(f.remediation)}</div>
       </div>` : ''}
-      <button class="copy-prompt-btn" onclick="copyToClipboard(${JSON.stringify(f.llm_prompt)}, this)">
-        ⧉ COPY FIX PROMPT
-      </button>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button class="copy-prompt-btn" onclick="copyToClipboard(${JSON.stringify(f.llm_prompt)}, this)">
+          ⧉ COPY FIX PROMPT
+        </button>
+        <button class="btn btn-ghost" style="font-size:0.72rem;padding:4px 10px" onclick="openDeepDive('${escHtml(f.id)}')">
+          ⊞ VIEW DETAILS
+        </button>
+      </div>
       <details style="margin-top:0.5rem">
         <summary style="font-size:10px;color:var(--text-muted);cursor:pointer">View prompt</summary>
         <div class="evidence-block" style="margin-top:0.4rem;white-space:pre-wrap">${escHtml(f.llm_prompt)}</div>
@@ -1173,4 +1179,63 @@ function showCompare(current, last) {
   `;
 
   document.getElementById('compare-modal').classList.add('open');
+}
+
+// ---- Finding deep-dive ----
+
+let _deepDiveFinding = null;
+
+function openDeepDive(findingId) {
+  if (!_results) return;
+  const f = _results.findings.find(x => x.id === findingId);
+  if (!f) return;
+
+  _deepDiveFinding = f;
+
+  document.getElementById('dd-severity').textContent = (f.severity || '').toUpperCase();
+  document.getElementById('dd-severity').className = `severity-badge sev-${f.severity}`;
+  document.getElementById('dd-title').textContent = f.title || '';
+  document.getElementById('dd-scanner').textContent = `${f.scanner} · ${f.category} · ${f.page || ''}`;
+  document.getElementById('dd-description').textContent = f.description || '';
+  document.getElementById('dd-remediation').textContent = f.remediation || '';
+  document.getElementById('dd-prompt').textContent = f.llm_prompt || '';
+
+  const evidence = f.evidence || {};
+  document.getElementById('dd-evidence').textContent = JSON.stringify(evidence, null, 2);
+
+  document.getElementById('dd-variants-section').style.display = 'block';
+  document.getElementById('deepdive-modal').classList.add('open');
+
+  // Update URL hash for direct linking
+  if (history.replaceState) {
+    history.replaceState(null, '', `#finding-${findingId}`);
+  }
+}
+
+function copyDeepDivePrompt() {
+  if (!_deepDiveFinding) return;
+  copyToClipboard(_deepDiveFinding.llm_prompt, null);
+  showToast('Prompt copied');
+}
+
+function copyVariantPrompt(target) {
+  if (!_deepDiveFinding) return;
+  const f = _deepDiveFinding;
+  const variants = {
+    claude: `I need help fixing a security vulnerability.\n\n${f.llm_prompt}\n\nPlease provide the specific code changes in a format I can apply directly.`,
+    chatgpt: `Security vulnerability found in my app:\n\n${f.llm_prompt}\n\nProvide step-by-step remediation code.`,
+    copilot: `// Security issue: ${f.title}\n// Severity: ${f.severity}\n// Fix needed: ${f.remediation}\n\n${f.llm_prompt}`,
+  };
+  copyToClipboard(variants[target] || f.llm_prompt, null);
+  showToast(`Copied for ${target}`);
+}
+
+// Handle deep-dive URL hash on page load
+function checkDeepDiveHash() {
+  const hash = window.location.hash;
+  if (!hash.startsWith('#finding-')) return;
+  const id = hash.slice('#finding-'.length);
+  if (id && _results) {
+    setTimeout(() => openDeepDive(id), 200);
+  }
 }

@@ -1,0 +1,49 @@
+# vibe-iterator.config.yaml
+# Scan scope configuration. Copy this file to vibe-iterator.config.yaml and edit.
+# Secrets (credentials, API keys) go in .env — NOT here.
+
+# Target URL (overrides VIBE_ITERATOR_TARGET in .env)
+# target: http://localhost:3000
+
+# Pages to crawl — order matters. Login page should come before authenticated pages.
+pages:
+  - /
+  - /login
+  - /dashboard
+  - /profile
+  - /settings
+  - /upload
+
+# Stage-specific scanner selection.
+# Uncomment stages to override the built-in defaults.
+stages:
+  dev:
+    scanners: [data_leakage, auth_check, client_tampering]
+    # "Catch basics during development — fast feedback loop"
+
+  pre-deploy:
+    scanners: [data_leakage, auth_check, client_tampering, rls_bypass, tier_escalation, bucket_limits, sql_injection, xss_check, api_exposure]
+    # "Full audit before going live"
+
+  post-deploy:
+    scanners: [cors_check, data_leakage, auth_check, api_exposure, bucket_limits, sql_injection]
+    # "External-facing checks on live site"
+
+  all:
+    scanners: [data_leakage, rls_bypass, tier_escalation, bucket_limits, auth_check, client_tampering, sql_injection, cors_check, xss_check, api_exposure]
+    # "Run every scanner regardless of stage"
+
+# Technology stack (auto-detected from network traffic if omitted).
+# Specifying this avoids the auto-detection overhead and ensures accuracy.
+#
+# backend: supabase | firebase | custom
+# auth:    supabase-auth | firebase-auth | custom
+# storage: supabase | firebase | s3 | custom
+#
+# stack:
+#   backend: supabase
+#   auth: supabase-auth
+#   storage: supabase
+
+# Scanner timeout in seconds (default: 60).
+# scanner_timeout_seconds: 60

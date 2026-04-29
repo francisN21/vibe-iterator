@@ -112,7 +112,8 @@ def _launch_gui(
         from vibe_iterator.server.app import create_app
 
         app = create_app(config)
-        uvicorn.run(app, host="127.0.0.1", port=config.port, log_level="warning")
+        log_level = "info" if verbose else "warning"
+        uvicorn.run(app, host="127.0.0.1", port=config.port, log_level=log_level)
     except ImportError as exc:
         click.echo(f"[ERROR] Server dependencies not installed: {exc}", err=True)
         sys.exit(1)
@@ -144,10 +145,23 @@ def _run_headless(
 
     click.echo(f"[vibe-iterator] Stage: {stage} - Target: {config.target}")
 
+    # Check target reachability before starting a scan
+    if not _check_target_reachable(config.target):
+        click.echo(
+            f"[ERROR] Target unreachable: {config.target}\n"
+            "Make sure your app is running before starting a scan.",
+            err=True,
+        )
+        sys.exit(1)
+
+    def _event_handler(event: object) -> None:
+        if verbose:
+            _print_event(event)
+
     try:
         import asyncio
 
-        runner = ScanRunner(config, on_event=_print_event, browser_headless=headless)
+        runner = ScanRunner(config, on_event=_event_handler, browser_headless=headless)
         result = asyncio.run(runner.run(stage))
     except Exception as exc:
         click.echo(f"[ERROR] Scan failed: {exc}", err=True)
@@ -158,7 +172,12 @@ def _run_headless(
         f"findings={len(result.findings)} score={result.score or 'n/a'}"
     )
     if output:
-        click.echo(f"[vibe-iterator] --output is reserved for Phase 5 report export: {output}")
+        try:
+            from vibe_iterator.report.generator import generate
+            generate(result, output_path=output)
+            click.echo(f"[vibe-iterator] Report saved to: {output}")
+        except Exception as exc:
+            click.echo(f"[ERROR] Could not write report: {exc}", err=True)
 
 
 def _print_event(event: object) -> None:
@@ -169,3 +188,18 @@ def _print_event(event: object) -> None:
         click.echo(json.dumps(event.__dict__ if hasattr(event, "__dict__") else str(event)))
     except Exception:
         click.echo(str(event))
+
+
+def _check_target_reachable(target: str) -> bool:
+    """Quick HTTP HEAD/GET check to verify the target is up."""
+    import urllib.request
+    import ssl
+    try:
+        ctx = ssl._create_unverified_context()
+        req = urllib.request.Request(target, method="HEAD", headers={"User-Agent": "vibe-iterator/health-check"})
+        with urllib.request.urlopen(req, timeout=5, context=ctx):
+            return True
+    except urllib.error.HTTPError:
+        return True  # Any HTTP response means the server is up
+    except Exception:
+        return False

@@ -1305,3 +1305,37 @@ code, pre { font-family: var(--font-mono); }
   display: block;
   margin-bottom: 0.5rem;
 }
+
+/* ---- Finding Deep-Dive Modal ---- */
+.deepdive-section {
+  margin-bottom: 20px;
+}
+
+.deepdive-label {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 6px;
+}
+
+.deepdive-content {
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.7;
+}
+
+.deepdive-code {
+  background: var(--bg-terminal);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  color: var(--text-dim);
+  font-size: 0.78rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: auto;
+  max-height: 260px;
+  overflow-y: auto;
+}

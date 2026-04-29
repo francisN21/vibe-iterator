@@ -345,15 +345,15 @@ See `docs/ADDING_SCANNERS.md` for the full guide.
 
 ## Status
 
-> **Active development — Phase 2 of 5 complete.**
+> **v0.1.0 — All 5 phases complete.**
 
 | Phase | What | Status |
 |-------|------|--------|
 | 1 | Foundation — config, CLI, browser/crawler, listeners, base scanner | ✅ Done |
 | 2 | Scan engine + core scanners (auth, SQL injection, RLS, tiers, buckets, client tampering, data leakage) | ✅ Done |
-| 3 | Live hacker-themed dashboard (FastAPI + WebSocket + GUI) | 🔨 In progress |
-| 4 | Exportable HTML reports + extended scanners (XSS, CORS, API exposure) | ⏳ Pending |
-| 5 | Polish, PyPI release, CI/CD integration | ⏳ Pending |
+| 3 | Live hacker-themed dashboard (FastAPI + WebSocket + GUI) | ✅ Done |
+| 4 | Exportable HTML reports + extended scanners (XSS, CORS, API exposure) | ✅ Done |
+| 5 | Polish, finding deep-dive, CLI flags, PyPI packaging | ✅ Done |
 
 ---
 
@@ -363,8 +363,11 @@ See `docs/ADDING_SCANNERS.md` for the full guide.
 - [x] Supabase-focused scanners (RLS, tiers, buckets)
 - [x] Extensive SQL injection scanner (PostgREST, ORM bypass, blind injection)
 - [x] Extensive auth scanner (tokens, sessions, brute force, OAuth)
-- [ ] Live hacker-themed dashboard
-- [ ] Exportable HTML report with LLM prompts
+- [x] Live hacker-themed dashboard with real-time WebSocket streaming
+- [x] Exportable self-contained HTML report with LLM prompts
+- [x] CORS, XSS, and API exposure scanners
+- [x] Finding deep-dive with variant LLM prompts (Claude / ChatGPT / Copilot)
+- [x] Cross-scan comparison (new / resolved / unchanged findings)
 - [ ] Firebase scanner module
 - [ ] Automatic endpoint discovery / spidering
 - [ ] CI/CD integration (GitHub Actions)

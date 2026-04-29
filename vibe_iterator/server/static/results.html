@@ -108,6 +108,50 @@
   <div class="collapsible-body" id="dismissed-body"></div>
 </details>
 
+<!-- Finding deep-dive modal -->
+<div class="modal-overlay" id="deepdive-modal">
+  <div class="modal" style="max-width:720px;text-align:left;max-height:85vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px">
+      <div>
+        <span id="dd-severity" class="severity-badge" style="margin-bottom:6px;display:inline-block"></span>
+        <h3 id="dd-title" style="color:var(--text);font-size:1rem;line-height:1.4"></h3>
+        <div id="dd-scanner" style="color:var(--text-muted);font-size:0.75rem;margin-top:4px"></div>
+      </div>
+      <button class="btn btn-ghost" style="flex-shrink:0;margin-left:16px" onclick="document.getElementById('deepdive-modal').classList.remove('open')">✕ CLOSE</button>
+    </div>
+
+    <div class="deepdive-section">
+      <div class="deepdive-label">Description</div>
+      <div id="dd-description" class="deepdive-content"></div>
+    </div>
+
+    <div class="deepdive-section">
+      <div class="deepdive-label">Remediation</div>
+      <div id="dd-remediation" class="deepdive-content"></div>
+    </div>
+
+    <div class="deepdive-section">
+      <div class="deepdive-label">Evidence</div>
+      <pre id="dd-evidence" class="deepdive-code"></pre>
+    </div>
+
+    <div class="deepdive-section">
+      <div class="deepdive-label">LLM Fix Prompt</div>
+      <pre id="dd-prompt" class="deepdive-code"></pre>
+      <button class="btn btn-ghost" style="margin-top:8px;font-size:0.75rem" onclick="copyDeepDivePrompt()">⧉ COPY PROMPT</button>
+    </div>
+
+    <div class="deepdive-section" id="dd-variants-section" style="display:none">
+      <div class="deepdive-label">Variant Prompts</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+        <button class="btn btn-ghost" style="font-size:0.72rem" onclick="copyVariantPrompt('claude')">Copy for Claude</button>
+        <button class="btn btn-ghost" style="font-size:0.72rem" onclick="copyVariantPrompt('chatgpt')">Copy for ChatGPT</button>
+        <button class="btn btn-ghost" style="font-size:0.72rem" onclick="copyVariantPrompt('copilot')">Copy for Copilot</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Compare modal -->
 <div class="modal-overlay" id="compare-modal">
   <div class="modal" style="max-width:560px;text-align:left">
