@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vibe Iterator Report — {{ target }}</title>
+  <style>
+{{ css }}
+
+/* ---- Report-only overrides ---- */
+body { padding: 0; }
+.report-wrap { max-width: 1100px; margin: 0 auto; padding: 32px 24px 80px; }
+.report-header { border-bottom: 1px solid var(--border); padding-bottom: 24px; margin-bottom: 32px; }
+.report-header h1 { color: var(--green); font-size: 1.4rem; letter-spacing: 0.1em; margin-bottom: 4px; }
+.report-header .subtitle { color: var(--text-muted); font-size: 0.85rem; }
+.meta-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin: 24px 0; }
+.meta-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; }
+.meta-card .label { color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; }
+.meta-card .value { color: var(--cyan); font-size: 1rem; }
+.score-display-export { display: flex; align-items: center; gap: 16px; margin: 24px 0; }
+.score-circle-export { width: 72px; height: 72px; border-radius: 50%; border: 3px solid {{ score_color }}; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.score-circle-export .num { color: {{ score_color }}; font-size: 1.5rem; font-weight: bold; line-height: 1; }
+.score-circle-export .grade { color: {{ score_color }}; font-size: 0.9rem; }
+.sev-bar-wrap { margin: 16px 0 32px; }
+.sev-bar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; gap: 2px; }
+.sev-seg { height: 100%; border-radius: 3px; }
+.sev-legend { display: flex; gap: 16px; margin-top: 8px; flex-wrap: wrap; }
+.sev-legend-item { display: flex; align-items: center; gap: 6px; font-size: 0.8rem; color: var(--text-dim); }
+.sev-dot { width: 8px; height: 8px; border-radius: 50%; }
+.section-title { color: var(--green); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.1em; margin: 32px 0 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.category-block { margin-bottom: 32px; }
+.category-header { color: var(--cyan); font-size: 0.85rem; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+.finding-card-export { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 12px; overflow: hidden; }
+.finding-card-export.sev-critical { border-left: 3px solid var(--sev-critical); }
+.finding-card-export.sev-high     { border-left: 3px solid var(--sev-high); }
+.finding-card-export.sev-medium   { border-left: 3px solid var(--sev-medium); }
+.finding-card-export.sev-low      { border-left: 3px solid var(--sev-low); }
+.finding-card-export.sev-info     { border-left: 3px solid var(--sev-info); }
+.finding-summary { display: flex; align-items: center; gap: 10px; padding: 12px 16px; cursor: pointer; user-select: none; }
+.finding-summary::-webkit-details-marker { display: none; }
+.finding-title-text { flex: 1; color: var(--text); }
+.finding-page-text { color: var(--text-muted); font-size: 0.75rem; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.finding-body { padding: 0 16px 16px; border-top: 1px solid var(--border); }
+.finding-section { margin-top: 14px; }
+.finding-section-label { color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
+.finding-section-content { color: var(--text); white-space: pre-wrap; word-break: break-word; }
+.llm-box { background: var(--bg-terminal); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; color: var(--text-dim); font-size: 0.8rem; white-space: pre-wrap; word-break: break-word; }
+.mark-badge { font-size: 0.7rem; padding: 2px 8px; border-radius: 10px; text-transform: uppercase; }
+.mark-resolved  { background: rgba(0,255,65,0.15); color: var(--green); }
+.mark-accepted_risk { background: rgba(255,176,0,0.15); color: var(--amber); }
+.mark-false_positive { background: rgba(68,136,255,0.15); color: var(--blue); }
+.scanner-table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 0.82rem; }
+.scanner-table th { color: var(--text-muted); text-align: left; padding: 6px 12px; font-weight: normal; text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.72rem; border-bottom: 1px solid var(--border); }
+.scanner-table td { padding: 8px 12px; border-bottom: 1px solid rgba(42,42,74,0.5); }
+.status-passed  { color: var(--green); }
+.status-findings { color: var(--amber); }
+.status-error   { color: var(--red); }
+.status-skipped { color: var(--text-muted); }
+.footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--border); color: var(--text-muted); font-size: 0.75rem; display: flex; justify-content: space-between; }
+  </style>
+</head>
+<body>
+<div class="report-wrap">
+
+  <!-- ---- Header ---- -->
+  <div class="report-header">
+    <h1>[ VIBE ITERATOR ] SECURITY SCAN REPORT</h1>
+    <div class="subtitle">{{ target }} &mdash; Stage: {{ stage }} &mdash; Generated: {{ generated_at }}</div>
+  </div>
+
+  <!-- ---- Meta grid ---- -->
+  <div class="meta-grid">
+    <div class="meta-card">
+      <div class="label">Target</div>
+      <div class="value" style="font-size:0.85rem; word-break:break-all;">{{ target }}</div>
+    </div>
+    <div class="meta-card">
+      <div class="label">Stage</div>
+      <div class="value">{{ stage }}</div>
+    </div>
+    <div class="meta-card">
+      <div class="label">Stack</div>
+      <div class="value">{{ stack_detected }}</div>
+    </div>
+    <div class="meta-card">
+      <div class="label">Status</div>
+      <div class="value">{{ status }}</div>
+    </div>
+    <div class="meta-card">
+      <div class="label">Total Findings</div>
+      <div class="value">{{ total_findings }}</div>
+    </div>
+    <div class="meta-card">
+      <div class="label">Duration</div>
+      <div class="value">{% if duration %}{{ duration }}s{% else %}—{% endif %}</div>
+    </div>
+  </div>
+
+  <!-- ---- Score ---- -->
+  <div class="score-display-export">
+    <div class="score-circle-export">
+      <span class="num">{{ score if score is not none else '—' }}</span>
+      <span class="grade">{{ score_grade or '' }}</span>
+    </div>
+    <div>
+      <div style="color: {{ score_color }}; font-size: 1.1rem; font-weight: bold;">
+        Security Score: {{ score if score is not none else 'N/A' }}/100
+      </div>
+      <div style="color: var(--text-muted); font-size: 0.82rem; margin-top: 4px;">
+        {{ sev_counts.critical }} critical &bull;
+        {{ sev_counts.high }} high &bull;
+        {{ sev_counts.medium }} medium &bull;
+        {{ sev_counts.low }} low
+      </div>
+    </div>
+  </div>
+
+  <!-- ---- Severity bar ---- -->
+  {% set total_bar = (sev_counts.critical + sev_counts.high + sev_counts.medium + sev_counts.low + sev_counts.info) %}
+  {% if total_bar > 0 %}
+  <div class="sev-bar-wrap">
+    <div class="sev-bar">
+      {% if sev_counts.critical > 0 %}
+      <div class="sev-seg" style="flex: {{ sev_counts.critical }}; background: var(--sev-critical);"></div>
+      {% endif %}
+      {% if sev_counts.high > 0 %}
+      <div class="sev-seg" style="flex: {{ sev_counts.high }}; background: var(--sev-high);"></div>
+      {% endif %}
+      {% if sev_counts.medium > 0 %}
+      <div class="sev-seg" style="flex: {{ sev_counts.medium }}; background: var(--sev-medium);"></div>
+      {% endif %}
+      {% if sev_counts.low > 0 %}
+      <div class="sev-seg" style="flex: {{ sev_counts.low }}; background: var(--sev-low);"></div>
+      {% endif %}
+    </div>
+    <div class="sev-legend">
+      {% if sev_counts.critical > 0 %}
+      <span class="sev-legend-item"><span class="sev-dot" style="background:var(--sev-critical)"></span>{{ sev_counts.critical }} Critical</span>
+      {% endif %}
+      {% if sev_counts.high > 0 %}
+      <span class="sev-legend-item"><span class="sev-dot" style="background:var(--sev-high)"></span>{{ sev_counts.high }} High</span>
+      {% endif %}
+      {% if sev_counts.medium > 0 %}
+      <span class="sev-legend-item"><span class="sev-dot" style="background:var(--sev-medium)"></span>{{ sev_counts.medium }} Medium</span>
+      {% endif %}
+      {% if sev_counts.low > 0 %}
+      <span class="sev-legend-item"><span class="sev-dot" style="background:var(--sev-low)"></span>{{ sev_counts.low }} Low</span>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- ---- Findings by category ---- -->
+  {% if findings_by_cat %}
+  <div class="section-title">Findings</div>
+
+  {% for category, findings in findings_by_cat.items() %}
+  <div class="category-block">
+    <div class="category-header">
+      <span>{{ category }}</span>
+      <span class="severity-badge" style="font-size:0.72rem; padding:2px 8px; background: rgba(0,212,255,0.1); color: var(--cyan); border-radius: 10px;">{{ findings | length }}</span>
+    </div>
+
+    {% for f in findings %}
+    <details class="finding-card-export sev-{{ f.severity }}">
+      <summary class="finding-summary">
+        <span class="severity-badge sev-{{ f.severity }}">{{ f.severity | upper }}</span>
+        <span class="finding-title-text">{{ f.title }}</span>
+        {% if f.mark_status and f.mark_status != 'none' %}
+        <span class="mark-badge mark-{{ f.mark_status }}">{{ f.mark_status | replace('_', ' ') }}</span>
+        {% endif %}
+        <span class="finding-page-text">{{ f.page }}</span>
+      </summary>
+
+      <div class="finding-body">
+        <div class="finding-section">
+          <div class="finding-section-label">Description</div>
+          <div class="finding-section-content">{{ f.description }}</div>
+        </div>
+
+        <div class="finding-section">
+          <div class="finding-section-label">Remediation</div>
+          <div class="finding-section-content">{{ f.remediation }}</div>
+        </div>
+
+        {% if f.llm_prompt %}
+        <div class="finding-section">
+          <div class="finding-section-label">LLM Fix Prompt</div>
+          <div class="llm-box">{{ f.llm_prompt }}</div>
+        </div>
+        {% endif %}
+
+        {% if f.evidence %}
+        <div class="finding-section">
+          <div class="finding-section-label">Evidence</div>
+          <div class="llm-box">{{ f.evidence | tojson(indent=2) }}</div>
+        </div>
+        {% endif %}
+      </div>
+    </details>
+    {% endfor %}
+  </div>
+  {% endfor %}
+
+  {% else %}
+  <div style="color: var(--green); padding: 32px 0; text-align: center;">
+    ✓ No findings — clean scan
+  </div>
+  {% endif %}
+
+  <!-- ---- Scanner summary ---- -->
+  <div class="section-title">Scanner Results</div>
+  <table class="scanner-table">
+    <thead>
+      <tr>
+        <th>Scanner</th>
+        <th>Status</th>
+        <th>Findings</th>
+        <th>Duration</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for sr in scanner_results %}
+      <tr>
+        <td>{{ sr.name }}</td>
+        <td class="status-{{ sr.status }}">{{ sr.status }}{% if sr.skip_reason %} — {{ sr.skip_reason }}{% endif %}</td>
+        <td>{{ sr.findings_count }}</td>
+        <td>{% if sr.duration %}{{ sr.duration }}s{% else %}—{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <!-- ---- Pages crawled ---- -->
+  {% if pages_crawled %}
+  <div class="section-title">Pages Crawled</div>
+  <table class="scanner-table">
+    <thead>
+      <tr><th>URL</th><th>Status</th></tr>
+    </thead>
+    <tbody>
+      {% for page in pages_crawled %}
+      <tr>
+        <td style="word-break:break-all;">{{ page.url }}</td>
+        <td>{{ page.status_code }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  <!-- ---- Footer ---- -->
+  <div class="footer">
+    <span>Generated by vibe-iterator</span>
+    <span>{{ generated_at }}</span>
+  </div>
+
+</div>
+</body>
+</html>

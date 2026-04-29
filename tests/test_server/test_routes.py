@@ -268,8 +268,35 @@ async def test_mark_finding_updates_status() -> None:
 # --------------------------------------------------------------------------- #
 
 @pytest.mark.asyncio
-async def test_export_report_returns_501() -> None:
+async def test_export_report_no_results_returns_404() -> None:
     app = create_app(_make_config())
     async with await _client(app) as c:
         r = await c.get("/api/report/export")
-    assert r.status_code == 501
+    assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_export_report_scan_running_returns_409() -> None:
+    app = create_app(_make_config())
+    mock_runner = MagicMock()
+    mock_runner.get_result.return_value = _make_scan_result(status="running")
+    app.state.runner = mock_runner
+
+    async with await _client(app) as c:
+        r = await c.get("/api/report/export")
+    assert r.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_export_report_returns_html() -> None:
+    app = create_app(_make_config())
+    mock_runner = MagicMock()
+    mock_runner.get_result.return_value = _make_scan_result(status="completed")
+    app.state.runner = mock_runner
+
+    async with await _client(app) as c:
+        r = await c.get("/api/report/export")
+    assert r.status_code == 200
+    assert "text/html" in r.headers.get("content-type", "")
+    assert b"<html" in r.content.lower()
+    assert b"vibe iterator" in r.content.lower()

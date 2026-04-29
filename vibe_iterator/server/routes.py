@@ -315,8 +315,24 @@ async def get_config(request: Request) -> dict:
 
 
 @router.get("/api/report/export")
-async def export_report(request: Request) -> dict:
-    raise HTTPException(status_code=501, detail="Report export is available in Phase 4.")
+async def export_report(request: Request):
+    runner = getattr(request.app.state, "runner", None)
+    if runner is None or runner.get_result() is None:
+        raise HTTPException(status_code=404, detail="No scan results available to export.")
+
+    result = runner.get_result()
+    if result.status == "running":
+        raise HTTPException(status_code=409, detail="Scan still running — wait for completion before exporting.")
+
+    from vibe_iterator.report.generator import generate, default_filename
+    from fastapi.responses import HTMLResponse
+
+    html = generate(result)
+    filename = default_filename(result)
+    return HTMLResponse(
+        content=html,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # --------------------------------------------------------------------------- #

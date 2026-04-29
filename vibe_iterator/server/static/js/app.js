@@ -1102,9 +1102,8 @@ function setupActionBar(r) {
 
   document.addEventListener('click', () => { copyMenu.style.display = 'none'; });
 
-  // Export report — Phase 4 stub
   document.getElementById('export-btn').addEventListener('click', () => {
-    showToast('Report export coming in Phase 4');
+    window.location.href = '/api/report/export';
   });
 }
 
