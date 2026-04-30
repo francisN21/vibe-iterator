@@ -1252,3 +1252,14 @@ function checkDeepDiveHash() {
     setTimeout(() => openDeepDive(id), 200);
   }
 }
+
+// Auto-dispatch init function based on which page is loaded
+document.addEventListener('DOMContentLoaded', function () {
+  if (document.getElementById('terminal-body')) {
+    initScanPage();
+  } else if (document.getElementById('exec-summary')) {
+    initResultsPage();
+  } else if (document.getElementById('stage-grid')) {
+    initHomePage();
+  }
+});

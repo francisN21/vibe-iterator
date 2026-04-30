@@ -156,7 +156,8 @@ def test_auth_endpoint_no_rate_limit_is_medium() -> None:
         url="https://example.com/api/login",
         response_headers={"content-type": "application/json"},
     )
-    findings = _run([req])
+    # fetch_result=(429, {}) makes the active probe see a 429 so it won't add a second finding
+    findings = _run([req], fetch_result=(429, {}))
     rl = [f for f in findings if "rate limiting" in f.title.lower()]
     assert len(rl) == 1
     assert rl[0].severity == Severity.MEDIUM
@@ -170,7 +171,8 @@ def test_auth_endpoint_with_rate_limit_header_no_finding() -> None:
             "x-ratelimit-limit": "60",
         },
     )
-    findings = _run([req])
+    # fetch_result=(429, {}) silences the active probe; passive check also passes → no findings
+    findings = _run([req], fetch_result=(429, {}))
     rl = [f for f in findings if "rate limiting" in f.title.lower()]
     assert rl == []
 
@@ -193,6 +195,7 @@ def test_retry_after_header_satisfies_rate_limit() -> None:
             "retry-after": "60",
         },
     )
-    findings = _run([req])
+    # fetch_result=(429, {}) silences active probe; passive check passes (Retry-After present)
+    findings = _run([req], fetch_result=(429, {}))
     rl = [f for f in findings if "rate limiting" in f.title.lower()]
     assert rl == []

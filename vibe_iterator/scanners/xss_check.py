@@ -3,9 +3,21 @@
 from __future__ import annotations
 
 import re
+import ssl
+import urllib.request
+import urllib.parse
 from typing import Any
 
 from vibe_iterator.scanners.base import BaseScanner, Finding, Severity
+
+# Marker injected into URL params to detect reflection in response body
+_REFLECT_MARKER = "vibi7x3reflect"
+_REFLECT_PAYLOADS = [
+    f"<{_REFLECT_MARKER}>",        # raw HTML tag reflected
+    f"\"{_REFLECT_MARKER}\"",      # attribute injection
+    f"javascript:{_REFLECT_MARKER}",  # JS proto
+]
+_MAX_REFLECT_ENDPOINTS = 8
 
 # Patterns for dangerous DOM sinks in inline scripts
 _DOM_SINK_PATTERNS: list[tuple[str, re.Pattern]] = [
@@ -79,6 +91,7 @@ class Scanner(BaseScanner):
         self._check_response_headers(network, target, stack, findings)
         self._check_csp_headers(network, target, stack, findings)
         self._check_dom_sinks(session, config, stack, findings)
+        self._check_reflected_xss(network, target, stack, findings)
         return findings
 
     # ------------------------------------------------------------------ #
@@ -300,3 +313,114 @@ class Scanner(BaseScanner):
             ),
             category=self.category, page=page,
         ))
+
+    # ------------------------------------------------------------------ #
+    # Reflected XSS — active URL parameter injection                      #
+    # ------------------------------------------------------------------ #
+
+    def _check_reflected_xss(
+        self, network: Any, target: str, stack: str, findings: list[Finding],
+    ) -> None:
+        seen_fps: set[str] = set()
+        tested: set[str] = set()
+        ctx = ssl._create_unverified_context()
+
+        for req in network.get_requests():
+            if not req.url.startswith(target):
+                continue
+            parsed = urllib.parse.urlparse(req.url)
+            if not parsed.query:
+                continue  # only test URLs that already have query params
+
+            endpoint_key = f"{parsed.netloc}{parsed.path}"
+            if endpoint_key in tested or len(tested) >= _MAX_REFLECT_ENDPOINTS:
+                break
+            tested.add(endpoint_key)
+
+            # Try each existing param with each payload
+            params = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
+            for param_name in list(params.keys())[:3]:  # limit to 3 params per endpoint
+                for payload in _REFLECT_PAYLOADS:
+                    test_params = dict(params)
+                    test_params[param_name] = [payload]
+                    new_query = urllib.parse.urlencode(test_params, doseq=True)
+                    test_url = urllib.parse.urlunparse(parsed._replace(query=new_query))
+
+                    try:
+                        http_req = urllib.request.Request(
+                            test_url,
+                            headers={"User-Agent": "vibe-iterator/xss-reflect"},
+                        )
+                        with urllib.request.urlopen(http_req, timeout=4, context=ctx) as resp:
+                            body = resp.read(8192).decode("utf-8", errors="replace")
+                        ct = resp.headers.get("Content-Type", "")
+                    except Exception:
+                        continue
+
+                    if "text/html" not in ct:
+                        continue
+                    if _REFLECT_MARKER not in body:
+                        continue
+
+                    fp = self.make_fingerprint(self.name, "Reflected XSS marker in response", test_url)
+                    if fp in seen_fps:
+                        continue
+                    seen_fps.add(fp)
+
+                    desc = (
+                        f"A marker injected into the `{param_name}` URL parameter "
+                        f"(`{urllib.parse.quote(payload)}`) was reflected verbatim in the HTML response. "
+                        "If the server does not encode output, an attacker can inject arbitrary HTML/JS "
+                        "that executes in the victim's browser."
+                    )
+                    findings.append(self.new_finding(
+                        scanner=self.name, severity=Severity.HIGH,
+                        title=f"Reflected XSS: parameter `{param_name}` reflects input",
+                        description=desc,
+                        evidence={
+                            "endpoint": test_url,
+                            "test_performed": "reflected_marker_injection",
+                            "injection_point": f"query_param:{param_name}",
+                            "payload_used": payload,
+                            "request": {"method": "GET", "url": test_url},
+                            "response": {
+                                "status": "200",
+                                "body_excerpt": _excerpt(body, _REFLECT_MARKER),
+                            },
+                            "expected_response": f"Marker `{_REFLECT_MARKER}` should be HTML-encoded",
+                            "actual_response": f"Marker reflected verbatim: `{payload}`",
+                        },
+                        llm_prompt=self.build_llm_prompt(
+                            title=f"Reflected XSS: parameter `{param_name}` reflects input",
+                            severity=Severity.HIGH, scanner=self.name, page=req.url,
+                            category=self.category, description=desc,
+                            evidence_summary=(
+                                f"URL: {test_url}\n"
+                                f"Param: {param_name}\n"
+                                f"Payload: {payload}\n"
+                                f"Marker found in HTML response body."
+                            ),
+                            stack=stack,
+                        ),
+                        remediation=(
+                            f"**What to fix:** The `{param_name}` parameter is reflected in the HTML "
+                            "response without HTML-encoding.\n\n"
+                            "**How to fix:** HTML-encode all user-supplied values before inserting them "
+                            "into HTML. In React/Next.js this happens automatically via JSX — avoid "
+                            "`dangerouslySetInnerHTML`. For server-side rendering: use your template engine's "
+                            "built-in auto-escaping. Never concatenate user input into HTML strings.\n\n"
+                            "**Verify the fix:** Re-run xss_check — the marker should no longer appear "
+                            "unencoded in the response."
+                        ),
+                        category=self.category, page=req.url,
+                    ))
+
+
+def _excerpt(body: str, marker: str, context: int = 80) -> str:
+    """Return a short excerpt around the first occurrence of *marker* in *body*."""
+    idx = body.find(marker)
+    if idx < 0:
+        return ""
+    start = max(0, idx - context)
+    end = min(len(body), idx + len(marker) + context)
+    return body[start:end]

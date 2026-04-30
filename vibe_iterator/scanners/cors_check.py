@@ -24,6 +24,27 @@ def _fetch_with_origin(url: str, origin: str, timeout: int = 5) -> dict[str, str
         return None
 
 
+def _fetch_preflight(url: str, origin: str, timeout: int = 5) -> dict[str, str] | None:
+    """Send an OPTIONS preflight request; return lowercased response headers or None."""
+    try:
+        ctx = ssl._create_unverified_context()
+        req = urllib.request.Request(
+            url, method="OPTIONS",
+            headers={
+                "Origin": origin,
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "Authorization",
+                "User-Agent": "vibe-iterator/cors-preflight",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+            return {k.lower(): v for k, v in resp.headers.items()}
+    except urllib.error.HTTPError as e:
+        return {k.lower(): v for k, v in e.headers.items()}
+    except Exception:
+        return None
+
+
 def _is_api_endpoint(url: str, target: str) -> bool:
     if any(url.endswith(ext) for ext in _STATIC_EXTS):
         return False
@@ -202,6 +223,55 @@ class Scanner(BaseScanner):
                             "explicit allowlist for any endpoint that returns data. "
                             "Wildcard is acceptable only on fully public resources with no user data.\n\n"
                             "**Verify the fix:** Confirm sensitive endpoints return specific origins."
+                        ),
+                        category=self.category, page=url,
+                    ))
+
+        # ---- Test: OPTIONS preflight reflects origin + allows credentials ----
+        preflight = _fetch_preflight(url, evil_origin)
+        if preflight:
+            pacao = preflight.get("access-control-allow-origin", "")
+            pacac = preflight.get("access-control-allow-credentials", "").lower()
+            if pacao == evil_origin and pacac == "true":
+                fp = self.make_fingerprint(self.name, "CORS preflight reflects origin with credentials", url)
+                if fp not in seen:
+                    seen.add(fp)
+                    desc = (
+                        "The OPTIONS preflight response reflects any Origin and allows credentials. "
+                        "An attacker can use this to issue credentialed cross-origin POST/PUT requests "
+                        "from any website they control, bypassing the same-origin policy entirely."
+                    )
+                    findings.append(self.new_finding(
+                        scanner=self.name, severity=Severity.HIGH,
+                        title="CORS: preflight reflects origin with credentials",
+                        description=desc,
+                        evidence={
+                            "test_origin_sent": evil_origin,
+                            "request": {"method": "OPTIONS", "url": url, "headers": {
+                                "Origin": evil_origin,
+                                "Access-Control-Request-Method": "POST",
+                            }},
+                            "response_headers": {
+                                "Access-Control-Allow-Origin": pacao,
+                                "Access-Control-Allow-Credentials": pacac,
+                            },
+                            "issue": "preflight_reflects_origin_with_credentials",
+                        },
+                        llm_prompt=self.build_llm_prompt(
+                            title="CORS: preflight reflects origin with credentials",
+                            severity=Severity.HIGH, scanner=self.name, page=url,
+                            category=self.category, description=desc,
+                            evidence_summary=(
+                                f"OPTIONS {url}\nOrigin: {evil_origin}\n"
+                                f"ACAO: {pacao}\nACAC: {pacac}"
+                            ),
+                            stack=stack,
+                        ),
+                        remediation=(
+                            "**What to fix:** The CORS preflight allows any origin with credentials.\n\n"
+                            "**How to fix:** Validate the `Origin` header against an explicit allowlist. "
+                            "Only reflect the Origin value when it matches a trusted entry.\n\n"
+                            "**Verify the fix:** Re-run cors_check."
                         ),
                         category=self.category, page=url,
                     ))

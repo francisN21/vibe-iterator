@@ -15,6 +15,7 @@ _SENSITIVE_PATH_FRAGMENTS = ["/admin", "/api/admin", "/api/user", "/api/account"
 _RATE_LIMIT_HEADERS = {"x-ratelimit-limit", "x-rate-limit-limit", "ratelimit-limit", "retry-after"}
 _AUTH_PATHS = ["/auth", "/login", "/signin", "/token", "/api/auth", "/api/login"]
 _MAX_ENDPOINTS = 15
+_RATE_LIMIT_PROBE_COUNT = 8  # bounded burst to check for 429 response
 
 # Required security response headers
 _SECURITY_HEADERS = {
@@ -75,6 +76,7 @@ class Scanner(BaseScanner):
         self._check_security_headers(requests, target, stack, findings)
         self._check_unauth_access(requests, target, stack, findings)
         self._check_rate_limiting(requests, target, stack, findings)
+        self._probe_rate_limiting(requests, target, stack, findings)
         return findings
 
     # ------------------------------------------------------------------ #
@@ -137,6 +139,80 @@ class Scanner(BaseScanner):
                     category=self.category, page=req.url,
                 ))
 
+    # ------------------------------------------------------------------ #
+    # Active rate-limit probe (bounded burst of real requests)            #
+    # ------------------------------------------------------------------ #
+
+    def _probe_rate_limiting(
+        self, requests: list, target: str, stack: str, findings: list[Finding],
+    ) -> None:
+        seen_fps: set[str] = set()
+        probed: set[str] = set()
+
+        for req in requests:
+            parsed = urlparse(req.url)
+            is_auth_path = any(frag in parsed.path.lower() for frag in _AUTH_PATHS)
+            if not is_auth_path:
+                continue
+
+            base_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+            if base_url in probed:
+                continue
+            probed.add(base_url)
+
+            # Send _RATE_LIMIT_PROBE_COUNT rapid requests; check if any return 429
+            got_429 = False
+            for _ in range(_RATE_LIMIT_PROBE_COUNT):
+                result = _fetch_without_auth(base_url, method="POST", timeout=3)
+                if result and result[0] == 429:
+                    got_429 = True
+                    break
+
+            if got_429:
+                continue  # rate limiting is working
+
+            fp = self.make_fingerprint(self.name, "Rate limit probe: no 429 after burst", base_url)
+            if fp in seen_fps:
+                continue
+            seen_fps.add(fp)
+
+            desc = (
+                f"The authentication endpoint `{base_url}` did not return HTTP 429 "
+                f"after {_RATE_LIMIT_PROBE_COUNT} rapid consecutive requests. "
+                "Brute-force attacks against this endpoint are not rate-limited at the HTTP layer."
+            )
+            findings.append(self.new_finding(
+                scanner=self.name, severity=Severity.MEDIUM,
+                title=f"Rate limiting not enforced: {parsed.path}",
+                description=desc,
+                evidence={
+                    "endpoint": base_url,
+                    "test_performed": "active_rate_limit_probe",
+                    "requests_sent": _RATE_LIMIT_PROBE_COUNT,
+                    "result": f"No 429 response after {_RATE_LIMIT_PROBE_COUNT} rapid requests",
+                    "expected_response": "429 Too Many Requests after repeated attempts",
+                },
+                llm_prompt=self.build_llm_prompt(
+                    title=f"Rate limiting not enforced: {parsed.path}",
+                    severity=Severity.MEDIUM, scanner=self.name, page=base_url,
+                    category=self.category, description=desc,
+                    evidence_summary=(
+                        f"Endpoint: {base_url}\n"
+                        f"Sent {_RATE_LIMIT_PROBE_COUNT} rapid POST requests — no 429 received.\n"
+                        "Brute-force is possible."
+                    ),
+                    stack=stack,
+                ),
+                remediation=(
+                    "**What to fix:** Add rate limiting to authentication endpoints.\n\n"
+                    "**How to fix:** "
+                    "For Supabase Auth: ensure built-in rate limiting is enabled. "
+                    "For custom endpoints: use `express-rate-limit`, `slowapi`, or Cloudflare. "
+                    "Return 429 with `Retry-After` after 5–10 failed attempts.\n\n"
+                    "**Verify the fix:** Re-run api_exposure — the probe should now receive a 429."
+                ),
+                category=self.category, page=base_url,
+            ))
     # ------------------------------------------------------------------ #
     # Unauthenticated access check (active)                              #
     # ------------------------------------------------------------------ #
