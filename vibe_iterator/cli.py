@@ -12,7 +12,7 @@ import click
 @click.option("--target", default=None, help="Target app URL (overrides .env)")
 @click.option("--port", default=None, type=int, help="Dashboard port (default: 3001)")
 @click.option("--no-browser", is_flag=True, default=False, help="Don't auto-open dashboard in browser")
-@click.option("--verbose", is_flag=True, default=False, help="Stream events to stdout in GUI mode (stub, Phase 5)")
+@click.option("--verbose", is_flag=True, default=False, help="Stream events to stdout in GUI mode")
 @click.version_option(version="0.1.0", prog_name="vibe-iterator")
 @click.pass_context
 def cli(
@@ -39,7 +39,7 @@ def cli(
 @cli.command()
 @click.option("--stage", default="dev", type=click.Choice(["dev", "pre-deploy", "post-deploy", "all"]), help="Scan stage to run")
 @click.option("--target", default=None, help="Target app URL (overrides .env)")
-@click.option("--output", default=None, help="Report output path (reserved for Phase 5)")
+@click.option("--output", default=None, help="Write an HTML report to this path after the scan")
 @click.option("--verbose", is_flag=True, default=False, help="Stream all events to stdout")
 @click.pass_context
 def scan(

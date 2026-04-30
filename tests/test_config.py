@@ -150,6 +150,29 @@ def test_stack_from_yaml(monkeypatch, tmp_path) -> None:
     assert cfg.stack.detection_source == "manually-configured"
 
 
+def test_scanner_timeout_from_yaml(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("VIBE_ITERATOR_TEST_EMAIL", "t@e.com")
+    monkeypatch.setenv("VIBE_ITERATOR_TEST_PASSWORD", "pw")
+    monkeypatch.setenv("VIBE_ITERATOR_TARGET", "http://localhost:3000")
+
+    yaml_file = tmp_path / "vibe-iterator.config.yaml"
+    yaml_file.write_text("scanner_timeout_seconds: 12\n", encoding="utf-8")
+    cfg = load_config(yaml_path=yaml_file)
+    assert cfg.scanner_timeout_seconds == 12
+
+
+def test_invalid_scanner_timeout_raises(monkeypatch, tmp_path) -> None:
+    from vibe_iterator.config import ConfigError
+    monkeypatch.setenv("VIBE_ITERATOR_TEST_EMAIL", "t@e.com")
+    monkeypatch.setenv("VIBE_ITERATOR_TEST_PASSWORD", "pw")
+    monkeypatch.setenv("VIBE_ITERATOR_TARGET", "http://localhost:3000")
+
+    yaml_file = tmp_path / "vibe-iterator.config.yaml"
+    yaml_file.write_text("scanner_timeout_seconds: 0\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match="scanner_timeout_seconds"):
+        load_config(yaml_path=yaml_file)
+
+
 def test_second_account_configured_true(monkeypatch) -> None:
     monkeypatch.setenv("VIBE_ITERATOR_TEST_EMAIL", "t@e.com")
     monkeypatch.setenv("VIBE_ITERATOR_TEST_PASSWORD", "pw")

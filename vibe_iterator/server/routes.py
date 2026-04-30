@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import socket
+import uuid
 from typing import Any
 from urllib.parse import urlparse
 
@@ -28,7 +29,7 @@ _SCANNER_META: dict[str, dict] = {
     "rls_bypass":       {"requires_stack": ["supabase"],  "requires_second_account": True,  "category": "Access Control",       "est_seconds": 30},
     "tier_escalation":  {"requires_stack": ["supabase"],  "requires_second_account": False, "category": "Access Control",       "est_seconds": 20},
     "bucket_limits":    {"requires_stack": ["supabase"],  "requires_second_account": False, "category": "Access Control",       "est_seconds": 25},
-    "auth_check":       {"requires_stack": ["any"],       "requires_second_account": False, "category": "Authentication",       "est_seconds": 60},
+    "auth_check":       {"requires_stack": ["any"],       "requires_second_account": True,  "category": "Authentication",       "est_seconds": 60},
     "client_tampering": {"requires_stack": ["any"],       "requires_second_account": False, "category": "Client-Side Tampering","est_seconds": 20},
     "sql_injection":    {"requires_stack": ["any"],       "requires_second_account": False, "category": "Injection",            "est_seconds": 60},
     "cors_check":       {"requires_stack": ["any"],       "requires_second_account": False, "category": "Misconfiguration",     "est_seconds": 15},
@@ -188,12 +189,29 @@ async def start_scan(body: StartScanRequest, request: Request) -> dict:
         result = runner.get_result()
         if result is not None and result.status == "running":
             raise HTTPException(status_code=409, detail="A scan is already in progress.")
+    scan_task: asyncio.Task | None = getattr(request.app.state, "scan_task", None)
+    if scan_task is not None and not scan_task.done():
+        raise HTTPException(status_code=409, detail="A scan is already in progress.")
 
     # Validate stage
-    if not config.scanners_for_stage(body.stage):
+    stage_scanners = config.scanners_for_stage(body.stage)
+    if not stage_scanners:
         raise HTTPException(status_code=400, detail=f"Unknown stage: '{body.stage}'")
+    if body.scanner_overrides is not None:
+        if not body.scanner_overrides:
+            raise HTTPException(status_code=400, detail="scanner_overrides must include at least one scanner.")
+        invalid = [s for s in body.scanner_overrides if s not in stage_scanners]
+        if invalid:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Invalid scanner_overrides for stage '{body.stage}': {invalid}. "
+                    f"Valid names: {stage_scanners}"
+                ),
+            )
 
     loop = asyncio.get_event_loop()
+    scan_id = str(uuid.uuid4())
 
     def on_event(event: ScanEvent) -> None:
         payload = json.dumps({"type": event.type, "timestamp": event.timestamp, "data": event.data})
@@ -203,6 +221,7 @@ async def start_scan(body: StartScanRequest, request: Request) -> dict:
         config,
         on_event=on_event,
         scanner_overrides=body.scanner_overrides,
+        scan_id=scan_id,
     )
     request.app.state.runner = new_runner
     manager.clear_buffer()
@@ -216,7 +235,7 @@ async def start_scan(body: StartScanRequest, request: Request) -> dict:
     task.add_done_callback(_on_done)
     request.app.state.scan_task = task
 
-    return {"status": "started", "stage": body.stage, "scan_id": new_runner.get_result().scan_id if new_runner.get_result() else None}
+    return {"status": "started", "stage": body.stage, "scan_id": scan_id}
 
 
 @router.delete("/api/scan/active")
@@ -323,6 +342,9 @@ async def export_report(request: Request):
     result = runner.get_result()
     if result.status == "running":
         raise HTTPException(status_code=409, detail="Scan still running — wait for completion before exporting.")
+
+    if result.status != "completed":
+        raise HTTPException(status_code=409, detail="Only completed scans can be exported.")
 
     from vibe_iterator.report.generator import generate, default_filename
     from fastapi.responses import HTMLResponse

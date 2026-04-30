@@ -2,10 +2,30 @@
 
 from __future__ import annotations
 
+import shutil
+import uuid
+from pathlib import Path
 from unittest.mock import MagicMock, patch
+
 import pytest
 
 from vibe_iterator.config import Config, StackConfig
+
+
+@pytest.fixture
+def tmp_path() -> Path:
+    """Workspace-local temp path for environments with locked system temp dirs."""
+    root = Path(__file__).parent / ".tmp-pytest"
+    path = root / uuid.uuid4().hex
+    path.mkdir(parents=True, exist_ok=False)
+    try:
+        yield path
+    finally:
+        shutil.rmtree(path, ignore_errors=True)
+        try:
+            root.rmdir()
+        except OSError:
+            pass
 
 
 @pytest.fixture

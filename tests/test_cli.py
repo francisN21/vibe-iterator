@@ -117,6 +117,59 @@ def test_scan_exits_1_on_config_error() -> None:
     assert "Missing .env" in result.output
 
 
+def test_gui_launch_starts_uvicorn_without_browser() -> None:
+    config = SimpleNamespace(port=4321, target="http://localhost:3000")
+    app = object()
+
+    with patch("vibe_iterator.config.load_config", return_value=config), \
+            patch("vibe_iterator.server.app.create_app", return_value=app), \
+            patch("uvicorn.run") as run:
+        result = CliRunner().invoke(cli, ["--no-browser", "--port", "4321"])
+
+    assert result.exit_code == 0, result.output
+    assert "Starting dashboard" in result.output
+    run.assert_called_once_with(app, host="127.0.0.1", port=4321, log_level="warning")
+
+
+def test_print_event_handles_objects_and_fallback() -> None:
+    from vibe_iterator.cli import _print_event
+
+    with patch("click.echo") as echo:
+        _print_event(SimpleNamespace(type="scan_started"))
+    assert '"scan_started"' in echo.call_args.args[0]
+
+    class BadEvent:
+        @property
+        def __dict__(self):
+            raise RuntimeError("nope")
+
+        def __str__(self) -> str:
+            return "fallback-event"
+
+    with patch("click.echo") as echo:
+        _print_event(BadEvent())
+    assert echo.call_args.args[0] == "fallback-event"
+
+
+def test_scan_report_write_error_is_nonfatal() -> None:
+    config = SimpleNamespace(target="http://localhost:3000")
+    result_obj = SimpleNamespace(status="completed", findings=[], score=100)
+    runner_instance = MagicMock()
+    runner_instance.run = AsyncMock(return_value=result_obj)
+
+    with patch("vibe_iterator.config.load_config", return_value=config), \
+            patch("vibe_iterator.engine.runner.ScanRunner", return_value=runner_instance), \
+            patch("vibe_iterator.cli._check_target_reachable", return_value=True), \
+            patch("vibe_iterator.report.generator.generate", side_effect=RuntimeError("disk full")):
+        result = CliRunner().invoke(
+            cli,
+            ["scan", "--target", "http://localhost:3000", "--stage", "dev", "--output", "report.html"],
+        )
+
+    assert result.exit_code == 0
+    assert "Could not write report" in result.output
+
+
 # --------------------------------------------------------------------------- #
 # _check_target_reachable helper                                               #
 # --------------------------------------------------------------------------- #

@@ -14,6 +14,11 @@ build/
 
 # Test / coverage
 .pytest_cache/
+tests/.tmp-pytest/
+tests/.tmp-pytest-cache/
+tests/.tmp-wheelhouse/
+tests/.tmp-install-venv/
+tests/pytest-cache-files-*/
 .coverage
 htmlcov/
 

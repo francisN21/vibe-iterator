@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
@@ -98,8 +98,8 @@ def load_config(
 
     Priority (highest → lowest):
       1. CLI overrides (target_override, port_override)
-      2. vibe-iterator.config.yaml
-      3. .env / environment variables
+      2. .env / environment variables
+      3. vibe-iterator.config.yaml
       4. Built-in defaults
     """
     # Load .env (silently skipped if file not found — env vars may already be set)
@@ -172,6 +172,17 @@ def load_config(
     port = port_override or (int(port_env) if port_env else 3001)
 
     # ------------------------------------------------------------------ #
+    # Limits                                                              #
+    # ------------------------------------------------------------------ #
+    scanner_timeout_raw = yaml_data.get("scanner_timeout_seconds", 60)
+    try:
+        scanner_timeout_seconds = int(scanner_timeout_raw)
+    except (TypeError, ValueError) as exc:
+        raise ConfigError("scanner_timeout_seconds must be an integer.") from exc
+    if scanner_timeout_seconds <= 0:
+        raise ConfigError("scanner_timeout_seconds must be greater than 0.")
+
+    # ------------------------------------------------------------------ #
     # Pages                                                               #
     # ------------------------------------------------------------------ #
     pages_raw = yaml_data.get("pages", _DEFAULT_PAGES)
@@ -226,4 +237,5 @@ def load_config(
         stages=stages,
         stack=stack,
         port=port,
+        scanner_timeout_seconds=scanner_timeout_seconds,
     )

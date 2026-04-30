@@ -126,11 +126,13 @@ class ScanRunner:
         on_event: Callable[[ScanEvent], None],
         scanner_overrides: list[str] | None = None,
         browser_headless: bool = False,
+        scan_id: str | None = None,
     ) -> None:
         self.config = config
         self.on_event = on_event
         self.scanner_overrides = scanner_overrides
         self.browser_headless = browser_headless
+        self.scan_id = scan_id or str(uuid.uuid4())
         self._cancel_requested: bool = False
         self._active_task: asyncio.Task | None = None
         self._result: ScanResult | None = None
@@ -154,7 +156,7 @@ class ScanRunner:
         from vibe_iterator.listeners.console import ConsoleListener
         from vibe_iterator.listeners.storage import StorageListener
 
-        scan_id = str(uuid.uuid4())
+        scan_id = self.scan_id
         started_at = datetime.now(timezone.utc).isoformat()
         scan_start = time.monotonic()
 
@@ -166,6 +168,8 @@ class ScanRunner:
             raise ValueError(f"Unknown stage '{stage}' or stage has no scanners configured.")
 
         if self.scanner_overrides is not None:
+            if not self.scanner_overrides:
+                raise ValueError("scanner_overrides must include at least one scanner.")
             invalid = [s for s in self.scanner_overrides if s not in stage_scanners]
             if invalid:
                 raise ValueError(
@@ -307,8 +311,11 @@ class ScanRunner:
                 findings: list[Finding] = []
 
                 try:
+                    self._active_task = asyncio.create_task(
+                        asyncio.to_thread(scanner.run, session, listeners, self.config)
+                    )
                     findings = await asyncio.wait_for(
-                        asyncio.to_thread(scanner.run, session, listeners, self.config),
+                        self._active_task,
                         timeout=self.config.scanner_timeout_seconds,
                     )
                 except asyncio.TimeoutError:
@@ -323,6 +330,16 @@ class ScanRunner:
                         findings_count=0, duration_seconds=self.config.scanner_timeout_seconds,
                     ))
                     continue
+                except asyncio.CancelledError:
+                    self._emit("scan_cancelled", {
+                        "scanner_name_at_cancel": scanner.name,
+                        "findings_so_far": len(self._result.findings),
+                        "duration_seconds": time.monotonic() - scan_start,
+                    })
+                    self._result.status = "cancelled"
+                    self._result.completed_at = datetime.now(timezone.utc).isoformat()
+                    self._result.duration_seconds = round(time.monotonic() - scan_start, 2)
+                    return self._result
                 except Exception as exc:
                     logger.exception("Scanner '%s' raised an exception", scanner.name)
                     self._emit("scan_error", {
@@ -336,6 +353,8 @@ class ScanRunner:
                         findings_count=0, duration_seconds=time.monotonic() - scanner_start,
                     ))
                     continue
+                finally:
+                    self._active_task = None
 
                 duration = time.monotonic() - scanner_start
 

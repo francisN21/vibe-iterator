@@ -50,3 +50,5 @@ include = ["vibe_iterator*"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+addopts = "-p no:cacheprovider"
+norecursedirs = [".*", "__pycache__", ".tmp-pytest", ".tmp-pytest-cache", "pytest-cache-files-*"]

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -70,11 +71,14 @@ def launch(*, headless: bool = False) -> BrowserSession:
     if headless:
         options.add_argument("--headless=new")
 
-    # Required for CDP and security testing
-    options.add_argument("--remote-debugging-port=9222")
+    # Let Chrome choose an available debugging port by default to avoid
+    # collisions with other local browser sessions.
+    debug_port = os.getenv("VIBE_ITERATOR_CHROME_DEBUG_PORT", "0")
+    options.add_argument(f"--remote-debugging-port={debug_port}")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-web-security")           # allow cross-origin CDP inspection
+    if os.getenv("VIBE_ITERATOR_DISABLE_WEB_SECURITY") == "1":
+        options.add_argument("--disable-web-security")
     options.add_argument("--disable-extensions")
     options.add_argument("--disable-popup-blocking")
     options.add_argument("--disable-blink-features=AutomationControlled")

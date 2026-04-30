@@ -812,7 +812,7 @@ function renderFindings(r) {
     section.dataset.category = cat;
 
     section.innerHTML = `
-      <div class="category-header" onclick="toggleCategory(this)">
+      <div class="category-header">
         <span class="category-toggle">▼</span>
         <span class="category-name">${escHtml(cat)}</span>
         <span class="category-count">${findings.length}</span>
@@ -823,6 +823,9 @@ function renderFindings(r) {
 
     container.appendChild(section);
 
+    section.querySelector('.category-header').addEventListener('click', function() {
+      toggleCategory(this);
+    });
     const findingsEl = section.querySelector('.category-findings');
     findings.forEach(f => findingsEl.appendChild(buildFindingCard(f)));
   });
@@ -847,14 +850,14 @@ function buildFindingCard(f) {
   const evidenceStr = formatEvidence(f.evidence);
 
   card.innerHTML = `
-    <div class="rf-header" onclick="toggleFinding(this)">
+    <div class="rf-header">
       ${sevBadge(f.severity)}
       <span class="rf-title">${escHtml(f.title)}</span>
       <span class="rf-scanner">${escHtml(f.scanner)}</span>
       <span class="rf-page" title="${escHtml(f.page || '')}">${escHtml(truncateUrl(f.page || ''))}</span>
-      <div class="rf-actions" onclick="event.stopPropagation()">
+      <div class="rf-actions">
         <div class="mark-dropdown" id="mark-${escHtml(f.id)}">
-          <button class="mark-btn" onclick="toggleMarkMenu('${escHtml(f.id)}')" title="Mark finding">
+          <button class="mark-btn" title="Mark finding">
             ${markLabel(f.mark_status)} ▾
           </button>
           <div class="mark-menu" id="mark-menu-${escHtml(f.id)}">
@@ -881,10 +884,10 @@ function buildFindingCard(f) {
         <div class="remediation-block">${escHtml(f.remediation)}</div>
       </div>` : ''}
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <button class="copy-prompt-btn" onclick="copyToClipboard(${JSON.stringify(f.llm_prompt)}, this)">
+        <button class="copy-prompt-btn">
           ⧉ COPY FIX PROMPT
         </button>
-        <button class="btn btn-ghost" style="font-size:0.72rem;padding:4px 10px" onclick="openDeepDive('${escHtml(f.id)}')">
+        <button class="btn btn-ghost deep-dive-btn" style="font-size:0.72rem;padding:4px 10px">
           ⊞ VIEW DETAILS
         </button>
       </div>
@@ -899,6 +902,16 @@ function buildFindingCard(f) {
       </div>
     </div>
   `;
+
+  card.querySelector('.rf-header').addEventListener('click', function() {
+    toggleFinding(this);
+  });
+  card.querySelector('.rf-actions').addEventListener('click', event => event.stopPropagation());
+  card.querySelector('.mark-btn').addEventListener('click', () => toggleMarkMenu(f.id));
+  card.querySelector('.copy-prompt-btn').addEventListener('click', function() {
+    copyToClipboard(f.llm_prompt || '', this);
+  });
+  card.querySelector('.deep-dive-btn').addEventListener('click', () => openDeepDive(f.id));
 
   return card;
 }

@@ -80,6 +80,8 @@ async def test_health_endpoint() -> None:
         r = await c.get("/api/health")
     assert r.status_code == 200
     assert r.json()["status"] == "ok"
+    assert r.headers["x-content-type-options"] == "nosniff"
+    assert "frame-ancestors 'none'" in r.headers["content-security-policy"]
 
 
 # --------------------------------------------------------------------------- #
@@ -128,6 +130,7 @@ async def test_start_scan_returns_started() -> None:
     assert r.status_code == 200
     assert r.json()["status"] == "started"
     assert r.json()["stage"] == "dev"
+    assert r.json()["scan_id"]
 
 
 @pytest.mark.asyncio
@@ -154,6 +157,34 @@ async def test_start_scan_400_unknown_stage() -> None:
         r = await c.post("/api/scan/start", json={"stage": "nonexistent"})
 
     assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_start_scan_400_invalid_scanner_override() -> None:
+    app = create_app(_make_config())
+
+    async with await _client(app) as c:
+        r = await c.post(
+            "/api/scan/start",
+            json={"stage": "dev", "scanner_overrides": ["not_a_scanner"]},
+        )
+
+    assert r.status_code == 400
+    assert "Invalid scanner_overrides" in r.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_start_scan_400_empty_scanner_override() -> None:
+    app = create_app(_make_config())
+
+    async with await _client(app) as c:
+        r = await c.post(
+            "/api/scan/start",
+            json={"stage": "dev", "scanner_overrides": []},
+        )
+
+    assert r.status_code == 400
+    assert "at least one scanner" in r.json()["detail"]
 
 
 # --------------------------------------------------------------------------- #
@@ -280,6 +311,18 @@ async def test_export_report_scan_running_returns_409() -> None:
     app = create_app(_make_config())
     mock_runner = MagicMock()
     mock_runner.get_result.return_value = _make_scan_result(status="running")
+    app.state.runner = mock_runner
+
+    async with await _client(app) as c:
+        r = await c.get("/api/report/export")
+    assert r.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_export_report_cancelled_scan_returns_409() -> None:
+    app = create_app(_make_config())
+    mock_runner = MagicMock()
+    mock_runner.get_result.return_value = _make_scan_result(status="cancelled")
     app.state.runner = mock_runner
 
     async with await _client(app) as c:

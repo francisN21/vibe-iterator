@@ -18,7 +18,8 @@ class ScanWebSocket {
 
   connect() {
     if (this._closed) return;
-    const wsUrl = `ws://${window.location.host}/ws`;
+    const scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${scheme}//${window.location.host}/ws`;
     this._ws = new WebSocket(wsUrl);
 
     this._ws.onopen = () => {

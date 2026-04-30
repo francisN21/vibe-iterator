@@ -2,7 +2,7 @@
 # Scan scope configuration. Copy this file to vibe-iterator.config.yaml and edit.
 # Secrets (credentials, API keys) go in .env — NOT here.
 
-# Target URL (overrides VIBE_ITERATOR_TARGET in .env)
+# Target URL (used when VIBE_ITERATOR_TARGET is not set in .env)
 # target: http://localhost:3000
 
 # Pages to crawl — order matters. Login page should come before authenticated pages.
