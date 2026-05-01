@@ -36,3 +36,10 @@ screenshots/
 # OS
 .DS_Store
 Thumbs.db
+
+# Claude Code / AI tooling
+.claude/
+AGENTS.md
+memory.md
+icon.svg
+logo.svg
