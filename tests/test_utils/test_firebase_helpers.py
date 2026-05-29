@@ -45,3 +45,48 @@ def test_detect_firebase_config_none_when_no_firebase() -> None:
     req = MagicMock()
     req.url = "https://example.com/api/data"
     assert detect_firebase_config([req]) is None
+
+
+from vibe_iterator.utils.firebase_helpers import (
+    get_firebase_id_token,
+    build_firestore_read_snippet, build_firestore_write_snippet,
+    build_rtdb_read_snippet, build_rtdb_write_snippet,
+    build_storage_download_snippet, build_storage_upload_snippet,
+    PROBE_PREFIX,
+)
+
+def test_get_firebase_id_token_returns_token() -> None:
+    session = MagicMock()
+    session.evaluate.return_value = "eyJfake.token.here"
+    assert get_firebase_id_token(session) == "eyJfake.token.here"
+
+def test_get_firebase_id_token_exception_returns_none() -> None:
+    session = MagicMock()
+    session.evaluate.side_effect = Exception("CDP error")
+    assert get_firebase_id_token(session) is None
+
+def test_firestore_read_snippet_contains_collection() -> None:
+    js = build_firestore_read_snippet("users", "uid123")
+    assert "users" in js
+    assert "uid123" in js
+
+def test_firestore_write_snippet_requires_probe_prefix() -> None:
+    doc_id = PROBE_PREFIX + "test"
+    js = build_firestore_write_snippet("users", doc_id, {"role": "admin"})
+    assert PROBE_PREFIX in js
+    assert "role" in js
+
+def test_rtdb_read_snippet_contains_path() -> None:
+    js = build_rtdb_read_snippet("users/uid1")
+    assert "users/uid1" in js
+
+def test_rtdb_write_snippet_requires_probe_prefix() -> None:
+    path = PROBE_PREFIX + "canary"
+    js = build_rtdb_write_snippet(path, {"ts": 1})
+    assert PROBE_PREFIX in js
+
+def test_storage_snippets_contain_path() -> None:
+    dl = build_storage_download_snippet("avatars/user1.png")
+    ul = build_storage_upload_snippet(PROBE_PREFIX + "canary.txt", b"hello")
+    assert "avatars/user1.png" in dl
+    assert PROBE_PREFIX in ul
