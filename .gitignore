@@ -43,3 +43,16 @@ AGENTS.md
 memory.md
 icon.svg
 logo.svg
+
+# Baton Pass — local-only handoff state
+baton-pass.config.json
+baton-pass.state.json
+docs/agent-handoff.md
+docs/current-state.md
+docs/next-task.md
+docs/progress.md
+
+# Local generated noise
+.claude/settings.local.json
+.npm-cache/
+.tmp-*/
