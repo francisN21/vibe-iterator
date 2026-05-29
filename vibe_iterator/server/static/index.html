@@ -76,6 +76,32 @@
     </div>
   </details>
 
+  <!-- Firebase panel — shown only when backend === "firebase" -->
+  <section id="firebase-panel" class="panel firebase-panel" hidden>
+    <header class="firebase-panel__head">
+      <span class="firebase-panel__icon">&#x26A1;</span>
+      <h2>FIREBASE SECURITY SCAN</h2>
+      <p class="firebase-panel__detected">
+        Detected: <span id="fb-project-id">&#x2014;</span> &middot; firebaseio.com
+      </p>
+    </header>
+
+    <p class="firebase-panel__label">Select services to scan:</p>
+
+    <div class="firebase-panel__grid">
+      <label><input type="checkbox" class="fb-svc" value="firebase_firestore" checked> Firestore Rules</label>
+      <label><input type="checkbox" class="fb-svc" value="firebase_rtdb"      checked> Realtime Database</label>
+      <label><input type="checkbox" class="fb-svc" value="firebase_storage"   checked> Storage Rules</label>
+      <label><input type="checkbox" class="fb-svc" value="firebase_auth"      checked> Authentication</label>
+      <label><input type="checkbox" class="fb-svc" value="firebase_functions" checked> Cloud Functions</label>
+    </div>
+
+    <div class="firebase-panel__actions">
+      <button id="fb-select-all" type="button" class="btn btn--ghost">SELECT ALL</button>
+      <button id="fb-scan"       type="button" class="btn btn--primary">&#x25B6; SCAN FIREBASE</button>
+    </div>
+  </section>
+
   <!-- Start scan -->
   <button class="btn btn-primary btn-start-scan" id="start-btn" disabled>
     START SCAN
