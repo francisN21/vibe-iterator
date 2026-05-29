@@ -80,5 +80,4 @@ def test_negative_unreachable_host() -> None:
     net = MagicMock()
     net.get_requests.return_value = []
     findings = scanner.run(session=None, listeners={"network": net}, config=cfg)
-    dl = [f for f in findings if "download" in f.title.lower()]
-    assert dl == []
+    assert findings == []

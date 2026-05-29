@@ -148,7 +148,11 @@ class FirebaseHandler(BaseHTTPRequestHandler):
 
         # RTDB write
         if path.endswith(".json"):
+            # secured path -> 401
             rtdb_path = path[:-5]
+            if rtdb_path.startswith("/secured") or rtdb_path == "/secured":
+                self._json(401, {"error": "Permission denied"})
+                return
             self.server._store[rtdb_path] = raw.decode()
             try:
                 parsed = json.loads(raw) if raw else {}

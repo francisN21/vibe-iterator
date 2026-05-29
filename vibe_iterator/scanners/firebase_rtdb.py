@@ -195,7 +195,7 @@ class Scanner(BaseScanner):
                 desc = (
                     "The Firebase Realtime Database exposes its top-level structure to anonymous users "
                     "via the ?shallow=true parameter. Attackers can enumerate all top-level keys "
-                    f"without authentication. Discovered keys: {keys}."
+                    f"without authentication. Discovered keys: {', '.join(keys)}."
                 )
                 findings.append(self.new_finding(
                     scanner=self.name, severity=Severity.MEDIUM,

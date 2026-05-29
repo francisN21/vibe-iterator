@@ -181,8 +181,7 @@ class Scanner(BaseScanner):
                                findings: list[Finding]) -> None:
         enc = urllib.parse.quote(_PROBE_FILE, safe="")
         upload_url = f"{base}/v0/b/{bucket}/o?name={enc}"
-        enc2 = urllib.parse.quote(_PROBE_FILE, safe="")
-        delete_url = f"{base}/v0/b/{bucket}/o/{enc2}"
+        delete_url = f"{base}/v0/b/{bucket}/o/{enc}"
         body, status = self._http_post(upload_url, _PROBE_CONTENT, "application/octet-stream")
         try:
             if status is not None and 200 <= status < 300:

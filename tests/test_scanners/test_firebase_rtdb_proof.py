@@ -72,6 +72,4 @@ def test_group1_secured_path_no_finding(vuln_app) -> None:
     }
     net = _make_network()
     findings = scanner.run(session=None, listeners={"network": net}, config=config)
-    unauth = [f for f in findings if "unauthenticated" in f.title.lower()
-              and "read" in f.title.lower()]
-    assert unauth == []
+    assert findings == []
