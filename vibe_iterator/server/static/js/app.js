@@ -66,6 +66,7 @@ async function initHomePage() {
   try {
     _homeConfig = await apiFetch('/api/config');
     renderHomeConfig(_homeConfig);
+    initFirebasePanel(_homeConfig);
   } catch (e) {
     document.getElementById('config-errors').classList.remove('hidden');
     const li = document.createElement('li');
@@ -253,6 +254,60 @@ async function cancelExistingAndStart() {
     onStartScan();
   } catch (e) {
     showToast('Could not cancel: ' + e.message);
+  }
+}
+
+function initFirebasePanel(configMeta) {
+  const panel = document.getElementById('firebase-panel');
+  if (!panel) return;
+  const isFirebase = configMeta && configMeta.stack && configMeta.stack.backend === 'firebase';
+  panel.hidden = !isFirebase;
+  if (!isFirebase) return;
+
+  const projId = (configMeta.firebase && configMeta.firebase.projectId) || 'unknown';
+  document.getElementById('fb-project-id').textContent = projId;
+
+  document.getElementById('fb-select-all').addEventListener('click', toggleAllFirebaseServices);
+  document.getElementById('fb-scan').addEventListener('click', startFirebaseScan);
+  document.querySelectorAll('.fb-svc').forEach(cb => cb.addEventListener('change', updateFirebaseScanButton));
+
+  updateFirebaseScanButton();
+}
+
+function updateFirebaseScanButton() {
+  const anyChecked = !![...document.querySelectorAll('.fb-svc')].find(cb => cb.checked);
+  const btn = document.getElementById('fb-scan');
+  if (!btn) return;
+  btn.disabled = !anyChecked;
+  btn.classList.toggle('is-disabled', !anyChecked);
+}
+
+function toggleAllFirebaseServices() {
+  const boxes = [...document.querySelectorAll('.fb-svc')];
+  const allOn = boxes.every(cb => cb.checked);
+  boxes.forEach(cb => { cb.checked = !allOn; });
+  updateFirebaseScanButton();
+}
+
+async function startFirebaseScan() {
+  const overrides = [...document.querySelectorAll('.fb-svc')]
+    .filter(cb => cb.checked).map(cb => cb.value);
+  if (overrides.length === 0) return;
+
+  try {
+    const resp = await fetch('/api/scan/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stage: 'firebase', scanner_overrides: overrides }),
+    });
+    if (resp.ok) {
+      window.location.href = 'scan.html';
+    } else {
+      const err = await resp.json().catch(() => ({ detail: 'Scan failed to start' }));
+      if (typeof showStartError === 'function') showStartError(err.detail || 'Scan failed to start');
+    }
+  } catch (e) {
+    if (typeof showStartError === 'function') showStartError(e.message || 'Scan failed to start');
   }
 }
 
