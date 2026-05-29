@@ -85,3 +85,31 @@ def test_negative_anonymous_disabled() -> None:
     findings = scanner.run(session=None, listeners={"network": net, "storage": storage}, config=cfg)
     anon = [f for f in findings if "anonymous" in f.title.lower()]
     assert anon == []
+
+
+def test_group4_token_exposure_medium() -> None:
+    # Build a fake URL with a JWT-shaped token in the query string
+    fake_token = (
+        "eyJhbGciOiJSUzI1NiJ9"
+        ".eyJzdWIiOiJ1aWQxMjMiLCJpYXQiOjE2MDAwMDAwMDB9"
+        ".fakesignature"
+    )
+    scanner = Scanner()
+    cfg = MagicMock()
+    cfg.target = "http://localhost:1"
+    cfg.stack.backend = "firebase"
+    cfg._firebase_cfg = {
+        "projectId": "testproj",
+        "apiKey": "fakekey",
+        "_toolkit_base": "http://localhost:1/v1",  # unreachable → signUp/createAuthUri fail silently
+    }
+    req = MagicMock()
+    req.url = f"http://localhost:1/api/data?id_token={fake_token}"
+    net = MagicMock()
+    net.get_requests.return_value = [req]
+    storage = MagicMock()
+    storage.get_snapshot.return_value = {}
+    findings = scanner.run(session=None, listeners={"network": net, "storage": storage}, config=cfg)
+    token_findings = [f for f in findings if "token" in f.title.lower() and "url" in f.title.lower()]
+    assert len(token_findings) >= 1
+    assert any(f.severity == Severity.MEDIUM for f in token_findings)
