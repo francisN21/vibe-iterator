@@ -90,3 +90,87 @@ def test_storage_snippets_contain_path() -> None:
     ul = build_storage_upload_snippet(PROBE_PREFIX + "canary.txt", b"hello")
     assert "avatars/user1.png" in dl
     assert PROBE_PREFIX in ul
+
+
+import io
+from unittest.mock import patch
+from vibe_iterator.utils.firebase_helpers import (
+    rest_rtdb_get, rest_rtdb_write, rest_rtdb_delete,
+    rest_firestore_get, rest_firestore_write, rest_firestore_delete,
+    rest_storage_download, rest_storage_upload, rest_storage_delete,
+    _to_firestore_fields, _from_firestore_fields,
+    discover_function_urls, find_id_tokens,
+    PROBE_PREFIX,
+)
+
+def _fake_resp(body: str, status: int):
+    r = MagicMock()
+    r.read.return_value = body.encode()
+    r.status = status
+    r.__enter__ = lambda s: s
+    r.__exit__ = MagicMock(return_value=False)
+    return r
+
+def test_rest_rtdb_get_success() -> None:
+    with patch("urllib.request.urlopen", return_value=_fake_resp('{"a":1}', 200)):
+        body, status = rest_rtdb_get("https://proj.firebaseio.com", "users")
+    assert status == 200
+    assert '"a"' in body
+
+def test_rest_rtdb_get_appends_auth_param() -> None:
+    captured = []
+    def fake_open(req, timeout):
+        captured.append(req.full_url)
+        return _fake_resp("{}", 200)
+    with patch("urllib.request.urlopen", side_effect=fake_open):
+        rest_rtdb_get("https://proj.firebaseio.com", "users", id_token="tok123")
+    assert "auth=tok123" in captured[0]
+
+def test_rest_rtdb_write_refuses_without_probe_prefix() -> None:
+    body, status = rest_rtdb_write("https://proj.firebaseio.com", "users/evil", {"x": 1})
+    assert status is None
+    assert body == ""
+
+def test_rest_rtdb_write_accepts_probe_path() -> None:
+    with patch("urllib.request.urlopen", return_value=_fake_resp('{}', 200)):
+        body, status = rest_rtdb_write(
+            "https://proj.firebaseio.com", PROBE_PREFIX + "canary", {"ts": 1}
+        )
+    assert status == 200
+
+def test_rest_rtdb_get_http_error() -> None:
+    import urllib.error
+    err = urllib.error.HTTPError("url", 403, "Forbidden", {}, io.BytesIO(b'{"error":"denied"}'))
+    with patch("urllib.request.urlopen", side_effect=err):
+        body, status = rest_rtdb_get("https://proj.firebaseio.com", "secret")
+    assert status == 403
+
+def test_rest_rtdb_get_unknown_exception() -> None:
+    with patch("urllib.request.urlopen", side_effect=Exception("timeout")):
+        body, status = rest_rtdb_get("https://proj.firebaseio.com", "x")
+    assert body == ""
+    assert status is None
+
+def test_to_from_firestore_fields_roundtrip() -> None:
+    data = {"name": "alice", "age": 30, "active": True}
+    doc = _to_firestore_fields(data)
+    assert doc["fields"]["name"] == {"stringValue": "alice"}
+    assert doc["fields"]["age"] == {"integerValue": "30"}
+    assert doc["fields"]["active"] == {"booleanValue": True}
+    roundtrip = _from_firestore_fields(doc)
+    assert roundtrip["name"] == "alice"
+    assert roundtrip["age"] == 30
+
+def test_discover_function_urls() -> None:
+    reqs = [MagicMock(url="https://us-central1-proj.cloudfunctions.net/hello"),
+            MagicMock(url="https://example.com/api"),
+            MagicMock(url="https://us-central1-proj.cloudfunctions.net/hello")]
+    urls = discover_function_urls(reqs)
+    assert len(urls) == 1
+    assert "cloudfunctions.net" in urls[0]
+
+def test_find_id_tokens() -> None:
+    token = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ1c2VyMSJ9.signature"
+    text = f"Authorization: Bearer {token} other stuff"
+    found = find_id_tokens(text)
+    assert token in found
