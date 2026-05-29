@@ -36,12 +36,12 @@ def _run(vuln_app) -> list:
     net = _make_network()
     return scanner.run(session=None, listeners={"network": net}, config=config)
 
-def test_scanner_importable() -> None:
+def test_firebase_rtdb_importable() -> None:
     s = Scanner()
     assert s.name == "firebase_rtdb"
     assert s.requires_stack == ["firebase"]
 
-def test_group1_unauth_root_read_critical(vuln_app) -> None:
+def test_group1_unauth_read_critical(vuln_app) -> None:
     findings = _run(vuln_app)
     unauth = [f for f in findings if "unauthenticated" in f.title.lower()
               and "read" in f.title.lower()]
@@ -61,7 +61,7 @@ def test_group3_shallow_enumeration_medium(vuln_app) -> None:
     assert len(enum) >= 1
     assert any(f.severity == Severity.MEDIUM for f in enum)
 
-def test_negative_secured_path_no_finding(vuln_app) -> None:
+def test_group1_secured_path_no_finding(vuln_app) -> None:
     scanner = Scanner()
     config = _make_config(vuln_app.base_url)
     # Override databaseURL to force only the secured path

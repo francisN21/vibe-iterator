@@ -122,48 +122,47 @@ class Scanner(BaseScanner):
     def _group2_unauth_write(self, db_url: str, page: str,
                               findings: list[Finding]) -> None:
         probe_path = PROBE_PREFIX + "canary"
-        body, status = rest_rtdb_write(db_url, probe_path, {"vibe": "iterator", "ts": 0},
-                                        id_token=None)
+        probe_data = {"vibe_iterator": True, "ts": "probe"}
+        body, status = rest_rtdb_write(db_url, probe_path, probe_data, id_token=None)
         try:
-            rest_rtdb_delete(db_url, probe_path)
-        except Exception:
-            pass
-        if status == 200:
-            desc = (
-                "The Firebase Realtime Database accepts write operations without authentication. "
-                "An attacker can write arbitrary data to any database path, including overwriting "
-                "user records or injecting malicious content. "
-                "This is caused by a Security Rule like '.write: true' at the root."
-            )
-            findings.append(self.new_finding(
-                scanner=self.name, severity=Severity.CRITICAL,
-                title="Realtime Database: unauthenticated write allowed",
-                description=desc,
-                evidence={
-                    "action_attempted": f"PUT /{probe_path}.json (no auth)",
-                    "auth_context": "unauthenticated",
-                    "request": {"method": "PUT", "url": f"{db_url}/{probe_path}.json",
-                                "headers": {}, "body": '{"vibe":"iterator","ts":0}'},
-                    "response": {"status": status, "body_excerpt": truncate(body, 300)},
-                    "expected_response": "401 Unauthorized",
-                    "actual_response": "200 OK",
-                    "second_account_used": False,
-                },
-                llm_prompt=build_firebase_llm_prompt(
+            if status == 200:
+                desc = (
+                    "The Firebase Realtime Database accepts write operations without authentication. "
+                    "An attacker can write arbitrary data to any database path, including overwriting "
+                    "user records or injecting malicious content. "
+                    "This is caused by a Security Rule like '.write: true' at the root."
+                )
+                findings.append(self.new_finding(
+                    scanner=self.name, severity=Severity.CRITICAL,
                     title="Realtime Database: unauthenticated write allowed",
-                    severity=Severity.CRITICAL, scanner=self.name,
-                    page=page, category=self.category, description=desc,
-                    evidence_summary=f"PUT {db_url}/{probe_path}.json (no auth) -> 200.",
-                    detected_services="Realtime Database",
-                ),
-                remediation=(
-                    "**What to fix:** Require authentication for all writes.\n\n"
-                    "**How to fix:** Firebase Console -> Realtime Database -> Rules:\n"
-                    '```json\n{ "rules": { ".write": "auth != null" } }\n```\n\n'
-                    "**Verify the fix:** Re-run firebase_rtdb scanner -- unauthenticated write should return 401."
-                ),
-                category=self.category, page=page,
-            ))
+                    description=desc,
+                    evidence={
+                        "action_attempted": f"PUT /{probe_path}.json (no auth)",
+                        "auth_context": "unauthenticated",
+                        "request": {"method": "PUT", "url": f"{db_url}/{probe_path}.json",
+                                    "headers": {}, "body": '{"vibe_iterator":true,"ts":"probe"}'},
+                        "response": {"status": status, "body_excerpt": truncate(body, 300)},
+                        "expected_response": "401 Unauthorized",
+                        "actual_response": "200 OK",
+                        "second_account_used": False,
+                    },
+                    llm_prompt=build_firebase_llm_prompt(
+                        title="Realtime Database: unauthenticated write allowed",
+                        severity=Severity.CRITICAL, scanner=self.name,
+                        page=page, category=self.category, description=desc,
+                        evidence_summary=f"PUT {db_url}/{probe_path}.json (no auth) -> 200.",
+                        detected_services="Realtime Database",
+                    ),
+                    remediation=(
+                        "**What to fix:** Require authentication for all writes.\n\n"
+                        "**How to fix:** Firebase Console -> Realtime Database -> Rules:\n"
+                        '```json\n{ "rules": { ".write": "auth != null" } }\n```\n\n'
+                        "**Verify the fix:** Re-run firebase_rtdb scanner -- unauthenticated write should return 401."
+                    ),
+                    category=self.category, page=page,
+                ))
+        finally:
+            rest_rtdb_delete(db_url, probe_path, id_token=None)
 
     def _rest_rtdb_shallow(self, db_url: str) -> tuple[str, int | None]:
         """GET /.json?shallow=true — avoids the path-mangling in rest_rtdb_get."""

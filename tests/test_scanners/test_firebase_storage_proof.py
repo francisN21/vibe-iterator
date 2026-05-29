@@ -39,7 +39,7 @@ def _run(vuln_app, second_account: bool = False) -> list:
     net = _make_network()
     return scanner.run(session=None, listeners={"network": net}, config=config)
 
-def test_scanner_attributes() -> None:
+def test_firebase_storage_attributes() -> None:
     s = Scanner()
     assert s.name == "firebase_storage"
     assert s.requires_stack == ["firebase"]
@@ -65,7 +65,7 @@ def test_group4_bucket_listing_medium(vuln_app) -> None:
     assert len(lst) >= 1
     assert any(f.severity == Severity.MEDIUM for f in lst)
 
-def test_negative_secured_path_no_download_finding() -> None:
+def test_negative_unreachable_host() -> None:
     scanner = Scanner()
     cfg = MagicMock()
     cfg.target = "http://localhost:1"
@@ -74,7 +74,7 @@ def test_negative_secured_path_no_download_finding() -> None:
     # Point at a non-listening host -> all REST calls fail -> no findings
     cfg._firebase_cfg = {
         "projectId": "testproj",
-        "storageBucket": "testproj.appspot.com",
+        "storageBucket": "127.0.0.1:1",
         "databaseURL": "http://localhost:1",
     }
     net = MagicMock()
