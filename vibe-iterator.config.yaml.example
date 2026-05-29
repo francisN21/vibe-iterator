@@ -33,6 +33,10 @@ stages:
     scanners: [data_leakage, rls_bypass, tier_escalation, bucket_limits, auth_check, client_tampering, sql_injection, cors_check, xss_check, api_exposure]
     # "Run every scanner regardless of stage"
 
+  firebase:
+    scanners: [firebase_firestore, firebase_rtdb, firebase_storage, firebase_auth, firebase_functions]
+    # "Firebase-specific security audit — run on Firebase-backed projects"
+
 # Technology stack (auto-detected from network traffic if omitted).
 # Specifying this avoids the auto-detection overhead and ensures accuracy.
 #
