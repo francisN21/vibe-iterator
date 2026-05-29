@@ -21,7 +21,6 @@ _FAKE_TOKEN = (
     ".eyJzdWIiOiJ1aWQxMjMiLCJlbWFpbCI6InRlc3RAZXhhbXBsZS5jb20ifQ"
     ".fakesig"
 )
-_STORED: dict = {}   # simulates DB/Storage state within one test run
 
 
 class FirebaseHandler(BaseHTTPRequestHandler):
@@ -124,13 +123,13 @@ class FirebaseHandler(BaseHTTPRequestHandler):
         if "/v0/b/" in path and path.endswith("/o"):
             name = urllib.parse.parse_qs(p.query).get("name", [""])[0]
             if name:
-                _STORED[name] = raw
+                self.server._store[name] = raw
             self._json(200, {"name": name, "bucket": "proj.appspot.com"})
             return
 
         # Firestore: write
         if "/databases/(default)/documents/" in path:
-            _STORED[path] = raw.decode()
+            self.server._store[path] = raw.decode()
             self._json(200, {"name": path, "fields": {}})
             return
 
@@ -150,8 +149,12 @@ class FirebaseHandler(BaseHTTPRequestHandler):
         # RTDB write
         if path.endswith(".json"):
             rtdb_path = path[:-5]
-            _STORED[rtdb_path] = raw.decode()
-            self._json(200, json.loads(raw) if raw else {})
+            self.server._store[rtdb_path] = raw.decode()
+            try:
+                parsed = json.loads(raw) if raw else {}
+            except (json.JSONDecodeError, ValueError):
+                parsed = {}
+            self._json(200, parsed)
             return
 
         self._json(404, {"error": "not found"})
@@ -163,7 +166,7 @@ class FirebaseHandler(BaseHTTPRequestHandler):
         raw = self.rfile.read(length) if length else b""
 
         if "/databases/(default)/documents/" in path:
-            _STORED[path] = raw.decode()
+            self.server._store[path] = raw.decode()
             self._json(200, {"name": path, "fields": {}})
             return
 
@@ -172,7 +175,7 @@ class FirebaseHandler(BaseHTTPRequestHandler):
     def do_DELETE(self) -> None:
         p = urllib.parse.urlparse(self.path)
         path = p.path
-        _STORED.pop(path, None)
+        self.server._store.pop(path, None)
 
         if path.endswith(".json"):
             self._json(200, {})
@@ -219,6 +222,7 @@ class FirebaseVulnerableApp:
 
     def start(self) -> str:
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), FirebaseHandler)
+        self._server._store: dict = {}
         port = self._server.server_address[1]
         self.base_url = f"http://127.0.0.1:{port}"
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)

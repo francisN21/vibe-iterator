@@ -100,6 +100,7 @@ from vibe_iterator.utils.firebase_helpers import (
     rest_storage_download, rest_storage_upload, rest_storage_delete,
     _to_firestore_fields, _from_firestore_fields,
     discover_function_urls, find_id_tokens,
+    rest_functions_call, build_firebase_llm_prompt,
     PROBE_PREFIX,
 )
 
@@ -174,3 +175,37 @@ def test_find_id_tokens() -> None:
     text = f"Authorization: Bearer {token} other stuff"
     found = find_id_tokens(text)
     assert token in found
+
+
+def test_rest_functions_call_success() -> None:
+    with patch("urllib.request.urlopen", return_value=_fake_resp('{"result":"ok"}', 200)):
+        body, status = rest_functions_call("us-central1", "myproj", "hello", {"x": 1})
+    assert status == 200
+    assert "result" in body
+
+
+def test_rest_functions_call_http_error() -> None:
+    import urllib.error
+    err = urllib.error.HTTPError("url", 401, "Unauthorized", {}, io.BytesIO(b'{"error":"auth"}'))
+    with patch("urllib.request.urlopen", side_effect=err):
+        body, status = rest_functions_call("us-central1", "myproj", "hello", {})
+    assert status == 401
+
+
+def test_build_firebase_llm_prompt_contains_required_sections() -> None:
+    from vibe_iterator.scanners.base import Severity
+    result = build_firebase_llm_prompt(
+        title="Test vuln",
+        severity=Severity.HIGH,
+        scanner="firebase_rtdb",
+        page="http://localhost",
+        category="Access Control",
+        description="Some description",
+        evidence_summary="Evidence here",
+        detected_services="Realtime Database",
+    )
+    assert "Test vuln" in result
+    assert "HIGH" in result
+    assert "Firebase" in result
+    assert "Realtime Database" in result
+    assert "YOUR TASK" in result
