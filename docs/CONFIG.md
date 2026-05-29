@@ -106,6 +106,17 @@ stack:
 - **Speed:** Slow (all 10 scanners — expect 10–20 minutes on a typical app)
 - **Triggered by:** "ALL SCANNERS" toggle in the dashboard home, or `--stage all` CLI flag
 
+### FIREBASE — "Firebase-specific security audit — all five Firebase scanners"
+- **When:** Firebase-backed projects only; run as a focused audit alongside or instead of `pre-deploy`
+- **Scanners:** `firebase_firestore`, `firebase_rtdb`, `firebase_storage`, `firebase_auth`, `firebase_functions`
+- **Focus:** Firebase-native attack surface — Security Rules misconfigurations, RTDB open access, unauthenticated Cloud Function calls, auth weaknesses, Storage rule bypasses
+- **Speed:** Moderate (5 scanners — expect 5–10 minutes)
+- **Triggered by:** Firebase panel in the dashboard home (shown only when `backend: firebase` is detected), or `--stage firebase` CLI flag
+
+| Stage | Description |
+|-------|-------------|
+| `firebase` | Firebase-specific security audit — all five Firebase scanners |
+
 ---
 
 ## Stack Auto-Detection

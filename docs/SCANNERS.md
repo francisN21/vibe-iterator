@@ -110,6 +110,11 @@ Not a scanner — a module of helper functions used by `rls_bypass`, `tier_escal
 | `cors_check` | Misconfiguration | post-deploy | `["any"]` | `False` | 4 |
 | `xss_check` | Injection | pre-deploy only* | `["any"]` | `False` | 4 |
 | `api_exposure` | API Security | pre-deploy, post-deploy | `["any"]` | `False` | 4 |
+| `firebase_firestore` | `Access Control`  | `pre-deploy, post-deploy` | `firebase` | Firestore Security Rules, IDOR, mass assignment |
+| `firebase_rtdb`      | `Access Control`  | `pre-deploy, post-deploy` | `firebase` | RTDB open read/write, data enumeration |
+| `firebase_storage`   | `Access Control`  | `pre-deploy, post-deploy` | `firebase` | Storage rules, unauthenticated download/upload/listing |
+| `firebase_auth`      | `Authentication`  | `dev, pre-deploy, post-deploy` | `firebase` | Anonymous auth, email enumeration, token exposure |
+| `firebase_functions` | `API Security`    | `pre-deploy, post-deploy` | `firebase` | Unauthenticated function calls, CORS, sensitive data |
 
 *`xss_check` is intentionally excluded from `post-deploy` — see `xss_check` Stage Coverage Note section.
 
