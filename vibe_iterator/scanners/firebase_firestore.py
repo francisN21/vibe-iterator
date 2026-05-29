@@ -38,7 +38,7 @@ class Scanner(BaseScanner):
     category = "Access Control"
     stages = ["pre-deploy", "post-deploy"]
     requires_stack = ["firebase"]
-    requires_second_account = True
+    requires_second_account = False
 
     def run(self, session: Any, listeners: dict, config: Any) -> list[Finding]:
         findings: list[Finding] = []
@@ -108,6 +108,8 @@ class Scanner(BaseScanner):
     def _firestore_write(self, firestore_base: str, project_id: str, collection: str,
                          doc_id: str, data: dict,
                          id_token: str | None = None) -> tuple[str, int | None]:
+        if PROBE_PREFIX not in doc_id:
+            return "", None
         url = (f"{firestore_base}/v1/projects/{project_id}"
                f"/databases/(default)/documents/{collection}/{doc_id}")
         headers: dict = {"Content-Type": "application/json"}

@@ -99,7 +99,6 @@ class Scanner(BaseScanner):
 
     def _probe_function(self, url: str, project_id: str, page: str,
                         findings: list[Finding]) -> None:
-        import json as _json
         body_no_auth, status_no_auth = self._http_post(url, {"probe": True}, token=None)
         if status_no_auth == 200:
             desc = (

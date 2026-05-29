@@ -47,7 +47,7 @@ def test_scanner_attributes() -> None:
     s = Scanner()
     assert s.name == "firebase_firestore"
     assert s.requires_stack == ["firebase"]
-    assert s.requires_second_account is True
+    assert s.requires_second_account is False
 
 
 def test_group1_unauth_read_high(vuln_app) -> None:
