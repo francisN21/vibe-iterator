@@ -1339,3 +1339,111 @@ code, pre { font-family: var(--font-mono); }
   max-height: 260px;
   overflow-y: auto;
 }
+
+/* ---- Firebase Panel ---- */
+.firebase-panel {
+  border: 1px solid var(--border-bright);
+  border-radius: var(--radius);
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 1.5rem;
+  background: var(--bg-card-2);
+}
+
+.firebase-panel__head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin-bottom: 0.75rem;
+}
+
+.firebase-panel__icon {
+  color: var(--amber);
+  font-size: 1.1rem;
+}
+
+.firebase-panel__head h2 {
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  color: var(--amber);
+  margin: 0;
+}
+
+.firebase-panel__detected {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: 0 0 0 auto;
+}
+
+.firebase-panel__label {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-bottom: 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.firebase-panel__grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.4rem 1rem;
+  margin-bottom: 1rem;
+}
+
+@media (max-width: 480px) {
+  .firebase-panel__grid { grid-template-columns: 1fr; }
+}
+
+.firebase-panel__grid label {
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.firebase-panel__actions {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.btn--ghost {
+  background: transparent;
+  border: 1px solid var(--border-bright);
+  color: var(--text-dim);
+  padding: 0.4rem 0.9rem;
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+  letter-spacing: 0.06em;
+  transition: border-color var(--transition), color var(--transition);
+}
+
+.btn--ghost:hover {
+  border-color: var(--amber);
+  color: var(--amber);
+}
+
+.btn--primary {
+  background: var(--amber);
+  color: #000;
+  border: none;
+  padding: 0.45rem 1.1rem;
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  letter-spacing: 0.08em;
+  transition: opacity var(--transition);
+}
+
+.btn--primary:hover { opacity: 0.85; }
+
+.btn--primary.is-disabled,
+.btn--primary:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
