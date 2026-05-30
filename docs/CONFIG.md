@@ -113,6 +113,34 @@ stack:
 - **Speed:** Moderate (5 scanners — expect 5–10 minutes)
 - **Triggered by:** Firebase panel in the dashboard home (shown only when `backend: firebase` is detected), or `--stage firebase` CLI flag
 
+### DISCOVER — "Spider stage — maps attack surface, writes vibe-iterator.discovered.yaml"
+- **When:** Before running any other stages; maps pages and API endpoints your app exposes
+- **What it does:** Runs sitemap fetcher, BFS DOM crawler, JavaScript framework route extractor, and API endpoint harvester (not scanners)
+- **Output:** `vibe-iterator.discovered.yaml` sidecar file with discovered pages list
+- **Focus:** Coverage — find all crawlable pages and API endpoints, write them to config for future runs
+- **Speed:** Fast (10–30 seconds for most apps; scales with site size)
+- **Triggered by:** `--stage discover` CLI flag
+
+---
+
+### `spider` (optional)
+
+Configures endpoint discovery behavior when running `--stage discover`.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `max_pages` | int | `30` | Stop crawl after this many unique pages |
+| `max_depth` | int | `3` | Do not follow links deeper than this hop count |
+
+**Sidecar file:** After a discover run, `vibe-iterator.discovered.yaml` is written beside your config. All subsequent scan stages automatically merge its `pages` list into the crawl targets.
+
+**Example:**
+```yaml
+spider:
+  max_pages: 50
+  max_depth: 4
+```
+
 ---
 
 ## Stack Auto-Detection

@@ -120,6 +120,12 @@ Not a scanner — a module of helper functions used by `rls_bypass`, `tier_escal
 
 **`requires_second_account` nuance for `rls_bypass` and `auth_check`:** These scanners run in full even without a second account — only the specific cross-user/concurrent-session checks are skipped. The scanner emits a `scanner_progress` info message when skipping those sub-checks.
 
+### Special Stages
+
+| Stage | Type | Description |
+|-------|------|-------------|
+| `discover` | Spider (not scanners) | Runs sitemap fetcher, BFS DOM crawler, JS framework route extractor, and API endpoint harvester. Writes `vibe-iterator.discovered.yaml`. Does not run any scanners. |
+
 ---
 
 ## Core Scanners (Phase 2 — Supabase Focus)
