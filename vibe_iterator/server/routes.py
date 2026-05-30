@@ -13,8 +13,9 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, HTTPException, Request, WebSocket
 from pydantic import BaseModel
 
-from vibe_iterator.engine.runner import FindingMark, ScanResult, ScanRunner
-from vibe_iterator.scanners.base import Finding, ScanEvent
+from vibe_iterator.engine.runner import FindingMark, ScanRunner
+from vibe_iterator.history import finding_dict, serialize_result
+from vibe_iterator.scanners.base import ScanEvent
 
 logger = logging.getLogger(__name__)
 
@@ -62,70 +63,6 @@ class MarkItem(BaseModel):
 
 class MarkRequest(BaseModel):
     findings: list[MarkItem]
-
-
-# --------------------------------------------------------------------------- #
-# Serialization helpers                                                        #
-# --------------------------------------------------------------------------- #
-
-def _finding_dict(f: Finding) -> dict:
-    return {
-        "id": f.id,
-        "fingerprint": f.fingerprint,
-        "scanner": f.scanner,
-        "severity": f.severity.value,
-        "title": f.title,
-        "description": f.description,
-        "evidence": f.evidence,
-        "screenshots": [{"label": s.label, "data": s.data} for s in f.screenshots],
-        "llm_prompt": f.llm_prompt,
-        "remediation": f.remediation,
-        "category": f.category,
-        "page": f.page,
-        "timestamp": f.timestamp,
-        "mark_status": f.mark_status,
-        "mark_note": f.mark_note,
-    }
-
-
-def _result_dict(r: ScanResult) -> dict:
-    return {
-        "scan_id": r.scan_id,
-        "stage": r.stage,
-        "target": r.target,
-        "status": r.status,
-        "started_at": r.started_at,
-        "completed_at": r.completed_at,
-        "findings": [_finding_dict(f) for f in r.findings],
-        "scanner_results": [
-            {
-                "scanner_name": sr.scanner_name,
-                "status": sr.status,
-                "findings_count": sr.findings_count,
-                "duration_seconds": sr.duration_seconds,
-                "skip_reason": sr.skip_reason,
-            }
-            for sr in r.scanner_results
-        ],
-        "finding_marks": [
-            {"finding_id": m.finding_id, "status": m.status, "note": m.note}
-            for m in r.finding_marks
-        ],
-        "score": r.score,
-        "score_grade": r.score_grade,
-        "duration_seconds": r.duration_seconds,
-        "pages_crawled": r.pages_crawled,
-        "requests_captured": r.requests_captured,
-        "stack_detected": r.stack_detected,
-        "stack_detection_source": r.stack_detection_source,
-        "second_account_used": r.second_account_used,
-        "scanner_overrides_applied": r.scanner_overrides_applied,
-        "discovered_surface": {
-            "pages": r.discovered_surface.pages,
-            "api_endpoints": r.discovered_surface.api_endpoints,
-            "discovered_at": r.discovered_surface.discovered_at,
-        } if r.discovered_surface is not None else None,
-    }
 
 
 # --------------------------------------------------------------------------- #
@@ -261,7 +198,7 @@ async def get_results(request: Request) -> dict:
     runner: ScanRunner | None = getattr(request.app.state, "runner", None)
     if runner is None or runner.get_result() is None:
         raise HTTPException(status_code=404, detail="No scan results available.")
-    return _result_dict(runner.get_result())
+    return serialize_result(runner.get_result())
 
 
 @router.get("/api/scan/results/{finding_id}")
@@ -272,7 +209,7 @@ async def get_finding(finding_id: str, request: Request) -> dict:
     result = runner.get_result()
     for f in result.findings:
         if f.id == finding_id:
-            return _finding_dict(f)
+            return finding_dict(f)
     raise HTTPException(status_code=404, detail=f"Finding '{finding_id}' not found.")
 
 

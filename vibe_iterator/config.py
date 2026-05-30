@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
@@ -76,6 +76,9 @@ class Config:
     # Spider (endpoint discovery)
     spider_max_pages: int = 30
     spider_max_depth: int = 3
+
+    # History
+    results_dir: Path = field(default_factory=lambda: Path.cwd() / "vibe-iterator-results")
 
     @property
     def second_account_configured(self) -> bool:
@@ -260,6 +263,8 @@ def load_config(
     else:
         stack = StackConfig()
 
+    results_dir = yaml_file.parent / "vibe-iterator-results"
+
     return Config(
         target=target,
         test_email=test_email,
@@ -275,4 +280,5 @@ def load_config(
         scanner_timeout_seconds=scanner_timeout_seconds,
         spider_max_pages=spider_max_pages,
         spider_max_depth=spider_max_depth,
+        results_dir=results_dir,
     )
