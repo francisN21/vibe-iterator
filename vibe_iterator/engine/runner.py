@@ -107,6 +107,7 @@ _SCANNER_MODULE_MAP: dict[str, str] = {
     "info_disclosure":        "vibe_iterator.scanners.info_disclosure",
     "idor_check":             "vibe_iterator.scanners.idor_check",
     "http_method_tampering":  "vibe_iterator.scanners.http_method_tampering",
+    "api_key_exposure":       "vibe_iterator.scanners.api_key_exposure",
     # --- Firebase ---
     "firebase_firestore": "vibe_iterator.scanners.firebase_firestore",
     "firebase_rtdb":      "vibe_iterator.scanners.firebase_rtdb",

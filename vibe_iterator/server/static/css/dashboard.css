@@ -971,7 +971,8 @@ code, pre { font-family: var(--font-mono); }
   border: 1px solid var(--border);
   border-radius: var(--radius);
   margin-bottom: 0.75rem;
-  overflow: hidden;
+  overflow: visible;
+  position: relative;
   transition: border-color var(--transition);
 }
 
@@ -1129,7 +1130,7 @@ code, pre { font-family: var(--font-mono); }
   border: 1px solid var(--border-bright);
   border-radius: var(--radius);
   min-width: 160px;
-  z-index: 50;
+  z-index: 500;
   overflow: hidden;
   box-shadow: 0 8px 24px rgba(0,0,0,0.4);
 }
