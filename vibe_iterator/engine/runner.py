@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 
 from vibe_iterator.config import Config
+from vibe_iterator.engine.discover_runner import DiscoveryResult
 from vibe_iterator.scanners.base import Finding, ScanEvent, Severity
 
 logger = logging.getLogger(__name__)
@@ -81,6 +82,7 @@ class ScanResult:
     stack_detection_source: str
     second_account_used: bool
     scanner_overrides_applied: list[str] | None
+    discovered_surface: DiscoveryResult | None = None
 
 
 # --------------------------------------------------------------------------- #

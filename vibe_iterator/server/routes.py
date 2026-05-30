@@ -120,6 +120,11 @@ def _result_dict(r: ScanResult) -> dict:
         "stack_detection_source": r.stack_detection_source,
         "second_account_used": r.second_account_used,
         "scanner_overrides_applied": r.scanner_overrides_applied,
+        "discovered_surface": {
+            "pages": r.discovered_surface.pages,
+            "api_endpoints": r.discovered_surface.api_endpoints,
+            "discovered_at": r.discovered_surface.discovered_at,
+        } if r.discovered_surface is not None else None,
     }
 
 
@@ -193,22 +198,23 @@ async def start_scan(body: StartScanRequest, request: Request) -> dict:
     if scan_task is not None and not scan_task.done():
         raise HTTPException(status_code=409, detail="A scan is already in progress.")
 
-    # Validate stage
-    stage_scanners = config.scanners_for_stage(body.stage)
-    if not stage_scanners:
-        raise HTTPException(status_code=400, detail=f"Unknown stage: '{body.stage}'")
-    if body.scanner_overrides is not None:
-        if not body.scanner_overrides:
-            raise HTTPException(status_code=400, detail="scanner_overrides must include at least one scanner.")
-        invalid = [s for s in body.scanner_overrides if s not in stage_scanners]
-        if invalid:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    f"Invalid scanner_overrides for stage '{body.stage}': {invalid}. "
-                    f"Valid names: {stage_scanners}"
-                ),
-            )
+    # Validate stage — 'discover' is a special stage (no scanner list)
+    if body.stage != "discover":
+        stage_scanners = config.scanners_for_stage(body.stage)
+        if not stage_scanners:
+            raise HTTPException(status_code=400, detail=f"Unknown stage: '{body.stage}'")
+        if body.scanner_overrides is not None:
+            if not body.scanner_overrides:
+                raise HTTPException(status_code=400, detail="scanner_overrides must include at least one scanner.")
+            invalid = [s for s in body.scanner_overrides if s not in stage_scanners]
+            if invalid:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Invalid scanner_overrides for stage '{body.stage}': {invalid}. "
+                        f"Valid names: {stage_scanners}"
+                    ),
+                )
 
     loop = asyncio.get_event_loop()
     scan_id = str(uuid.uuid4())
