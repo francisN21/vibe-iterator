@@ -141,7 +141,7 @@ class TestScanRunnerEvents:
             SimpleNamespace(url="http://localhost:3000/dashboard", status_code=302),
         ]
 
-        def crawl_side_effect(session, cfg, *, on_page=None):
+        def crawl_side_effect(session, cfg, *, on_page=None, network_listener=None):
             for page in pages:
                 if on_page:
                     on_page(page)
