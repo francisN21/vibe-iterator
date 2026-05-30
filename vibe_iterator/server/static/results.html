@@ -62,6 +62,25 @@
   </div>
 </div>
 
+<!-- Discovered Surface panel (shown for discover stage only) -->
+<div id="discovery-panel" class="discovery-panel" style="display:none">
+  <div class="discovery-panel__head">
+    <span class="discovery-panel__icon">&#x1F50E;</span>
+    <h2>DISCOVERED SURFACE</h2>
+    <button class="btn btn-ghost discovery-copy-btn" id="copy-discovery-btn" type="button">COPY ALL</button>
+  </div>
+  <div class="discovery-panel__cols">
+    <div class="discovery-col">
+      <div class="discovery-col__label">PAGES <span class="discovery-col__count" id="discovery-pages-count"></span></div>
+      <ul class="discovery-list" id="discovery-pages-list"></ul>
+    </div>
+    <div class="discovery-col">
+      <div class="discovery-col__label">API ENDPOINTS <span class="discovery-col__count" id="discovery-endpoints-count"></span></div>
+      <ul class="discovery-list" id="discovery-endpoints-list"></ul>
+    </div>
+  </div>
+</div>
+
 <!-- Sticky filter bar -->
 <div class="results-filter-bar" id="filter-bar">
   <button class="filter-pill active" data-sev="all">All</button>

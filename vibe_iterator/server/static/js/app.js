@@ -754,6 +754,7 @@ async function initResultsPage() {
   setupActionBar(_results);
   checkCompareAvailability(_results);
   checkDeepDiveHash();
+  renderDiscoverySurface(_results);
 
   // Re-scan goes back home with same stage pre-selected
   document.getElementById('rescan-btn').addEventListener('click', () => {
@@ -1325,6 +1326,41 @@ function checkDeepDiveHash() {
   if (id && _results) {
     setTimeout(() => openDeepDive(id), 200);
   }
+}
+
+function renderDiscoverySurface(r) {
+  const panel = document.getElementById('discovery-panel');
+  if (!panel) return;
+  const ds = r && r.discovered_surface;
+  if (!ds) {
+    panel.style.display = 'none';
+    return;
+  }
+  panel.style.display = '';
+
+  const pages = ds.pages || [];
+  const endpoints = ds.api_endpoints || [];
+
+  document.getElementById('discovery-pages-count').textContent = `(${pages.length})`;
+  document.getElementById('discovery-endpoints-count').textContent = `(${endpoints.length})`;
+
+  const pagesList = document.getElementById('discovery-pages-list');
+  pagesList.innerHTML = pages.map(p => `<li>${escHtml(p)}</li>`).join('');
+
+  const endpointsList = document.getElementById('discovery-endpoints-list');
+  endpointsList.innerHTML = endpoints.map(e => `<li>${escHtml(e)}</li>`).join('');
+
+  document.getElementById('copy-discovery-btn').addEventListener('click', () => {
+    const text = [
+      '=== DISCOVERED PAGES ===',
+      ...pages,
+      '',
+      '=== API ENDPOINTS ===',
+      ...endpoints,
+    ].join('\n');
+    copyToClipboard(text, null);
+    showToast(`Copied ${pages.length} pages + ${endpoints.length} endpoints`);
+  });
 }
 
 // Auto-dispatch init function based on which page is loaded
