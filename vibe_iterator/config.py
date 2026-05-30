@@ -73,6 +73,10 @@ class Config:
     # Limits
     scanner_timeout_seconds: int = 60
 
+    # Spider (endpoint discovery)
+    spider_max_pages: int = 30
+    spider_max_depth: int = 3
+
     @property
     def second_account_configured(self) -> bool:
         """True when both second-account credentials are present."""
@@ -183,6 +187,20 @@ def load_config(
         raise ConfigError("scanner_timeout_seconds must be greater than 0.")
 
     # ------------------------------------------------------------------ #
+    # Spider                                                               #
+    # ------------------------------------------------------------------ #
+    spider_raw = yaml_data.get("spider", {}) or {}
+    try:
+        spider_max_pages = int(spider_raw.get("max_pages", 30))
+        spider_max_depth = int(spider_raw.get("max_depth", 3))
+    except (TypeError, ValueError) as exc:
+        raise ConfigError("spider.max_pages and spider.max_depth must be integers.") from exc
+    if spider_max_pages < 1:
+        raise ConfigError("spider.max_pages must be at least 1.")
+    if spider_max_depth < 0:
+        raise ConfigError("spider.max_depth must be 0 or greater.")
+
+    # ------------------------------------------------------------------ #
     # Pages                                                               #
     # ------------------------------------------------------------------ #
     pages_raw = yaml_data.get("pages", _DEFAULT_PAGES)
@@ -238,4 +256,6 @@ def load_config(
         stack=stack,
         port=port,
         scanner_timeout_seconds=scanner_timeout_seconds,
+        spider_max_pages=spider_max_pages,
+        spider_max_depth=spider_max_depth,
     )
