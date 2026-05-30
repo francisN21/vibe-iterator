@@ -111,8 +111,10 @@ class Scanner(BaseScanner):
                     body = resp.read(2048).decode("utf-8", errors="replace")
             except urllib.error.HTTPError:
                 continue  # 401/403/404 — expected, not exposed
+            except (urllib.error.URLError, OSError, TimeoutError):
+                continue  # connection refused, DNS failure, timeout — path not exposed
             except Exception:
-                continue
+                continue  # any other network error — skip silently
 
             if status != 200:
                 continue
