@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import re
 import sys
 import webbrowser
+from pathlib import Path
 
 import click
 
@@ -97,9 +99,6 @@ def new_scanner(name: str, category: str | None) -> None:
 
     Example: vibe-iterator new-scanner stripe_check --category injection
     """
-    import re
-    from pathlib import Path
-
     from vibe_iterator.scaffold import (
         VALID_CATEGORIES,
         append_registry_row,
@@ -135,7 +134,7 @@ def new_scanner(name: str, category: str | None) -> None:
     scanner_path.write_text(render_scanner(name, category), encoding="utf-8")
     test_path.write_text(render_test(name), encoding="utf-8")
 
-    stages = VALID_CATEGORIES.get(category, ["pre-deploy"]) if category else ["pre-deploy"]
+    stages = VALID_CATEGORIES[category] if category else ["pre-deploy"]
     row = build_registry_row(name, category, stages, ["any"], False)
     scanners_md = root / "docs" / "SCANNERS.md"
     if append_registry_row(str(scanners_md), row):

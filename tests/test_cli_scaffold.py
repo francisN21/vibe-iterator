@@ -48,7 +48,8 @@ def test_new_scanner_updates_registry(tmp_path, monkeypatch):
     _make_repo_tree(tmp_path)
     monkeypatch.chdir(tmp_path)
 
-    CliRunner().invoke(cli, ["new-scanner", "stripe_check", "--category", "injection"])
+    result = CliRunner().invoke(cli, ["new-scanner", "stripe_check", "--category", "injection"])
+    assert result.exit_code == 0, result.output
 
     content = (tmp_path / "docs" / "SCANNERS.md").read_text()
     assert "`stripe_check`" in content
