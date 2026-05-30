@@ -221,6 +221,25 @@ async def get_finding(finding_id: str, request: Request) -> dict:
     raise HTTPException(status_code=404, detail=f"Finding '{finding_id}' not found.")
 
 
+@router.get("/api/history")
+async def get_history(request: Request) -> list:
+    from vibe_iterator.history import list_results
+    config = request.app.state.config
+    return list_results(config.results_dir)
+
+
+@router.get("/api/history/{filename}")
+async def get_historical_result(filename: str, request: Request) -> dict:
+    from vibe_iterator.history import load_result
+    config = request.app.state.config
+    try:
+        return load_result(filename, config.results_dir)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Result not found")
+
+
 @router.post("/api/scan/findings/mark")
 async def mark_findings(body: MarkRequest, request: Request) -> dict:
     runner: ScanRunner | None = getattr(request.app.state, "runner", None)
