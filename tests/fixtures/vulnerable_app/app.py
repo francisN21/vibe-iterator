@@ -6,6 +6,11 @@ Vulnerabilities baked in (all deliberate, local-only):
   - /api/protected  — authenticated in original request but 200 without auth
   - /api/login      — auth endpoint with no rate-limit headers
   - /api/search     — returns SQL error string when ' injected in ?q=
+  - /api/profile    — POST/PATCH echoes all fields including injected ones (mass assignment)
+  - /api/items/{id} — returns items for any numeric ID without auth check (IDOR)
+  - /swagger.json   — exposed API docs (info disclosure)
+  - /.env           — exposed env file (info disclosure)
+  - /api/resource   — GET-only resource but accepts DELETE (method tampering)
   - /               — page with innerHTML DOM sink + no security headers
   - All responses   — no X-Content-Type-Options, no X-Frame-Options, no CSP
 """
@@ -13,6 +18,7 @@ Vulnerabilities baked in (all deliberate, local-only):
 from __future__ import annotations
 
 import json
+import re
 import threading
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -42,13 +48,10 @@ class VulnerableHandler(BaseHTTPRequestHandler):
                 },
             )
         elif path == "/api/protected":
-            # Should require auth but doesn't
             self._respond_json(200, {"secret": "admin-token-abc123"})
         elif path == "/api/admin":
-            # Sensitive path — also unprotected
             self._respond_json(200, {"users": ["alice", "bob"]})
         elif path == "/api/login":
-            # No rate limiting headers
             self._respond_json(200, {"token": "fake-jwt"})
         elif path == "/api/search":
             q = query.get("q", [""])[0]
@@ -59,10 +62,84 @@ class VulnerableHandler(BaseHTTPRequestHandler):
                 )
             else:
                 self._respond_json(200, {"results": []})
+        elif re.match(r"^/api/items/(\d+)$", path):
+            # IDOR: returns data for any numeric ID without auth check
+            item_id = re.match(r"^/api/items/(\d+)$", path).group(1)
+            self._respond_json(200, {"id": int(item_id), "owner_id": 1, "data": "sensitive-value"})
+        elif path == "/api/resource":
+            self._respond_json(200, {"resource": "data"})
+        elif path == "/swagger.json":
+            # Info disclosure: exposed API docs
+            self._respond_json(200, {
+                "openapi": "3.0.0",
+                "info": {"title": "Vulnerable API", "version": "1.0.0"},
+                "paths": {
+                    "/api/admin": {"get": {"summary": "Admin endpoint"}},
+                    "/api/profile": {"post": {"summary": "Create/update profile"}},
+                },
+            })
+        elif path == "/.env":
+            # Info disclosure: exposed env file
+            data = b"DATABASE_URL=postgresql://admin:s3cr3t@localhost/db\nSECRET_KEY=super-secret-key-12345\nSTRIPE_SECRET=sk_live_abc123def456\n"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
         elif path == "/":
             self._respond_html(200, _INDEX_HTML)
         elif path == "/dashboard":
             self._respond_html(200, _DASHBOARD_HTML)
+        else:
+            self._respond_json(404, {"error": "not found"})
+
+    def do_POST(self) -> None:
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path
+        length = int(self.headers.get("Content-Length", 0))
+        body_bytes = self.rfile.read(length) if length else b""
+
+        # Check for method override header
+        override = self.headers.get("X-HTTP-Method-Override", "") or self.headers.get("X-Method-Override", "")
+        if override.upper() == "DELETE" and path == "/api/resource":
+            # Method tampering: should reject override but doesn't
+            self._respond_json(200, {"deleted": True, "message": "resource deleted via override"})
+            return
+
+        if path == "/api/profile":
+            # Mass assignment: echoes ALL submitted fields back (vulnerable)
+            try:
+                submitted = json.loads(body_bytes.decode("utf-8"))
+            except Exception:
+                submitted = {}
+            self._respond_json(201, {"id": 42, **submitted})
+        elif path == "/api/auth/login":
+            self._respond_json(401, {"error": "invalid credentials"})
+        else:
+            self._respond_json(404, {"error": "not found"})
+
+    def do_PATCH(self) -> None:
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path
+        length = int(self.headers.get("Content-Length", 0))
+        body_bytes = self.rfile.read(length) if length else b""
+
+        if path == "/api/profile":
+            # Mass assignment: echoes ALL submitted fields back (vulnerable)
+            try:
+                submitted = json.loads(body_bytes.decode("utf-8"))
+            except Exception:
+                submitted = {}
+            self._respond_json(200, {"id": 42, **submitted})
+        else:
+            self._respond_json(404, {"error": "not found"})
+
+    def do_DELETE(self) -> None:
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path
+        if path == "/api/resource":
+            # Method tampering: should be 405 Method Not Allowed but returns 200
+            self._respond_json(200, {"deleted": True})
         else:
             self._respond_json(404, {"error": "not found"})
 
@@ -72,7 +149,6 @@ class VulnerableHandler(BaseHTTPRequestHandler):
         origin = self.headers.get("Origin", "")
 
         if path == "/api/user":
-            # Reflects origin in OPTIONS preflight too
             self.send_response(200)
             self.send_header("Access-Control-Allow-Origin", origin or "*")
             self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
@@ -85,14 +161,13 @@ class VulnerableHandler(BaseHTTPRequestHandler):
             self.end_headers()
 
     def log_message(self, *args: object) -> None:
-        return  # suppress request logs in test output
+        return
 
     def _respond_json(self, status: int, body: dict, extra_headers: dict | None = None) -> None:
         data = json.dumps(body).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(data)))
-        # Deliberately omit security headers
         for k, v in (extra_headers or {}).items():
             self.send_header(k, v)
         self.end_headers()
@@ -103,7 +178,6 @@ class VulnerableHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
-        # No CSP, no X-Frame-Options, no X-Content-Type-Options
         self.end_headers()
         self.wfile.write(data)
 
@@ -114,15 +188,11 @@ _INDEX_HTML = """<!DOCTYPE html>
 <body>
   <div id="output"></div>
   <script>
-    // DOM XSS sink: reads location.hash and writes to innerHTML
     var hash = location.hash.slice(1);
     document.getElementById('output').innerHTML = decodeURIComponent(hash);
-
-    // Also uses document.write
     if (hash.startsWith('write:')) {
       document.write(hash.slice(6));
     }
-
     fetch('/api/data').then(r => r.json()).then(d => {
       document.getElementById('output').innerHTML += JSON.stringify(d);
     });
@@ -136,10 +206,6 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
 <body><h1>Private Dashboard</h1></body>
 </html>"""
 
-
-# --------------------------------------------------------------------------- #
-# Context-manager server for use in tests                                      #
-# --------------------------------------------------------------------------- #
 
 class VulnerableApp:
     """Start the vulnerable app on a random free port; use as context manager."""
