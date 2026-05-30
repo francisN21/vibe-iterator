@@ -72,6 +72,90 @@ scan.params.append(
 )
 
 
+@cli.command("new-scanner")
+@click.argument("name")
+@click.option(
+    "--category",
+    default=None,
+    type=click.Choice(
+        [
+            "injection",
+            "access_control",
+            "authentication",
+            "client_tampering",
+            "data_leakage",
+            "misconfiguration",
+            "api_security",
+        ]
+    ),
+    help="Scanner category — pre-fills evidence structure and suggests stages.",
+)
+def new_scanner(name: str, category: str | None) -> None:
+    """Generate boilerplate for a new community scanner.
+
+    Run from the vibe-iterator project root.
+
+    Example: vibe-iterator new-scanner stripe_check --category injection
+    """
+    import re
+    from pathlib import Path
+
+    from vibe_iterator.scaffold import (
+        VALID_CATEGORIES,
+        append_registry_row,
+        build_registry_row,
+        render_scanner,
+        render_test,
+    )
+
+    if not re.match(r"^[a-z][a-z0-9_]*$", name):
+        raise click.ClickException(
+            f"Invalid scanner name '{name}'. "
+            "Must be lowercase snake_case (e.g., stripe_check)."
+        )
+
+    root = Path.cwd()
+    scanner_dir = root / "vibe_iterator" / "scanners"
+    test_dir = root / "tests" / "test_scanners"
+
+    if not scanner_dir.is_dir() or not test_dir.is_dir():
+        raise click.ClickException(
+            "Run this command from the vibe-iterator project root.\n"
+            "Expected: vibe_iterator/scanners/ and tests/test_scanners/ in current directory."
+        )
+
+    scanner_path = scanner_dir / f"{name}.py"
+    test_path = test_dir / f"test_{name}.py"
+
+    if scanner_path.exists():
+        raise click.ClickException(f"{scanner_path} already exists. Choose a different name.")
+    if test_path.exists():
+        raise click.ClickException(f"{test_path} already exists. Choose a different name.")
+
+    scanner_path.write_text(render_scanner(name, category), encoding="utf-8")
+    test_path.write_text(render_test(name), encoding="utf-8")
+
+    stages = VALID_CATEGORIES.get(category, ["pre-deploy"]) if category else ["pre-deploy"]
+    row = build_registry_row(name, category, stages, ["any"], False)
+    scanners_md = root / "docs" / "SCANNERS.md"
+    if append_registry_row(str(scanners_md), row):
+        click.echo(f"Updated {scanners_md.relative_to(root)}")
+    else:
+        click.echo(
+            "[WARN] Could not update docs/SCANNERS.md — add the registry row manually.",
+            err=True,
+        )
+
+    click.echo(f"Created vibe_iterator/scanners/{name}.py")
+    click.echo(f"Created tests/test_scanners/test_{name}.py")
+    click.echo()
+    click.echo("Next:")
+    click.echo(f"  1. Fill in the TODOs in vibe_iterator/scanners/{name}.py")
+    click.echo(f"  2. Run: pytest tests/test_scanners/test_{name}.py -v")
+    click.echo("  3. Run the full suite: pytest tests/ -q")
+    click.echo("  4. Open a PR — see CONTRIBUTING.md for the checklist")
+
+
 def _launch_gui(
     *,
     target: str | None,
