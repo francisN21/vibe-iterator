@@ -8,8 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from selenium.common.exceptions import NoSuchElementException, TimeoutException
 
-from vibe_iterator.crawler import auth, navigator
-from vibe_iterator.crawler import browser
+from vibe_iterator.crawler import auth, browser, navigator
 from vibe_iterator.crawler.browser import BrowserSession
 
 

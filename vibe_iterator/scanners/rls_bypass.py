@@ -114,7 +114,8 @@ class Scanner(BaseScanner):
         if not config.second_account_configured:
             return
 
-        from vibe_iterator.crawler.auth import login as auth_login, AuthError
+        from vibe_iterator.crawler.auth import AuthError
+        from vibe_iterator.crawler.auth import login as auth_login
 
         # Get account 1's user ID while still authenticated as account 1
         user1_id = None

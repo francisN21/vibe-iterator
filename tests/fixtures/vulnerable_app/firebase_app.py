@@ -15,7 +15,6 @@ import threading
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-
 _FAKE_TOKEN = (
     "eyJhbGciOiJSUzI1NiJ9"
     ".eyJzdWIiOiJ1aWQxMjMiLCJlbWFpbCI6InRlc3RAZXhhbXBsZS5jb20ifQ"

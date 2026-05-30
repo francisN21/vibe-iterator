@@ -1,10 +1,12 @@
 # tests/test_spider/test_discover_runner.py
 """Tests for discover_runner.py — mocks all spider components, no browser."""
 from __future__ import annotations
+
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-from vibe_iterator.engine.discover_runner import run_discovery, load_sidecar, DiscoveryResult
+
+from vibe_iterator.engine.discover_runner import load_sidecar, run_discovery
 
 
 def _cfg(max_pages: int = 30, max_depth: int = 3) -> MagicMock:

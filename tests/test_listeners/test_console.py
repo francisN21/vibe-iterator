@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import pytest
-
-from vibe_iterator.listeners.console import ConsoleListener, ConsoleEntry
-
+from vibe_iterator.listeners.console import ConsoleListener
 
 # ------------------------------------------------------------------ #
 # Helpers                                                            #

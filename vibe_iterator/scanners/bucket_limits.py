@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import io
-import json
 from typing import Any
 
 from vibe_iterator.scanners.base import BaseScanner, Finding, Severity
@@ -57,8 +55,8 @@ class Scanner(BaseScanner):
         config: Any, findings: list[Finding], stack: str
     ) -> None:
         """Attempt uploads that exceed common plan size limits."""
-        import urllib.request
         import urllib.error
+        import urllib.request
 
         auth_header = f"Bearer {token}" if token else f"Bearer {anon_key}"
 
@@ -133,8 +131,8 @@ class Scanner(BaseScanner):
         config: Any, findings: list[Finding], stack: str
     ) -> None:
         """Attempt to upload potentially dangerous file types."""
-        import urllib.request
         import urllib.error
+        import urllib.request
 
         auth_header = f"Bearer {token}" if token else f"Bearer {anon_key}"
 

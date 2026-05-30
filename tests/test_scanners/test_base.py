@@ -5,7 +5,11 @@ from __future__ import annotations
 import pytest
 
 from vibe_iterator.scanners.base import (
-    BaseScanner, Finding, Screenshot, ScanEvent, Severity,
+    BaseScanner,
+    Finding,
+    ScanEvent,
+    Screenshot,
+    Severity,
 )
 
 

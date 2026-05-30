@@ -5,8 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from vibe_iterator.scanners.bucket_limits import Scanner
-from vibe_iterator.scanners.bucket_limits import _delete_test_object, _discover_buckets
+from vibe_iterator.scanners.bucket_limits import Scanner, _delete_test_object, _discover_buckets
 
 
 class _FakeResponse:

@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import pytest
-
-from vibe_iterator.listeners.network import NetworkListener, NetworkRequest
-
+from vibe_iterator.listeners.network import NetworkListener
 
 # ------------------------------------------------------------------ #
 # Helpers to simulate CDP event delivery                             #

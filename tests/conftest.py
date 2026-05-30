@@ -5,7 +5,7 @@ from __future__ import annotations
 import shutil
 import uuid
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 

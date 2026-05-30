@@ -11,7 +11,7 @@ import urllib.request
 from typing import Any
 
 from vibe_iterator.scanners.base import BaseScanner, Finding, Severity
-from vibe_iterator.utils.supabase_helpers import find_jwts, truncate
+from vibe_iterator.utils.supabase_helpers import truncate
 
 _JWT_PATTERN = re.compile(r"eyJ[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+")
 
@@ -245,7 +245,6 @@ class Scanner(BaseScanner):
                 pass
 
         # 2b — Session cookie flags
-        from vibe_iterator.listeners.storage import StorageListener
         try:
             cookies = session.driver.get_cookies()
             for cookie in cookies:
@@ -578,7 +577,7 @@ class Scanner(BaseScanner):
                         "network_events": [],
                     },
                     llm_prompt=self.build_llm_prompt(
-                        title=f"API endpoint accessible without authentication",
+                        title="API endpoint accessible without authentication",
                         severity=Severity.HIGH, scanner=self.name,
                         page=req.url, category=self.category, description=desc,
                         evidence_summary=f"{req.method} {req.url}\nNo Authorization header → HTTP {code} (not 401).",

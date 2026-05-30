@@ -1,12 +1,14 @@
 # tests/test_config_sidecar.py
 """Test that load_config merges vibe-iterator.discovered.yaml into config.pages."""
 from __future__ import annotations
+
 import os
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
+
 import yaml
-import pytest
+
 from vibe_iterator.config import load_config
 
 

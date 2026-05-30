@@ -352,8 +352,9 @@ async def export_report(request: Request):
     if result.status != "completed":
         raise HTTPException(status_code=409, detail="Only completed scans can be exported.")
 
-    from vibe_iterator.report.generator import generate, default_filename
     from fastapi.responses import HTMLResponse
+
+    from vibe_iterator.report.generator import default_filename, generate
 
     html = generate(result)
     filename = default_filename(result)

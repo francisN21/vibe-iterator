@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import logging
-import time
-from typing import Protocol
 
 from selenium.common.exceptions import NoSuchElementException, TimeoutException
 from selenium.webdriver.common.by import By

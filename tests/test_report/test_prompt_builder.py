@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import uuid
+from datetime import datetime, timezone
 
-from vibe_iterator.report.prompt_builder import build_prompt, _format_evidence
+from vibe_iterator.report.prompt_builder import _format_evidence, build_prompt
 from vibe_iterator.scanners.base import Finding, Severity
 
 

@@ -1,10 +1,12 @@
 # tests/test_engine/test_discover_stage_routing.py
 """Test that runner.run('discover') routes to discover_runner, not scanner pipeline."""
 from __future__ import annotations
+
 import asyncio
-from unittest.mock import MagicMock, patch, AsyncMock
-from vibe_iterator.engine.runner import ScanRunner
+from unittest.mock import MagicMock, patch
+
 from vibe_iterator.engine.discover_runner import DiscoveryResult
+from vibe_iterator.engine.runner import ScanRunner
 
 
 def _make_config() -> MagicMock:
@@ -29,7 +31,7 @@ def test_discover_stage_returns_completed_result():
     )
 
     with patch("vibe_iterator.engine.runner.browser_mod") as mock_browser, \
-         patch("vibe_iterator.engine.runner.run_discovery", return_value=mock_discovery) as mock_run, \
+         patch("vibe_iterator.engine.runner.run_discovery", return_value=mock_discovery), \
          patch("vibe_iterator.engine.runner.NetworkListener") as mock_net_cls:
         mock_session = MagicMock()
         mock_browser.launch.return_value = mock_session

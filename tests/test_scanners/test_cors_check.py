@@ -4,11 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
-from vibe_iterator.scanners.cors_check import Scanner
 from vibe_iterator.scanners.base import Severity
-
+from vibe_iterator.scanners.cors_check import Scanner
 
 # --------------------------------------------------------------------------- #
 # Helpers                                                                      #

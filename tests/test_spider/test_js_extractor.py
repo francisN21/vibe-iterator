@@ -1,6 +1,8 @@
 """Tests for js_extractor.py — mocks session.evaluate, no browser needed."""
 from __future__ import annotations
+
 from unittest.mock import MagicMock
+
 from vibe_iterator.spider.js_extractor import extract_js_routes
 
 

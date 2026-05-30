@@ -10,13 +10,13 @@ from vibe_iterator.scanners.base import BaseScanner, Finding, Severity
 from vibe_iterator.utils.firebase_helpers import (
     PROBE_PREFIX,
     REQUEST_TIMEOUT,
+    build_firebase_llm_prompt,
     detect_firebase_config,
     extract_firebase_config,
     rest_rtdb_delete,
     rest_rtdb_get,
     rest_rtdb_write,
     truncate,
-    build_firebase_llm_prompt,
 )
 
 _COMMON_PATHS = ["users", "config", "admin", "settings", "messages", "profiles", "orders"]

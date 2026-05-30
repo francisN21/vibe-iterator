@@ -12,11 +12,11 @@ from vibe_iterator.scanners.base import BaseScanner, Finding, Severity
 from vibe_iterator.utils.firebase_helpers import (
     IDENTITY_TOOLKIT_BASE,
     REQUEST_TIMEOUT,
+    build_firebase_llm_prompt,
     detect_firebase_config,
     extract_firebase_config,
     find_id_tokens,
     truncate,
-    build_firebase_llm_prompt,
 )
 
 

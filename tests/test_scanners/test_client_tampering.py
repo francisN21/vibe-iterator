@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, call, patch
-
-import pytest
+from unittest.mock import MagicMock, patch
 
 from vibe_iterator.scanners.base import Severity
 from vibe_iterator.scanners.client_tampering import Scanner
-
 
 # --------------------------------------------------------------------------- #
 # Helpers                                                                     #

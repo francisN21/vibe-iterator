@@ -1,9 +1,11 @@
 # tests/test_spider/test_endpoint_harvester.py
 """Tests for endpoint_harvester.py — pure data transform, no I/O."""
 from __future__ import annotations
+
 from unittest.mock import MagicMock
-from vibe_iterator.spider.endpoint_harvester import harvest_endpoints
+
 from vibe_iterator.listeners.network import NetworkRequest
+from vibe_iterator.spider.endpoint_harvester import harvest_endpoints
 
 
 def _req(url: str, method: str = "GET") -> NetworkRequest:

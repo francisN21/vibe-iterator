@@ -1,6 +1,32 @@
 """Unit tests for Firebase helper utilities."""
 from __future__ import annotations
-from vibe_iterator.utils.firebase_helpers import PROBE_PREFIX, REQUEST_TIMEOUT, truncate
+
+import io
+from unittest.mock import MagicMock, patch
+
+from vibe_iterator.utils.firebase_helpers import (
+    PROBE_PREFIX,
+    REQUEST_TIMEOUT,
+    _from_firestore_fields,
+    _to_firestore_fields,
+    build_firebase_llm_prompt,
+    build_firestore_read_snippet,
+    build_firestore_write_snippet,
+    build_rtdb_read_snippet,
+    build_rtdb_write_snippet,
+    build_storage_download_snippet,
+    build_storage_upload_snippet,
+    detect_firebase_config,
+    discover_function_urls,
+    extract_firebase_config,
+    find_id_tokens,
+    get_firebase_id_token,
+    rest_functions_call,
+    rest_rtdb_get,
+    rest_rtdb_write,
+    truncate,
+)
+
 
 def test_constants() -> None:
     assert PROBE_PREFIX == "vibe_iterator_probe_"
@@ -12,11 +38,6 @@ def test_truncate_long_string() -> None:
 def test_truncate_short_string() -> None:
     assert truncate("abc", 10) == "abc"
 
-
-from unittest.mock import MagicMock
-from vibe_iterator.utils.firebase_helpers import (
-    extract_firebase_config, detect_firebase_config,
-)
 
 def test_extract_firebase_config_compat_sdk() -> None:
     session = MagicMock()
@@ -46,14 +67,6 @@ def test_detect_firebase_config_none_when_no_firebase() -> None:
     req.url = "https://example.com/api/data"
     assert detect_firebase_config([req]) is None
 
-
-from vibe_iterator.utils.firebase_helpers import (
-    get_firebase_id_token,
-    build_firestore_read_snippet, build_firestore_write_snippet,
-    build_rtdb_read_snippet, build_rtdb_write_snippet,
-    build_storage_download_snippet, build_storage_upload_snippet,
-    PROBE_PREFIX,
-)
 
 def test_get_firebase_id_token_returns_token() -> None:
     session = MagicMock()
@@ -91,18 +104,6 @@ def test_storage_snippets_contain_path() -> None:
     assert "avatars/user1.png" in dl
     assert PROBE_PREFIX in ul
 
-
-import io
-from unittest.mock import patch
-from vibe_iterator.utils.firebase_helpers import (
-    rest_rtdb_get, rest_rtdb_write, rest_rtdb_delete,
-    rest_firestore_get, rest_firestore_write, rest_firestore_delete,
-    rest_storage_download, rest_storage_upload, rest_storage_delete,
-    _to_firestore_fields, _from_firestore_fields,
-    discover_function_urls, find_id_tokens,
-    rest_functions_call, build_firebase_llm_prompt,
-    PROBE_PREFIX,
-)
 
 def _fake_resp(body: str, status: int):
     r = MagicMock()

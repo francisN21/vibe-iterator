@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
-from vibe_iterator.server.websocket import WebSocketManager
 from fastapi.websockets import WebSocketState
 
+from vibe_iterator.server.websocket import WebSocketManager
 
 # --------------------------------------------------------------------------- #
 # Helpers                                                                     #

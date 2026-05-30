@@ -7,7 +7,6 @@ import time
 from dataclasses import dataclass
 
 from selenium.common.exceptions import WebDriverException
-from selenium.webdriver.support.ui import WebDriverWait
 
 from vibe_iterator.config import Config
 from vibe_iterator.crawler.browser import BrowserSession

@@ -4,13 +4,10 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-import pytest
-
+from vibe_iterator.listeners.console import ConsoleEntry, ConsoleListener
+from vibe_iterator.listeners.network import NetworkListener, NetworkRequest
 from vibe_iterator.scanners.base import Severity
 from vibe_iterator.scanners.data_leakage import Scanner
-from vibe_iterator.listeners.network import NetworkListener, NetworkRequest
-from vibe_iterator.listeners.console import ConsoleListener, ConsoleEntry
-
 
 # --------------------------------------------------------------------------- #
 # Helpers                                                                     #

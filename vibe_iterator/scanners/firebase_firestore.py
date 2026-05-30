@@ -12,12 +12,12 @@ from vibe_iterator.scanners.base import BaseScanner, Finding, Severity
 from vibe_iterator.utils.firebase_helpers import (
     PROBE_PREFIX,
     REQUEST_TIMEOUT,
+    _from_firestore_fields,
+    _to_firestore_fields,
+    build_firebase_llm_prompt,
     detect_firebase_config,
     extract_firebase_config,
     truncate,
-    build_firebase_llm_prompt,
-    _to_firestore_fields,
-    _from_firestore_fields,
 )
 
 _COMMON_COLLECTIONS = [

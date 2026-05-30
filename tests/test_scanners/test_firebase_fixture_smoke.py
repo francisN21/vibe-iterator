@@ -1,8 +1,11 @@
 """Smoke test: fixture starts, routes respond, fixture stops cleanly."""
 from __future__ import annotations
-import urllib.request
+
 import urllib.error
+import urllib.request
+
 from tests.fixtures.vulnerable_app.firebase_app import FirebaseVulnerableApp
+
 
 def test_fixture_starts_and_serves_rtdb_root() -> None:
     with FirebaseVulnerableApp() as app:

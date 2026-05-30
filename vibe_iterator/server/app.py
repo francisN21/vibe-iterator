@@ -5,8 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import FastAPI, Request, WebSocket
-from fastapi.responses import Response
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from vibe_iterator.config import Config

@@ -6,8 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from vibe_iterator.config import load_config, _DEFAULT_STAGES, _VALID_SCANNER_NAMES
-
+from vibe_iterator.config import _DEFAULT_STAGES, _VALID_SCANNER_NAMES, load_config
 
 # --------------------------------------------------------------------------- #
 # Priority resolution                                                          #

@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import hashlib
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from vibe_iterator.crawler.browser import BrowserSession
     from vibe_iterator.config import Config
+    from vibe_iterator.crawler.browser import BrowserSession
 
 
 class Severity(Enum):

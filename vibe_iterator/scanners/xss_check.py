@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import re
 import ssl
-import urllib.request
 import urllib.parse
+import urllib.request
 from typing import Any
 
 from vibe_iterator.scanners.base import BaseScanner, Finding, Severity

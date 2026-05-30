@@ -7,10 +7,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from vibe_iterator.engine.runner import ScanResult, ScannerResult
+from vibe_iterator.engine.runner import ScannerResult, ScanResult
 from vibe_iterator.scanners.base import Finding, Severity
 from vibe_iterator.server.app import create_app
-
 
 # --------------------------------------------------------------------------- #
 # Helpers                                                                     #

@@ -16,7 +16,6 @@ import json
 import threading
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Iterator
 
 
 class VulnerableHandler(BaseHTTPRequestHandler):

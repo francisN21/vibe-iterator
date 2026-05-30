@@ -2,16 +2,12 @@
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 from click.testing import CliRunner
 
-from vibe_iterator.cli import cli, _check_target_reachable
-
+from vibe_iterator.cli import _check_target_reachable, cli
 
 # --------------------------------------------------------------------------- #
 # Headless scan — core wiring                                                  #
@@ -183,7 +179,6 @@ def test_check_target_reachable_returns_true_on_http_error() -> None:
 
 
 def test_check_target_reachable_returns_false_on_connection_error() -> None:
-    import urllib.error
     with patch("urllib.request.urlopen", side_effect=ConnectionRefusedError("refused")):
         assert _check_target_reachable("http://localhost:3000") is False
 

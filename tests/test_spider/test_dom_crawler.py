@@ -1,8 +1,10 @@
 # tests/test_spider/test_dom_crawler.py
 """Tests for dom_crawler.py — mocks Selenium driver, no real browser."""
 from __future__ import annotations
-from unittest.mock import MagicMock, patch
-from vibe_iterator.spider.dom_crawler import crawl_dom, _to_path
+
+from unittest.mock import MagicMock
+
+from vibe_iterator.spider.dom_crawler import _to_path, crawl_dom
 
 
 def _mock_session(pages: dict[str, list[str]]) -> MagicMock:

@@ -2,18 +2,13 @@
 
 from __future__ import annotations
 
-import json
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import MagicMock
 
-import pytest
-
-from vibe_iterator.engine.runner import ScanResult, ScannerResult
-from vibe_iterator.report.generator import generate, default_filename
+from vibe_iterator.engine.runner import ScannerResult, ScanResult
+from vibe_iterator.report.generator import default_filename, generate
 from vibe_iterator.scanners.base import Finding, Severity
-
 
 # --------------------------------------------------------------------------- #
 # Helpers                                                                      #

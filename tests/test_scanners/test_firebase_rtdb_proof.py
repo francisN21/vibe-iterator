@@ -1,10 +1,14 @@
 """firebase_rtdb scanner proof tests."""
 from __future__ import annotations
+
 from unittest.mock import MagicMock
+
 import pytest
+
 from tests.fixtures.vulnerable_app.firebase_app import FirebaseVulnerableApp
-from vibe_iterator.scanners.firebase_rtdb import Scanner
 from vibe_iterator.scanners.base import Severity
+from vibe_iterator.scanners.firebase_rtdb import Scanner
+
 
 @pytest.fixture(scope="module")
 def vuln_app():

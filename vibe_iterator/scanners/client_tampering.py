@@ -7,7 +7,6 @@ import time
 from typing import Any
 
 from vibe_iterator.scanners.base import BaseScanner, Finding, Severity
-from vibe_iterator.utils.supabase_helpers import truncate
 
 # Keys that indicate roles, permissions, or feature flags
 _ROLE_KEYS = [

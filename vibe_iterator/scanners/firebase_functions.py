@@ -10,12 +10,12 @@ from typing import Any
 from vibe_iterator.scanners.base import BaseScanner, Finding, Severity
 from vibe_iterator.utils.firebase_helpers import (
     REQUEST_TIMEOUT,
+    build_firebase_llm_prompt,
     detect_firebase_config,
     discover_function_urls,
     extract_firebase_config,
     find_id_tokens,
     truncate,
-    build_firebase_llm_prompt,
 )
 
 _ADMIN_FN_NAMES = [

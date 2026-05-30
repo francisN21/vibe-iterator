@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import logging
+import urllib.error
+import urllib.request
 from urllib.parse import urlparse
 from xml.etree import ElementTree
-
-import urllib.request
-import urllib.error
 
 logger = logging.getLogger(__name__)
 

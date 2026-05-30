@@ -1,9 +1,10 @@
 # tests/test_spider/test_sitemap.py
 """Tests for sitemap.py — stdlib HTTP fixture, no Selenium."""
 from __future__ import annotations
+
 import http.server
 import threading
-import pytest
+
 from vibe_iterator.spider.sitemap import fetch_sitemap_routes
 
 

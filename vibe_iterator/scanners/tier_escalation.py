@@ -6,7 +6,7 @@ import json
 from typing import Any
 
 from vibe_iterator.scanners.base import BaseScanner, Finding, Severity
-from vibe_iterator.utils.supabase_helpers import build_rpc_snippet, truncate
+from vibe_iterator.utils.supabase_helpers import build_rpc_snippet
 
 _TIER_KEYS = [
     "plan", "tier", "subscription", "subscription_tier", "plan_name",
@@ -75,7 +75,6 @@ class Scanner(BaseScanner):
                 session.navigate(page)
 
                 # Check if any API calls now reflect the escalated tier
-                from vibe_iterator.listeners.network import NetworkListener
                 # Re-read storage after navigation
                 read_script = f"(function(){{ return {storage_type}.getItem('{key}'); }})()"
                 server_saw_value = session.evaluate(read_script)
@@ -83,9 +82,9 @@ class Scanner(BaseScanner):
                 # Check Supabase user metadata if available
                 rpc_script = build_rpc_snippet("get_user_tier")
                 try:
-                    rpc_result = session.evaluate(rpc_script)
+                    session.evaluate(rpc_script)
                 except Exception:
-                    rpc_result = None
+                    pass
 
                 # Heuristic: if page loaded without error and server didn't reset the value,
                 # the server may be trusting the client-side tier

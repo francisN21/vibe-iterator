@@ -12,7 +12,6 @@ from typing import Any
 
 from vibe_iterator.scanners.base import BaseScanner, Finding, Severity
 from vibe_iterator.utils.supabase_helpers import (
-    is_postgrest_error,
     parse_postgrest_url,
     truncate,
 )
@@ -401,8 +400,6 @@ class Scanner(BaseScanner):
             inputs = session.driver.find_elements(By.CSS_SELECTOR, "input[type='text'], input[type='search'], textarea")
         except Exception:
             return
-
-        token = _get_auth_headers(config)
 
         for input_el in inputs[:5]:
             try:

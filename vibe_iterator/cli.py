@@ -192,8 +192,8 @@ def _print_event(event: object) -> None:
 
 def _check_target_reachable(target: str) -> bool:
     """Quick HTTP HEAD/GET check to verify the target is up."""
-    import urllib.request
     import ssl
+    import urllib.request
     try:
         ctx = ssl._create_unverified_context()
         req = urllib.request.Request(target, method="HEAD", headers={"User-Agent": "vibe-iterator/health-check"})

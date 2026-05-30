@@ -7,15 +7,15 @@ import importlib
 import logging
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable
 
 from vibe_iterator.config import Config
 from vibe_iterator.crawler import browser as browser_mod
-from vibe_iterator.listeners.network import NetworkListener
 from vibe_iterator.engine.discover_runner import DiscoveryResult, run_discovery
-from vibe_iterator.scanners.base import Finding, ScanEvent, Severity
+from vibe_iterator.listeners.network import NetworkListener
+from vibe_iterator.scanners.base import Finding, ScanEvent
 
 logger = logging.getLogger(__name__)
 

@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
 from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from vibe_iterator.engine.runner import (
-    ScanRunner, ScanResult, ScannerResult, compute_score, GRADE_THRESHOLDS,
+    ScannerResult,
+    ScanResult,
+    ScanRunner,
+    compute_score,
 )
 from vibe_iterator.scanners.base import Finding, ScanEvent, Severity
-
 
 # --------------------------------------------------------------------------- #
 # Helpers                                                                     #
@@ -92,7 +94,7 @@ class TestScanRunnerEvents:
     async def test_emits_scan_started_event(self) -> None:
         events: list[ScanEvent] = []
         config = _make_config(["data_leakage"])
-        runner = ScanRunner(config, on_event=events.append)
+        ScanRunner(config, on_event=events.append)
 
         mock_scanner = MagicMock()
         mock_scanner.name = "data_leakage"
@@ -175,7 +177,6 @@ class TestScanRunnerEvents:
         assert runner.get_result() is None
 
         # Simulate partial state (as engine would do at the start of run())
-        from vibe_iterator.engine.runner import ScanResult
         import uuid
         from datetime import datetime, timezone
         runner._result = ScanResult(
@@ -219,7 +220,6 @@ class TestScanRunnerErrorRecovery:
         runner = ScanRunner(config, on_event=lambda e: None)
         assert runner.get_result() is None
 
-        from vibe_iterator.engine.runner import ScanResult
         import uuid
         from datetime import datetime, timezone
         runner._result = ScanResult(

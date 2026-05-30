@@ -1,7 +1,8 @@
 # tests/test_engine/test_discover_result_serialization.py
 """Tests for discovered_surface field in ScanResult and _result_dict serialization."""
 from __future__ import annotations
-from vibe_iterator.engine.runner import ScanResult, ScannerResult
+
+from vibe_iterator.engine.runner import ScanResult
 from vibe_iterator.server.routes import _result_dict
 
 

@@ -4,10 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-import pytest
-
-from vibe_iterator.listeners.storage import StorageListener, StorageSnapshot
-
+from vibe_iterator.listeners.storage import StorageListener
 
 # ------------------------------------------------------------------ #
 # Helpers                                                            #

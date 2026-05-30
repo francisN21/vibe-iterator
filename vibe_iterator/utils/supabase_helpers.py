@@ -6,7 +6,6 @@ import json
 import re
 from typing import Any
 
-
 # --------------------------------------------------------------------------- #
 # CDP snippet builders                                                         #
 # --------------------------------------------------------------------------- #
@@ -93,7 +92,7 @@ def parse_postgrest_url(url: str) -> dict[str, Any]:
 
     table = match.group(1).split("?")[0]
 
-    from urllib.parse import urlparse, parse_qs
+    from urllib.parse import parse_qs, urlparse
     parsed = urlparse(url)
     params = parse_qs(parsed.query, keep_blank_values=True)
 
