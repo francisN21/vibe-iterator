@@ -1544,7 +1544,7 @@ code, pre { font-family: var(--font-mono); }
   background: var(--bg-card);
   border: 1px solid var(--border-bright);
   border-radius: 4px;
-  color: var(--text-primary);
+  color: var(--text);
   font-family: var(--font-mono);
   font-size: 12px;
   padding: 0.4rem 0.6rem;
