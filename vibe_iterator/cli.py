@@ -250,6 +250,13 @@ def _run_headless(
         click.echo(f"[ERROR] Scan failed: {exc}", err=True)
         sys.exit(1)
 
+    from vibe_iterator.history import save_result
+    try:
+        saved_path = save_result(result, config.results_dir)
+        click.echo(f"[vibe-iterator] Result saved to: {saved_path}")
+    except Exception as exc:
+        click.echo(f"[WARN] Could not save result: {exc}", err=True)
+
     click.echo(
         f"[vibe-iterator] Complete: status={result.status} "
         f"findings={len(result.findings)} score={result.score or 'n/a'}"

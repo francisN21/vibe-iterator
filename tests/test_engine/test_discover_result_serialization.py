@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from vibe_iterator.engine.runner import ScanResult
-from vibe_iterator.server.routes import _result_dict
+from vibe_iterator.history import serialize_result as _result_dict
 
 
 def _base_result(**overrides) -> ScanResult:

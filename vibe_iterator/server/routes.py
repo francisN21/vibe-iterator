@@ -174,6 +174,14 @@ async def start_scan(body: StartScanRequest, request: Request) -> dict:
     def _on_done(t: asyncio.Task) -> None:
         if not t.cancelled() and t.exception():
             logger.exception("Background scan task failed", exc_info=t.exception())
+            return
+        result = new_runner.get_result()
+        if result is not None:
+            from vibe_iterator.history import save_result
+            try:
+                save_result(result, config.results_dir)
+            except Exception as exc:
+                logger.warning("Could not save scan result: %s", exc)
 
     task.add_done_callback(_on_done)
     request.app.state.scan_task = task
