@@ -12,7 +12,9 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 
 from vibe_iterator.config import Config
-from vibe_iterator.engine.discover_runner import DiscoveryResult
+from vibe_iterator.crawler import browser as browser_mod
+from vibe_iterator.listeners.network import NetworkListener
+from vibe_iterator.engine.discover_runner import DiscoveryResult, run_discovery
 from vibe_iterator.scanners.base import Finding, ScanEvent, Severity
 
 logger = logging.getLogger(__name__)
@@ -157,10 +159,11 @@ class ScanRunner:
 
     async def run(self, stage: str) -> ScanResult:
         """Execute all scanners for the given stage and return the ScanResult."""
-        from vibe_iterator.crawler import browser as browser_mod
+        if stage == "discover":
+            return await self._run_discovery()
+
         from vibe_iterator.crawler import auth as auth_mod
         from vibe_iterator.crawler import navigator as nav_mod
-        from vibe_iterator.listeners.network import NetworkListener
         from vibe_iterator.listeners.console import ConsoleListener
         from vibe_iterator.listeners.storage import StorageListener
 
@@ -435,6 +438,98 @@ class ScanRunner:
             try:
                 network.detach()
                 console.detach()
+            except Exception:
+                pass
+
+        assert self._result is not None
+        return self._result
+
+    async def _run_discovery(self) -> ScanResult:
+        """Run the spider/discovery pipeline and return a ScanResult."""
+        scan_id = self.scan_id
+        started_at = datetime.now(timezone.utc).isoformat()
+        scan_start = time.monotonic()
+
+        self._result = ScanResult(
+            scan_id=scan_id,
+            stage="discover",
+            target=self.config.target,
+            status="running",
+            started_at=started_at,
+            completed_at=None,
+            findings=[],
+            scanner_results=[],
+            finding_marks=[],
+            score=None,
+            score_grade=None,
+            duration_seconds=None,
+            pages_crawled=[],
+            requests_captured={"total": 0, "GET": 0, "POST": 0, "PUT": 0, "DELETE": 0, "PATCH": 0},
+            stack_detected=self.config.stack.backend,
+            stack_detection_source=self.config.stack.detection_source,
+            second_account_used=False,
+            scanner_overrides_applied=None,
+            discovered_surface=None,
+        )
+
+        self._emit("scan_started", {
+            "stage": "discover",
+            "target": self.config.target,
+            "scanner_count": 0,
+            "scanner_names": [],
+            "pages": self.config.pages,
+        })
+
+        session = None
+        network = NetworkListener()
+        try:
+            session = browser_mod.launch(headless=self.browser_headless)
+            network.attach(session)
+
+            def _on_progress(msg: str) -> None:
+                self._emit("scanner_progress", {
+                    "scanner_name": "spider",
+                    "message": msg,
+                    "level": "info",
+                })
+
+            discovery = run_discovery(
+                self.config, session, network,
+                on_progress=_on_progress,
+            )
+            self._result.discovered_surface = discovery
+            self._result.requests_captured = network.summary()
+            self._result.status = "completed"
+            self._result.completed_at = datetime.now(timezone.utc).isoformat()
+            self._result.duration_seconds = round(time.monotonic() - scan_start, 2)
+
+            self._emit("scan_completed", {
+                "total_findings": 0,
+                "by_severity": {},
+                "duration_seconds": self._result.duration_seconds,
+                "score": None,
+                "score_grade": None,
+                "scanners_run": 0,
+                "scanners_skipped": 0,
+            })
+
+        except Exception as exc:
+            logger.exception("Discovery run failed")
+            self._emit("scan_error", {
+                "error_type": "browser_crash",
+                "error": str(exc),
+                "recoverable": False,
+            })
+            if self._result:
+                self._result.status = "error"
+                self._result.completed_at = datetime.now(timezone.utc).isoformat()
+                self._result.duration_seconds = round(time.monotonic() - scan_start, 2)
+
+        finally:
+            if session:
+                session.quit()
+            try:
+                network.detach()
             except Exception:
                 pass
 
