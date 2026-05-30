@@ -1,32 +1,33 @@
-"""Tests for the ConsoleListener — uses mock CDP events, no live browser."""
+"""Tests for the ConsoleListener — uses mock Chrome browser log entries, no live browser."""
 
 from __future__ import annotations
 
 from vibe_iterator.listeners.console import ConsoleListener
 
+# Chrome browser log level names
+_CHROME_LEVELS = {"error": "SEVERE", "warn": "WARNING", "log": "INFO", "debug": "DEBUG"}
+
+
 # ------------------------------------------------------------------ #
-# Helpers                                                            #
+# Helpers                                                             #
 # ------------------------------------------------------------------ #
 
 def _fire_log_entry(listener: ConsoleListener, level: str, text: str, url: str | None = None) -> None:
-    listener._on_log_entry({
-        "entry": {
-            "level": level,
-            "text": text,
-            "url": url,
-            "lineNumber": 42,
-            "timestamp": 1000.0,
-        }
-    })
+    """Inject a Chrome browser log entry (Log domain format)."""
+    chrome_level = _CHROME_LEVELS.get(level, "INFO")
+    if url:
+        message = f"{url} 42 | {text}"
+    else:
+        message = text
+    listener._process_entry({"level": chrome_level, "message": message, "timestamp": 1000.0})
 
 
 def _fire_console_api(listener: ConsoleListener, level: str, *values: str) -> None:
-    listener._on_console_api({
-        "type": level,
-        "args": [{"value": v} for v in values],
-        "stackTrace": {"callFrames": [{"url": "http://app.com/main.js", "lineNumber": 10}]},
-        "timestamp": 1001.0,
-    })
+    """Inject a Chrome browser log entry (Runtime.consoleAPICalled format)."""
+    chrome_level = _CHROME_LEVELS.get(level, "INFO")
+    combined = " ".join(values)
+    message = f"http://app.com/main.js 10 | {combined}"
+    listener._process_entry({"level": chrome_level, "message": message, "timestamp": 1001.0})
 
 
 # ------------------------------------------------------------------ #

@@ -429,6 +429,7 @@ function setCdpStatus(state) {
   const dot = document.getElementById('cdp-dot');
   const label = document.getElementById('cdp-label');
   const indicator = document.getElementById('cdp-indicator');
+  if (!dot || !label) return;
   if (state === 'connected') {
     dot.style.cssText = 'background:var(--green);box-shadow:0 0 6px var(--green)';
     label.textContent = 'CDP connected';

@@ -90,7 +90,7 @@ def launch(*, headless: bool = False) -> BrowserSession:
     # Capture all CDP network events via Chrome's performance log.
     # Selenium 4.20+ removed add_cdp_listener; performance logging is the
     # supported polling-based alternative that works across all Selenium 4.x.
-    options.set_capability("goog:loggingPrefs", {"performance": "ALL"})
+    options.set_capability("goog:loggingPrefs", {"performance": "ALL", "browser": "ALL"})
 
     # Keep a clean profile per run to avoid cross-scan state leakage
     options.add_argument("--incognito")
