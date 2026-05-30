@@ -24,6 +24,7 @@ htmlcov/
 
 # Vibe Iterator runtime artifacts
 .vibe-iterator/
+vibe-iterator-results/
 vibe-iterator-report-*.html
 screenshots/
 
