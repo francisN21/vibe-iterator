@@ -27,6 +27,14 @@
   </div>
 </header>
 
+<!-- Scan History -->
+<div id="history-panel" class="history-panel" style="display:none">
+  <span class="history-label">SCAN HISTORY</span>
+  <select id="history-select" class="history-select" onchange="loadHistoricalResult(this.value)">
+    <!-- populated by loadHistory() -->
+  </select>
+</div>
+
 <!-- Executive Summary -->
 <div class="exec-summary" id="exec-summary">
   <div class="score-block">

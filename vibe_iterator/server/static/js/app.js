@@ -726,6 +726,19 @@ let _activeFilter = { sev: 'all', search: '', showSkipped: false, showPassed: fa
 let _allFindings = [];
 let _filterChangeTimer = null;
 
+function renderResults(data) {
+  _allFindings = data.findings;
+  renderExecSummary(data);
+  renderFindings(data);
+  renderPassedChecks(data);
+  setupResultsFilters();
+  setupMarkActions();
+  setupActionBar(data);
+  checkCompareAvailability(data);
+  checkDeepDiveHash();
+  renderDiscoverySurface(data);
+}
+
 async function initResultsPage() {
   try {
     _results = await apiFetch('/api/scan/results');
@@ -745,21 +758,55 @@ async function initResultsPage() {
     return;
   }
 
-  _allFindings = _results.findings;
-  renderExecSummary(_results);
-  renderFindings(_results);
-  renderPassedChecks(_results);
-  setupResultsFilters();
-  setupMarkActions();
-  setupActionBar(_results);
-  checkCompareAvailability(_results);
-  checkDeepDiveHash();
-  renderDiscoverySurface(_results);
+  renderResults(_results);
+  await loadHistory();
 
   // Re-scan goes back home with same stage pre-selected
   document.getElementById('rescan-btn').addEventListener('click', () => {
     window.location.href = '/';
   });
+}
+
+async function loadHistory() {
+  try {
+    const res = await fetch('/api/history');
+    const items = await res.json();
+    if (!items.length) return;
+
+    const panel = document.getElementById('history-panel');
+    const select = document.getElementById('history-select');
+    panel.style.display = 'flex';
+
+    const current = document.createElement('option');
+    current.value = '';
+    current.textContent = '(current scan)';
+    select.appendChild(current);
+
+    items.forEach(item => {
+      const opt = document.createElement('option');
+      opt.value = item.filename;
+      const ts = item.timestamp ? item.timestamp.slice(0, 16).replace('T', ' ') : '';
+      opt.textContent = `${ts} — ${item.stage} — score ${item.score ?? 'n/a'} (${item.finding_count} findings)`;
+      select.appendChild(opt);
+    });
+  } catch (e) {
+    console.warn('Could not load scan history:', e);
+  }
+}
+
+async function loadHistoricalResult(filename) {
+  if (!filename) {
+    renderResults(_results);
+    return;
+  }
+  try {
+    const res = await fetch(`/api/history/${encodeURIComponent(filename)}`);
+    if (!res.ok) { console.warn('History load failed:', res.status); return; }
+    const data = await res.json();
+    renderResults(data);
+  } catch (e) {
+    console.warn('Could not load historical result:', e);
+  }
 }
 
 function renderExecSummary(r) {
