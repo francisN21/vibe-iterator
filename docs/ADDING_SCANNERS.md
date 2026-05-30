@@ -1,27 +1,51 @@
-# ADDING_SCANNERS.md — Contributor Guide: Writing a New Scanner
+﻿# Adding a New Scanner
 
-This guide walks you through adding a new scanner to Vibe Iterator from scratch. By the end you'll have a working scanner that shows up in the dashboard, emits findings, and has passing tests.
+This guide walks you through building and shipping a new scanner for vibe-iterator from scratch.
 
----
-
-## Overview
-
-Every scanner is a Python module in `vibe_iterator/scanners/`. It exports a single class named `Scanner` that extends `BaseScanner`. The engine discovers scanners by name and calls `scanner.run(session, listeners, config)`.
-
-Scanners are **synchronous** — the engine runs them in a thread via `asyncio.to_thread()` so the WebSocket stays alive during scanning. Never `await` inside a scanner.
-
----
-
-## Step 1 — Create the scanner module
+For a quick scaffold, run:
 
 ```bash
-touch vibe_iterator/scanners/my_scanner.py
+vibe-iterator new-scanner my_scanner --category injection
 ```
 
-Start with this template:
+That generates the boilerplate described below. Read this guide to understand what to fill in.
+
+---
+
+## 1. Understand BaseScanner
+
+Every scanner lives in `vibe_iterator/scanners/` and inherits from `BaseScanner`:
 
 ```python
-"""my_scanner — short description of what it checks."""
+# vibe_iterator/scanners/base.py
+class BaseScanner:
+    name: str          # snake_case identifier, unique across all scanners
+    stages: list[str]  # when this scanner runs: "pre-deploy", "post-deploy", or both
+    category: str      # one of the 7 valid categories (see below)
+    requires_stack: list[str]   # ["supabase"], ["firebase"], or ["any"]
+    requires_second_account: bool  # True if scanner needs a second test account
+
+    def run(
+        self,
+        session: BrowserSession | None,
+        listeners: dict[str, Any],
+        config: Config,
+    ) -> list[Finding]:
+        ...
+```
+
+**Valid categories:** `injection`, `access_control`, `authentication`, `client_tampering`, `data_leakage`, `misconfiguration`, `api_security`
+
+**Valid stages:** `dev`, `pre-deploy`, `post-deploy`, `all`
+
+---
+
+## 2. Create the Scanner File
+
+Create `vibe_iterator/scanners/my_scanner.py`:
+
+```python
+"""My scanner -- one-line description of what it detects."""
 
 from __future__ import annotations
 
@@ -32,265 +56,207 @@ from vibe_iterator.scanners.base import BaseScanner, Finding, Severity
 
 class Scanner(BaseScanner):
     name = "my_scanner"
-    category = "My Category"           # Shown in dashboard and report
-    stages = ["pre-deploy"]            # Which stages include this scanner
-    requires_stack = ["any"]           # ["supabase"] to restrict to Supabase apps
-    requires_second_account = False    # True if cross-user testing needed
+    stages = ["pre-deploy"]
+    category = "injection"
+    requires_stack = ["any"]
+    requires_second_account = False
 
-    def run(self, session: Any, listeners: dict, config: Any) -> list[Finding]:
+    def run(
+        self,
+        session: Any,
+        listeners: dict[str, Any],
+        config: Any,
+    ) -> list[Finding]:
         findings: list[Finding] = []
-        stack = config.stack.backend if hasattr(config, "stack") else "unknown"
 
-        # Your scanning logic here
-        # session       — Selenium BrowserSession (may be None in passive tests)
-        # listeners     — dict with "network", "console", "storage" listeners
-        # config        — Config dataclass (target, pages, stack, credentials)
+        # Your detection logic here.
+        # Use listeners["network"].get_requests() for captured HTTP traffic.
+        # Use listeners["storage"].get_latest() for localStorage / cookies.
+        # Use config.target for the base URL.
 
         return findings
 ```
 
----
-
-## Step 2 — Implement `run()`
-
-### Access captured network traffic
+### Emitting a Finding
 
 ```python
-network = listeners["network"]
-for req in network.get_requests():
-    # req.url, req.method, req.headers, req.response_headers, req.status_code
-    # req.request_body, req.response_body
-    pass
-```
-
-### Access console output
-
-```python
-console = listeners["console"]
-for entry in console.get_entries():
-    # entry.level ("log"|"warn"|"error"), entry.text, entry.url
-    pass
-```
-
-### Access storage (localStorage / sessionStorage / cookies)
-
-```python
-storage = listeners["storage"]
-snapshot = storage.get_latest()
-# snapshot.local_storage  — dict
-# snapshot.session_storage — dict
-# snapshot.cookies        — list of dicts
-```
-
-### Execute JavaScript in the browser
-
-```python
-if session is not None:
-    result = session.evaluate("document.title")
-```
-
-### Make direct HTTP requests (no browser)
-
-For scanners that test endpoints outside the browser (CORS, API headers):
-
-```python
-import ssl
-import urllib.request
-
-ctx = ssl._create_unverified_context()
-req = urllib.request.Request(url, headers={"Origin": "https://evil.com"})
-with urllib.request.urlopen(req, timeout=5, context=ctx) as resp:
-    headers = {k.lower(): v for k, v in resp.headers.items()}
-```
-
----
-
-## Step 3 — Create Findings
-
-Use `self.new_finding(...)` and `self.build_llm_prompt(...)` from `BaseScanner`:
-
-```python
-desc = (
-    "The endpoint returns sensitive data without authentication. "
-    "An attacker can access this endpoint without logging in."
-)
-
-findings.append(self.new_finding(
-    scanner=self.name,
-    severity=Severity.HIGH,
-    title="Unauthenticated access to sensitive endpoint",
-    description=desc,
-    evidence={
-        "endpoint": req.url,
-        "test_performed": "replay_without_auth",
-        "request": {"method": req.method, "url": req.url},
-        "response": {"status": 200, "body_excerpt": "(data returned)"},
-        "expected_response": "401 Unauthorized",
-        "actual_response": "200 OK",
-    },
-    llm_prompt=self.build_llm_prompt(
-        title="Unauthenticated access to sensitive endpoint",
-        severity=Severity.HIGH,
+findings.append(
+    Finding(
         scanner=self.name,
-        page=req.url,
+        severity=Severity.HIGH,
+        title="Descriptive title of the vulnerability",
+        description="What the vulnerability is and why it matters.",
+        evidence={
+            "url": "https://example.com/api/endpoint",
+            "payload": "injected payload",
+            "response": "error message that proves the issue",
+        },
+        remediation="How the developer should fix this.",
         category=self.category,
-        description=desc,
-        evidence_summary=f"Endpoint: {req.url}\nExpected: 401\nActual: 200",
-        stack=stack,
-    ),
-    remediation=(
-        "**What to fix:** This endpoint does not require authentication.\n\n"
-        "**How to fix:** Add authentication middleware that checks for a valid session "
-        "before returning data. For Supabase/Next.js: check `session` server-side. "
-        "For Express: add a `requireAuth` middleware.\n\n"
-        "**Verify the fix:** Re-run the scanner — the endpoint should return 401."
-    ),
-    category=self.category,
-    page=req.url,
-))
+        page=config.target,
+        llm_prompt=(
+            "You have a SQL injection vulnerability at /api/endpoint. "
+            "The payload `OR 1=1--` returns all rows. Fix: use parameterized queries."
+        ),
+    )
+)
 ```
 
-### Severity guide
-
-| Severity | When to use |
-|----------|-------------|
-| `CRITICAL` | Direct account takeover, mass data exposure, RCE |
-| `HIGH` | Authentication bypass, unauthenticated data access |
-| `MEDIUM` | Missing security controls, weak configuration |
-| `LOW` | Defense-in-depth missing, best practice violation |
-| `INFO` | Informational — no direct impact |
-
-### Deduplication with fingerprints
-
-If your scanner checks the same issue type across many URLs, deduplicate to avoid report noise:
-
-```python
-seen_fps: set[str] = set()
-
-for url in endpoints:
-    fp = self.make_fingerprint(self.name, "Issue title", url)
-    if fp in seen_fps:
-        continue
-    seen_fps.add(fp)
-    # emit finding
-```
-
-`make_fingerprint` produces a stable `sha256(scanner+title+page)[:16]` hash used for cross-scan comparison in the dashboard's Compare feature.
+**Severity levels:** `Severity.CRITICAL`, `Severity.HIGH`, `Severity.MEDIUM`, `Severity.LOW`, `Severity.INFO`
 
 ---
 
-## Step 4 — Register the scanner
+## 3. Implement `run()`
 
-**4a. Add to `_SCANNER_MODULE_MAP` in `vibe_iterator/engine/runner.py`:**
+### Passive analysis (Group 1)
+
+Inspect already-captured network traffic -- no new requests:
 
 ```python
-_SCANNER_MODULE_MAP: dict[str, str] = {
-    # ... existing scanners ...
-    "my_scanner": "vibe_iterator.scanners.my_scanner",
-}
+network = listeners.get("network")
+if network:
+    for req in network.get_requests():
+        if "error" in (req.response_body or "").lower():
+            # flag it
 ```
 
-**4b. Add to `_DEFAULT_STAGES` in `vibe_iterator/config.py`:**
+### Active probing (Group 3+)
+
+Make new HTTP requests against the live target:
 
 ```python
-_DEFAULT_STAGES: dict[str, list[str]] = {
-    "dev": [...],
-    "pre-deploy": [..., "my_scanner"],
-    "post-deploy": [...],
-    "all": [..., "my_scanner"],
-}
+import urllib.request, urllib.parse, urllib.error
+
+def _probe(url: str, payload: str) -> tuple[int, str]:
+    full_url = f"{url}?q={urllib.parse.quote(payload)}"
+    try:
+        with urllib.request.urlopen(full_url, timeout=5) as resp:
+            return resp.status, resp.read(4096).decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.read(4096).decode("utf-8", errors="replace")
+    except Exception:
+        return 0, ""
 ```
 
-Also add `"my_scanner"` to `_VALID_SCANNER_NAMES` (derived from `_DEFAULT_STAGES["all"]` automatically).
+### Working without Selenium
 
-**4c. Add metadata in `vibe_iterator/server/routes.py`:**
+If your scanner only replays captured traffic or sends raw HTTP requests, `session` will be `None` -- guard it:
 
 ```python
-_SCANNER_META: dict[str, dict] = {
-    # ... existing scanners ...
-    "my_scanner": {
-        "requires_stack": ["any"],
-        "requires_second_account": False,
-        "category": "My Category",
-        "est_seconds": 20,
-    },
-}
+if session is None:
+    return findings  # or skip Selenium-dependent steps
 ```
 
 ---
 
-## Step 5 — Write tests
+## 4. Declare Stages
 
-Create `tests/test_scanners/test_my_scanner.py`. Tests should:
+Set `stages` to control when vibe-iterator runs your scanner:
 
-- Mock `listeners["network"].get_requests()` with controlled requests
-- Mock any direct HTTP calls with `unittest.mock.patch`
-- Assert finding count, severity, title for each scenario
-- Assert no findings for clean inputs
+| Stage | When to use |
+|-------|-------------|
+| `pre-deploy` | Logic checks that do not need a live prod environment |
+| `post-deploy` | Checks that need the real deployed app |
+| `dev` | Local-only checks during development |
+| `all` | Every scan stage |
+
+Most scanners use `["pre-deploy"]` or `["pre-deploy", "post-deploy"]`.
+
+---
+
+## 5. Write Tests
+
+Create `tests/test_scanners/test_my_scanner.py`.
+
+### Minimum test set
 
 ```python
-from unittest.mock import MagicMock, patch
+"""Tests for my_scanner."""
+
+from unittest.mock import MagicMock
 from vibe_iterator.scanners.my_scanner import Scanner
 from vibe_iterator.scanners.base import Severity
 
-def _make_config(target="https://example.com"):
+
+def _make_config(target: str = "http://localhost:9999") -> MagicMock:
     cfg = MagicMock()
     cfg.target = target
-    cfg.stack.backend = "supabase"
+    cfg.stack.backend = "custom"
     return cfg
 
-def _run(requests, fetch_result=None):
-    scanner = Scanner()
+
+def _make_network(requests: list) -> MagicMock:
     net = MagicMock()
     net.get_requests.return_value = requests
-    # patch any HTTP calls your scanner makes:
-    with patch("vibe_iterator.scanners.my_scanner._my_http_func", return_value=fetch_result):
-        return scanner.run(session=None, listeners={"network": net}, config=_make_config())
+    return net
 
-def test_my_finding_detected():
-    findings = _run([...], fetch_result=...)
-    assert len(findings) == 1
-    assert findings[0].severity == Severity.HIGH
 
-def test_clean_input_no_findings():
-    findings = _run([...], fetch_result=...)
+def _run(network_requests=None, target="http://localhost:9999") -> list:
+    scanner = Scanner()
+    config = _make_config(target)
+    net = _make_network(network_requests or [])
+    return scanner.run(session=None, listeners={"network": net}, config=config)
+
+
+def test_vulnerability_detected() -> None:
+    """Positive: scanner produces a finding when the vulnerability is present."""
+    findings = _run(...)
+    assert len(findings) >= 1
+    assert findings[0].severity in (Severity.HIGH, Severity.CRITICAL)
+
+
+def test_no_false_positive_on_clean_response() -> None:
+    """Negative: scanner produces no finding when the app is not vulnerable."""
+    findings = _run()
     assert findings == []
+
+
+def test_scanner_metadata() -> None:
+    s = Scanner()
+    assert s.name == "my_scanner"
+    assert isinstance(s.stages, list)
+    assert len(s.stages) >= 1
 ```
 
-Run with:
+### Run the tests
 
 ```bash
+# Just your scanner
 pytest tests/test_scanners/test_my_scanner.py -v
+
+# Full suite (must stay green)
+pytest tests/ -q
 ```
 
 ---
 
-## Step 6 — Test the full integration
+## 6. Register in the Scanner Registry
 
-```bash
-# Verify it shows up in config endpoint
-vibe-iterator &
-curl http://localhost:3001/api/config | python -m json.tool | grep my_scanner
+Add a row to `docs/SCANNERS.md` in the **Scanner Registry** table:
+
+```markdown
+| `my_scanner` | Injection | pre-deploy | `['any']` | `False` | community |
 ```
 
----
-
-## Checklist
-
-- [ ] `vibe_iterator/scanners/my_scanner.py` — `Scanner` class with correct `name`, `category`, `stages`, `requires_stack`
-- [ ] `run()` returns `list[Finding]` — never raises, never modifies persistent state without restoring it
-- [ ] Registered in `runner.py` `_SCANNER_MODULE_MAP`
-- [ ] Added to relevant stages in `config.py` `_DEFAULT_STAGES`
-- [ ] Metadata in `routes.py` `_SCANNER_META`
-- [ ] Tests pass: clean input → 0 findings, vulnerable input → correct findings + severity
-- [ ] If scanner touches localStorage/cookies: state is restored in `try/finally`
+The `vibe-iterator new-scanner` command does this automatically. If you created the file manually, add the row yourself.
 
 ---
 
-## Tips
+## Checklist Before Opening a PR
 
-- **Keep it passive when possible.** Read network traffic rather than re-sending requests. Active tests (replaying requests, injecting payloads) should be clearly scoped and bounded.
-- **Limit active requests.** Use `_MAX_ENDPOINTS = 12` or similar constants to cap how many URLs are probed.
-- **Log, don't crash.** Wrap all HTTP calls in `try/except`. A scanner that raises propagates to `scanner_exception` error handling in the engine — the scan continues but the scanner result is marked as `error`.
-- **Use `ssl._create_unverified_context()`** for direct HTTP requests so local dev apps with self-signed certs work.
-- **Test against `session=None`** — passive scanners should work without a browser session. Active scanners should guard with `if session is None: return []`.
+- [ ] `Scanner.name` is unique -- check `vibe_iterator/scanners/` for conflicts
+- [ ] `stages`, `category`, `requires_stack` are all set (no `None`)
+- [ ] At least one positive test (vulnerability detected) and one negative test (no false positive)
+- [ ] `pytest tests/ -q` passes with no new failures
+- [ ] `ruff check vibe_iterator/ tests/` reports no errors
+- [ ] Row added to `docs/SCANNERS.md`
+- [ ] PR description explains: what the scanner detects, how it probes, and a sample finding
+
+---
+
+## Design Principles
+
+- **Prove it, do not guess.** A finding must come from observable evidence -- a real HTTP response, a captured network request, a storage value. Never emit a finding based on the URL pattern alone.
+- **Non-destructive.** Payloads may trigger error responses, but must not write persistent data, delete records, or cause side effects in the target app.
+- **Fail silently.** If a probe errors (timeout, connection refused), return an empty findings list. Never let a scanner crash the overall scan.
+- **One responsibility.** A scanner detects one class of vulnerability. If you find yourself writing two unrelated detection groups, split into two scanners.
