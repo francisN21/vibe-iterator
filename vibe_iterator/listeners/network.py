@@ -1,7 +1,14 @@
-"""CDP Network listener — captures all request/response pairs."""
+"""CDP Network listener — captures all request/response pairs via Chrome performance log.
+
+Selenium 4.20+ removed add_cdp_listener. We use the performance log polling API
+instead: driver.get_log("performance") returns a ring-buffered stream of CDP events
+that is consumed on each call. Call flush() or get_requests() after page navigations
+to drain the buffer before Chrome evicts old entries.
+"""
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
 from dataclasses import dataclass
@@ -37,6 +44,7 @@ class NetworkListener:
         listener = NetworkListener()
         listener.attach(session)          # call before crawling / scanning
         # ... page interactions ...
+        listener.flush()                  # drain performance log after each page
         requests = listener.get_requests()
         listener.detach()
     """
@@ -47,35 +55,56 @@ class NetworkListener:
         self._session: Any | None = None
 
     def attach(self, session: Any) -> None:
-        """Register CDP event handlers on the browser session."""
+        """Register the session. Network.enable is called in browser.launch()."""
         from vibe_iterator.crawler.browser import BrowserSession
         assert isinstance(session, BrowserSession)
         self._session = session
 
-        driver = session.driver
-
-        # CDP Network.enable is called in browser.launch() — no need to call again.
-        # We use Selenium's add_cdp_listener to subscribe to events.
-        driver.add_cdp_listener("Network.requestWillBeSent", self._on_request)
-        driver.add_cdp_listener("Network.responseReceived", self._on_response)
-        driver.add_cdp_listener("Network.loadingFinished", self._on_loading_finished)
-
     def detach(self) -> None:
-        """Remove CDP listeners. Called during cleanup."""
+        """Flush remaining events and release the session reference."""
+        if self._session is not None:
+            self.flush()
+        self._session = None
+
+    def flush(self) -> None:
+        """Drain Chrome's performance log and populate the request store.
+
+        Chrome's performance log is a ring buffer consumed on each get_log() call.
+        Call this after every page navigation to avoid losing events.
+        """
         if self._session is None:
             return
+        driver = self._session.driver
         try:
-            driver = self._session.driver
-            driver.remove_cdp_listener("Network.requestWillBeSent", self._on_request)
-            driver.remove_cdp_listener("Network.responseReceived", self._on_response)
-            driver.remove_cdp_listener("Network.loadingFinished", self._on_loading_finished)
+            raw_logs = driver.get_log("performance")
         except Exception as exc:
-            logger.debug("NetworkListener.detach error (non-fatal): %s", exc)
-        finally:
-            self._session = None
+            logger.debug("performance log unavailable: %s", exc)
+            return
+        self.process_raw_logs(raw_logs)
+
+    def process_raw_logs(self, raw_logs: list) -> None:
+        """Process pre-fetched performance log entries.
+
+        Used by the navigator to share a single drain of the ring buffer so that
+        both status-code extraction and network event capture see the same entries.
+        """
+        for entry in raw_logs:
+            try:
+                msg = json.loads(entry["message"])["message"]
+            except (KeyError, json.JSONDecodeError):
+                continue
+            method = msg.get("method", "")
+            params = msg.get("params", {})
+            if method == "Network.requestWillBeSent":
+                self._on_request(params)
+            elif method == "Network.responseReceived":
+                self._on_response(params)
+            elif method == "Network.loadingFinished":
+                self._on_loading_finished(params)
 
     def get_requests(self) -> list[NetworkRequest]:
-        """Return a snapshot of all captured requests, ordered by timestamp."""
+        """Flush, then return a snapshot of all captured requests ordered by timestamp."""
+        self.flush()
         with self._lock:
             return sorted(self._requests.values(), key=lambda r: r.timestamp)
 
@@ -99,7 +128,7 @@ class NetworkListener:
         return counts
 
     # ------------------------------------------------------------------ #
-    # CDP event handlers (called on CDP event thread)                    #
+    # CDP event handlers                                                   #
     # ------------------------------------------------------------------ #
 
     def _on_request(self, params: dict) -> None:
@@ -144,7 +173,6 @@ class NetworkListener:
                 "Network.getResponseBody", {"requestId": request_id}
             )
             body = result.get("body", "")
-            # Truncate very large bodies — scanners only need excerpts for evidence
             if len(body) > 50_000:
                 body = body[:50_000] + "\n[truncated]"
             with self._lock:

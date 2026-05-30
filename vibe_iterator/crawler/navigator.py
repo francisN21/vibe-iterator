@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 from selenium.common.exceptions import WebDriverException
 
 from vibe_iterator.config import Config
 from vibe_iterator.crawler.browser import BrowserSession
+
+if TYPE_CHECKING:
+    from vibe_iterator.listeners.network import NetworkListener
 
 logger = logging.getLogger(__name__)
 
@@ -33,14 +38,18 @@ def crawl_pages(
     config: Config,
     *,
     on_page: object | None = None,
+    network_listener: Any | None = None,
 ) -> list[PageMetadata]:
     """Visit each page in config.pages and return metadata for each.
 
     Args:
-        session:  Active, authenticated BrowserSession.
-        config:   Loaded Config with target URL and pages list.
-        on_page:  Optional callable(PageMetadata) — called after each page visit.
-                  Used by the engine to emit page_navigated events.
+        session:          Active, authenticated BrowserSession.
+        config:           Loaded Config with target URL and pages list.
+        on_page:          Optional callable(PageMetadata) — called after each page visit.
+                          Used by the engine to emit page_navigated events.
+        network_listener: Optional NetworkListener — when provided, the performance log
+                          is drained once per page and shared with the listener so both
+                          status-code extraction and network capture see all events.
 
     Returns:
         Ordered list of PageMetadata, one per configured page.
@@ -51,7 +60,7 @@ def crawl_pages(
 
     for path in config.pages:
         url = _build_url(config.target, path)
-        meta = _visit(driver, url)
+        meta = _visit(driver, url, network_listener=network_listener)
         results.append(meta)
 
         if on_page is not None:
@@ -65,7 +74,7 @@ def crawl_pages(
     return results
 
 
-def _visit(driver: object, url: str) -> PageMetadata:
+def _visit(driver: object, url: str, *, network_listener: Any | None = None) -> PageMetadata:
     """Navigate to a URL, capture status code and page title."""
     from selenium.webdriver.remote.webdriver import WebDriver
     assert isinstance(driver, WebDriver)
@@ -76,11 +85,16 @@ def _visit(driver: object, url: str) -> PageMetadata:
 
     try:
         driver.get(url)
-        # Selenium doesn't expose HTTP status codes natively — use CDP to get it
-        # via the Network.responseReceived events stored by our listener.
-        # For navigator we record 0 as "unknown" — the network listener captures
-        # the actual status code when attached. Phase 2 wires this together.
-        status_code = _get_status_from_performance_logs(driver) or 200
+        # Drain the performance log once. If a NetworkListener is attached, feed it
+        # the same raw entries so both status-code extraction and request capture see
+        # every CDP event — avoids double-draining the ring buffer.
+        raw_logs = _drain_performance_log(driver)
+        if network_listener is not None:
+            try:
+                network_listener.process_raw_logs(raw_logs)
+            except Exception:
+                pass
+        status_code = _extract_status_from_raw_logs(raw_logs) or 200
     except WebDriverException as exc:
         error = str(exc)[:200]
         logger.warning("Failed to navigate to %s: %s", url, error)
@@ -110,19 +124,25 @@ def _build_url(target: str, path: str) -> str:
     return target + path
 
 
-def _get_status_from_performance_logs(driver: object) -> int | None:
-    """Extract the HTTP status code for the main document from Chrome performance logs."""
+def _drain_performance_log(driver: object) -> list:
+    """Fetch and return all pending Chrome performance log entries."""
     try:
         from selenium.webdriver.remote.webdriver import WebDriver
         assert isinstance(driver, WebDriver)
-        logs = driver.get_log("performance")
-        for entry in reversed(logs):
-            import json
-            msg = json.loads(entry.get("message", "{}")).get("message", {})
-            if msg.get("method") == "Network.responseReceived":
-                params = msg.get("params", {})
-                if params.get("type") == "Document":
-                    return params.get("response", {}).get("status")
+        return driver.get_log("performance")
     except Exception:
-        pass
+        return []
+
+
+def _extract_status_from_raw_logs(raw_logs: list) -> int | None:
+    """Return the HTTP status code of the most recent Document response in raw_logs."""
+    for entry in reversed(raw_logs):
+        try:
+            msg = json.loads(entry.get("message", "{}")).get("message", {})
+        except (json.JSONDecodeError, AttributeError):
+            continue
+        if msg.get("method") == "Network.responseReceived":
+            params = msg.get("params", {})
+            if params.get("type") == "Document":
+                return params.get("response", {}).get("status")
     return None

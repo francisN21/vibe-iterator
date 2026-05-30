@@ -273,7 +273,9 @@ class ScanRunner:
                 self._emit("page_navigated", {"url": meta.url, "status_code": meta.status_code})
                 storage.capture(session)
 
-            crawled_pages = nav_mod.crawl_pages(session, self.config, on_page=_on_page)
+            crawled_pages = nav_mod.crawl_pages(
+                session, self.config, on_page=_on_page, network_listener=network
+            )
             self._result.pages_crawled = [
                 {"url": page.url, "status_code": page.status_code} for page in crawled_pages
             ]
