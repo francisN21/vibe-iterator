@@ -76,6 +76,7 @@ async function initHomePage() {
   }
 
   document.getElementById('start-btn').addEventListener('click', onStartScan);
+  document.getElementById('discover-btn').addEventListener('click', startDiscovery);
   document.getElementById('cancel-existing-btn').addEventListener('click', cancelExistingAndStart);
 }
 
@@ -256,6 +257,26 @@ async function cancelExistingAndStart() {
     showToast('Could not cancel: ' + e.message);
   }
 }
+
+async function startDiscovery() {
+  try {
+    await apiFetch('/api/scan/start', {
+      method: 'POST',
+      body: JSON.stringify({ stage: 'discover' }),
+    });
+    window.location.href = '/scan?stage=discover';
+  } catch (e) {
+    if (e.status === 409) {
+      document.getElementById('running-modal').classList.add('open');
+    } else {
+      showToast('Failed to start discovery: ' + e.message);
+    }
+  }
+}
+
+// ============================================================
+// SCAN PAGE
+// ============================================================
 
 function initFirebasePanel(configMeta) {
   const panel = document.getElementById('firebase-panel');

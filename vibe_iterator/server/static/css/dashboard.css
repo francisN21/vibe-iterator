@@ -1431,3 +1431,13 @@ code, pre { font-family: var(--font-mono); }
   opacity: 0.35;
   cursor: not-allowed;
 }
+
+/* ---- Discover button ---- */
+.btn-discover {
+  display: block;
+  width: 100%;
+  margin-bottom: 0.75rem;
+  text-align: center;
+  letter-spacing: 0.08em;
+  font-size: 11px;
+}
