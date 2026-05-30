@@ -428,11 +428,11 @@ See `docs/ADDING_SCANNERS.md` for the full guide.
 - [x] CORS, XSS, and API exposure scanners
 - [x] Finding deep-dive with variant LLM prompts (Claude / ChatGPT / Copilot)
 - [x] Cross-scan comparison (new / resolved / unchanged findings)
-- [ ] Firebase scanner module
-- [ ] Automatic endpoint discovery / spidering
-- [ ] CI/CD integration (GitHub Actions)
-- [ ] Scanner marketplace (community-contributed scanners)
-- [ ] Team reports and historical comparison
+- [x] Firebase scanner module
+- [x] Automatic endpoint discovery / spidering
+- [x] CI/CD integration (GitHub Actions)
+- [x] Scanner marketplace (community-contributed scanners)
+- [x] Team reports and historical comparison
 
 ---
 
