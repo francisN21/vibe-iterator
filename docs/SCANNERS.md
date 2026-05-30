@@ -115,6 +115,10 @@ Not a scanner — a module of helper functions used by `rls_bypass`, `tier_escal
 | `firebase_storage`   | Access Control | pre-deploy, post-deploy | `["firebase"]` | `False` | 4 |
 | `firebase_auth`      | Authentication | dev, pre-deploy, post-deploy | `["firebase"]` | `False` | 4 |
 | `firebase_functions` | API Security   | pre-deploy, post-deploy | `["firebase"]` | `False` | 4 |
+| `mass_assignment` | Access Control | pre-deploy, post-deploy | `['any']` | `False` | 7a |
+| `info_disclosure` | Misconfiguration | pre-deploy, post-deploy | `['any']` | `False` | 7a |
+| `idor_check` | Access Control | pre-deploy, post-deploy | `['any']` | `False` | 7a |
+| `http_method_tampering` | Misconfiguration | pre-deploy, post-deploy | `['any']` | `False` | 7a |
 
 *`xss_check` is intentionally excluded from `post-deploy` — see `xss_check` Stage Coverage Note section.
 

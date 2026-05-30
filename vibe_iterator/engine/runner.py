@@ -102,6 +102,11 @@ _SCANNER_MODULE_MAP: dict[str, str] = {
     "cors_check":       "vibe_iterator.scanners.cors_check",
     "xss_check":        "vibe_iterator.scanners.xss_check",
     "api_exposure":     "vibe_iterator.scanners.api_exposure",
+    # --- Phase 7A: new security scanners ---
+    "mass_assignment":        "vibe_iterator.scanners.mass_assignment",
+    "info_disclosure":        "vibe_iterator.scanners.info_disclosure",
+    "idor_check":             "vibe_iterator.scanners.idor_check",
+    "http_method_tampering":  "vibe_iterator.scanners.http_method_tampering",
     # --- Firebase ---
     "firebase_firestore": "vibe_iterator.scanners.firebase_firestore",
     "firebase_rtdb":      "vibe_iterator.scanners.firebase_rtdb",
