@@ -113,10 +113,6 @@ stack:
 - **Speed:** Moderate (5 scanners — expect 5–10 minutes)
 - **Triggered by:** Firebase panel in the dashboard home (shown only when `backend: firebase` is detected), or `--stage firebase` CLI flag
 
-| Stage | Description |
-|-------|-------------|
-| `firebase` | Firebase-specific security audit — all five Firebase scanners |
-
 ---
 
 ## Stack Auto-Detection

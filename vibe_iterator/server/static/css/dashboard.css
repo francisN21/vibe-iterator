@@ -1408,42 +1408,26 @@ code, pre { font-family: var(--font-mono); }
   align-items: center;
 }
 
-.btn--ghost {
-  background: transparent;
-  border: 1px solid var(--border-bright);
-  color: var(--text-dim);
-  padding: 0.4rem 0.9rem;
-  border-radius: var(--radius);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  cursor: pointer;
-  letter-spacing: 0.06em;
-  transition: border-color var(--transition), color var(--transition);
-}
-
-.btn--ghost:hover {
+.firebase-panel__actions .btn-ghost:hover {
   border-color: var(--amber);
   color: var(--amber);
 }
 
-.btn--primary {
+.firebase-panel__actions .btn-primary {
   background: var(--amber);
   color: #000;
-  border: none;
-  padding: 0.45rem 1.1rem;
-  border-radius: var(--radius);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 700;
-  cursor: pointer;
-  letter-spacing: 0.08em;
-  transition: opacity var(--transition);
+  border-color: var(--amber);
+  box-shadow: none;
 }
 
-.btn--primary:hover { opacity: 0.85; }
+.firebase-panel__actions .btn-primary:hover:not(:disabled) {
+  background: var(--amber);
+  opacity: 0.85;
+  box-shadow: none;
+}
 
-.btn--primary.is-disabled,
-.btn--primary:disabled {
+.firebase-panel__actions .btn-primary.is-disabled,
+.firebase-panel__actions .btn-primary:disabled {
   opacity: 0.35;
   cursor: not-allowed;
 }

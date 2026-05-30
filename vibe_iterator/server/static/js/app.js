@@ -295,19 +295,17 @@ async function startFirebaseScan() {
   if (overrides.length === 0) return;
 
   try {
-    const resp = await fetch('/api/scan/start', {
+    await apiFetch('/api/scan/start', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ stage: 'firebase', scanner_overrides: overrides }),
     });
-    if (resp.ok) {
-      window.location.href = 'scan.html';
-    } else {
-      const err = await resp.json().catch(() => ({ detail: 'Scan failed to start' }));
-      if (typeof showStartError === 'function') showStartError(err.detail || 'Scan failed to start');
-    }
+    window.location.href = '/scan';
   } catch (e) {
-    if (typeof showStartError === 'function') showStartError(e.message || 'Scan failed to start');
+    if (e.status === 409) {
+      document.getElementById('running-modal').classList.add('open');
+    } else {
+      showToast('Failed to start scan: ' + e.message);
+    }
   }
 }
 
