@@ -213,6 +213,23 @@ def load_config(
         pages_raw = _DEFAULT_PAGES
     pages: list[str] = [str(p) for p in pages_raw]
 
+    # Merge sidecar discovered pages (vibe-iterator.discovered.yaml beside config)
+    _sidecar_path = yaml_file.parent / "vibe-iterator.discovered.yaml"
+    if _sidecar_path.exists():
+        try:
+            with _sidecar_path.open(encoding="utf-8") as _fh:
+                _sidecar_data = yaml.safe_load(_fh) or {}
+            _sidecar_pages = _sidecar_data.get("pages", [])
+            if isinstance(_sidecar_pages, list):
+                _existing = set(pages)
+                for _p in _sidecar_pages:
+                    _p = str(_p)
+                    if _p not in _existing:
+                        pages.append(_p)
+                        _existing.add(_p)
+        except Exception:
+            pass  # sidecar load failure is non-fatal
+
     # ------------------------------------------------------------------ #
     # Stages                                                              #
     # ------------------------------------------------------------------ #
