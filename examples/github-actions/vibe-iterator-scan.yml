@@ -1,0 +1,92 @@
+# vibe-iterator Security Scan — on-demand GitHub Actions template
+#
+# SETUP (one-time):
+# 1. Copy this file to .github/workflows/ in your repo
+# 2. Commit vibe-iterator.config.yaml to your repo root
+# 3. Add secrets in repo Settings → Secrets and variables → Actions:
+#    - VIBE_ITERATOR_TEST_EMAIL    (required)
+#    - VIBE_ITERATOR_TEST_PASSWORD (required)
+#    - VIBE_ITERATOR_TEST_EMAIL_2    (optional — needed for privilege-escalation tests)
+#    - VIBE_ITERATOR_TEST_PASSWORD_2 (optional)
+#
+# USAGE:
+# - Manual: Actions tab → "vibe-iterator Security Scan" → Run workflow → pick stage
+# - Reusable: call from another workflow with `uses: your-org/your-repo/.github/workflows/vibe-iterator-scan.yml@main`
+#
+# WHEN TO RUN:
+# After adding a major feature (auth, Firebase, payments), before merging a
+# security-sensitive branch, or any time you want to validate a specific attack
+# surface — not on every commit.
+#
+# STAGES:
+#   pre-deploy  — quick sweep before any deployment
+#   auth        — authentication and session management checks
+#   firebase    — Firebase RTDB, Firestore, Storage, Functions, Auth misconfigs
+#   discover    — crawl and map all reachable endpoints
+#   full        — all scanners end-to-end
+
+name: vibe-iterator Security Scan
+
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        required: true
+        type: choice
+        options:
+          - pre-deploy
+          - auth
+          - firebase
+          - discover
+          - full
+        description: "Which scan stage to run"
+        default: pre-deploy
+      target_url:
+        required: false
+        description: "Override target URL from vibe-iterator.config.yaml (optional)"
+
+  workflow_call:
+    inputs:
+      stage:
+        required: true
+        type: string
+      target_url:
+        required: false
+        type: string
+
+jobs:
+  security-scan:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install vibe-iterator
+        run: pip install vibe-iterator
+
+      - name: Write .env from secrets
+        run: |
+          cat > .env <<EOF
+          VIBE_ITERATOR_TEST_EMAIL=${{ secrets.VIBE_ITERATOR_TEST_EMAIL }}
+          VIBE_ITERATOR_TEST_PASSWORD=${{ secrets.VIBE_ITERATOR_TEST_PASSWORD }}
+          VIBE_ITERATOR_TEST_EMAIL_2=${{ secrets.VIBE_ITERATOR_TEST_EMAIL_2 }}
+          VIBE_ITERATOR_TEST_PASSWORD_2=${{ secrets.VIBE_ITERATOR_TEST_PASSWORD_2 }}
+          EOF
+
+      - name: Run security scan
+        run: |
+          vibe-iterator --stage ${{ inputs.stage }} --headless \
+            ${{ inputs.target_url != '' && format('--target {0}', inputs.target_url) || '' }}
+
+      - name: Upload scan report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vibe-iterator-report
+          path: vibe-iterator-report-*.html
+          if-no-files-found: ignore
