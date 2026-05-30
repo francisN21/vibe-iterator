@@ -63,15 +63,15 @@ It then gives you a **copy-paste prompt** you can feed right back to your AI cod
 │                                                         │
 │   You run:  vibe-iterator                               │
 │                                                         │
-│   ┌─────────────┐    ┌──────────────┐    ┌───────────┐  │
-│   │  Dashboard   │◄──│  Scan Engine  │──►│  Selenium  │  │
-│   │ localhost:   │    │  + Listeners  │    │  + CDP     │  │
-│   │   3001       │    │              │    │           │  │
-│   └──────┬───────┘    └──────┬───────┘    └─────┬─────┘  │
-│          │                   │                  │        │
-│     Live scan            Findings           Launches    │
-│     progress            + Evidence          your app    │
-│     via WebSocket        + LLM Prompts      & tampers   │
+│   ┌─────────────┐    ┌──────────────┐   ┌───────────┐   │
+│   │  Dashboard  │◄── │ Scan Engine  │──►│ Selenium  │   │
+│   │  localhost: │    │ + Listeners  │   │ + CDP     │   │
+│   │  3001       │    │              │   │           │   │
+│   └──────┬──────┘    └──────┬───────┘   └─────┬─────┘   │
+│          │                  │                 │         │
+│     Live scan           Findings           Launches     │
+│     progress            + Evidence         your app     │
+│     via WebSocket       + LLM Prompts      & tampers    │
 │                                                         │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -139,72 +139,113 @@ One click exports a self-contained HTML report file — same data, same aestheti
 
 ### 🔐 Authentication — Extensive
 
-| Check | What It Proves |
-|-------|---------------|
-| JWT tampering | Modified token claims (`sub`, `role`, `exp`) accepted by server |
-| `alg:none` bypass | Server accepts unsigned JWTs |
-| Token storage | JWTs in localStorage instead of httpOnly cookies |
-| Session fixation | Session ID doesn't change after login |
-| Brute force | No rate limiting on login endpoint |
-| Username enumeration | Different error messages for "user not found" vs "wrong password" |
-| Logout invalidation | Old tokens still work after logout |
-| Auth bypass | Protected routes accessible without authentication |
-| OAuth state param | Missing CSRF protection on OAuth flows |
-| Re-auth for sensitive ops | Password/email change without current password |
+| Check                     | What It Proves                                                    |
+| ------------------------- | ----------------------------------------------------------------- |
+| JWT tampering             | Modified token claims (`sub`, `role`, `exp`) accepted by server   |
+| `alg:none` bypass         | Server accepts unsigned JWTs                                      |
+| Token storage             | JWTs in localStorage instead of httpOnly cookies                  |
+| Session fixation          | Session ID doesn't change after login                             |
+| Brute force               | No rate limiting on login endpoint                                |
+| Username enumeration      | Different error messages for "user not found" vs "wrong password" |
+| Logout invalidation       | Old tokens still work after logout                                |
+| Auth bypass               | Protected routes accessible without authentication                |
+| OAuth state param         | Missing CSRF protection on OAuth flows                            |
+| Re-auth for sensitive ops | Password/email change without current password                    |
 
 ### 💉 SQL Injection — Extensive
 
-| Check | What It Proves |
-|-------|---------------|
-| PostgREST filter injection | Malicious values in `.eq()`, `.or()`, `.like()` params accepted |
-| RPC function injection | SQL payloads in Supabase `rpc()` arguments executed |
-| `?select=` manipulation | Unauthorized columns/tables accessible via query string |
-| Error-based injection | SQL errors leak database structure |
-| Blind boolean injection | Different responses for `AND 1=1` vs `AND 1=2` conditions |
-| Time-based injection | `pg_sleep()` payloads cause measurable response delays |
-| ORM bypass | Prisma `$queryRawUnsafe`, Knex `.whereRaw()`, Sequelize `.literal()` exploitable |
-| Input vector discovery | Every form, URL param, JSON field, header, and cookie tested |
-| Schema leakage | Error responses reveal table names, columns, or DB version |
+| Check                      | What It Proves                                                                   |
+| -------------------------- | -------------------------------------------------------------------------------- |
+| PostgREST filter injection | Malicious values in `.eq()`, `.or()`, `.like()` params accepted                  |
+| RPC function injection     | SQL payloads in Supabase `rpc()` arguments executed                              |
+| `?select=` manipulation    | Unauthorized columns/tables accessible via query string                          |
+| Error-based injection      | SQL errors leak database structure                                               |
+| Blind boolean injection    | Different responses for `AND 1=1` vs `AND 1=2` conditions                        |
+| Time-based injection       | `pg_sleep()` payloads cause measurable response delays                           |
+| ORM bypass                 | Prisma `$queryRawUnsafe`, Knex `.whereRaw()`, Sequelize `.literal()` exploitable |
+| Input vector discovery     | Every form, URL param, JSON field, header, and cookie tested                     |
+| Schema leakage             | Error responses reveal table names, columns, or DB version                       |
 
 ### 🛡️ Access Control
 
-| Check | What It Proves |
-|-------|---------------|
-| RLS bypass | Supabase row-level security policies don't actually block unauthorized queries |
-| Tier escalation | Subscription level modified client-side and server accepted it |
-| Bucket limits | File uploads exceed plan limits without server rejection |
-| Client tampering | Roles, permissions, or feature flags in localStorage trusted by server |
-| IDOR | User A can access User B's data by swapping IDs |
+| Check            | What It Proves                                                                 |
+| ---------------- | ------------------------------------------------------------------------------ |
+| RLS bypass       | Supabase row-level security policies don't actually block unauthorized queries |
+| Tier escalation  | Subscription level modified client-side and server accepted it                 |
+| Bucket limits    | File uploads exceed plan limits without server rejection                       |
+| Client tampering | Roles, permissions, or feature flags in localStorage trusted by server         |
+| IDOR             | User A can access User B's data by swapping IDs                                |
 
 ### 🔍 Data Leakage
 
-| Check | What It Proves |
-|-------|---------------|
-| Token exposure | JWTs visible in URL params, network responses, or console output |
-| Key leakage | Supabase service keys or API secrets in client-visible responses |
-| PII over-exposure | API responses returning more user data than the UI displays |
-| UUID exposure | Internal IDs visible in devtools that shouldn't be client-accessible |
-| Console logging | Sensitive data printed to browser console |
+| Check             | What It Proves                                                       |
+| ----------------- | -------------------------------------------------------------------- |
+| Token exposure    | JWTs visible in URL params, network responses, or console output     |
+| Key leakage       | Supabase service keys or API secrets in client-visible responses     |
+| PII over-exposure | API responses returning more user data than the UI displays          |
+| UUID exposure     | Internal IDs visible in devtools that shouldn't be client-accessible |
+| Console logging   | Sensitive data printed to browser console                            |
 
 ### 🌐 Web Security
 
-| Check | What It Proves |
-|-------|---------------|
-| XSS (reflected/stored/DOM) | Script injection payloads execute in the browser |
-| CORS misconfiguration | Wildcard origins or credentials with `*` allowed |
-| API exposure | Protected endpoints accessible without auth |
-| Mass assignment | API accepts fields it shouldn't (role escalation via extra JSON fields) |
-| Missing security headers | No CSP, no `X-Frame-Options`, no `Strict-Transport-Security` |
+| Check                      | What It Proves                                                          |
+| -------------------------- | ----------------------------------------------------------------------- |
+| XSS (reflected/stored/DOM) | Script injection payloads execute in the browser                        |
+| CORS misconfiguration      | Wildcard origins or credentials with `*` allowed                        |
+| API exposure               | Protected endpoints accessible without auth                             |
+| Mass assignment            | API accepts fields it shouldn't (role escalation via extra JSON fields) |
+| Missing security headers   | No CSP, no `X-Frame-Options`, no `Strict-Transport-Security`            |
 
 ---
 
 ## Scan Stages
 
-| Stage | Scanners | When to Use |
-|-------|----------|-------------|
-| **🔧 DEV** | `data_leakage` · `auth_check` · `client_tampering` | During development — quick feedback loop |
-| **🚀 PRE-DEPLOY** | `data_leakage` · `auth_check` · `client_tampering` · `rls_bypass` · `tier_escalation` · `bucket_limits` · `sql_injection` · `xss_check` · `api_exposure` | Before going live — full audit |
-| **🌍 POST-DEPLOY** | `cors_check` · `data_leakage` · `auth_check` · `api_exposure` · `bucket_limits` · `sql_injection` | Against production — external attack surface |
+| Stage              | Scanners                                                                                                                                                 | When to Use                                  |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| **🔧 DEV**         | `data_leakage` · `auth_check` · `client_tampering`                                                                                                       | During development — quick feedback loop     |
+| **🚀 PRE-DEPLOY**  | `data_leakage` · `auth_check` · `client_tampering` · `rls_bypass` · `tier_escalation` · `bucket_limits` · `sql_injection` · `xss_check` · `api_exposure` | Before going live — full audit               |
+| **🌍 POST-DEPLOY** | `cors_check` · `data_leakage` · `auth_check` · `api_exposure` · `bucket_limits` · `sql_injection`                                                        | Against production — external attack surface |
+
+---
+
+## GitHub Actions Integration
+
+Run vibe-iterator security scans directly from GitHub — no local setup required. Copy one file, add three secrets, and get downloadable HTML reports from the GitHub Actions UI.
+
+### Quick Start
+
+1. Copy `examples/github-actions/vibe-iterator-scan.yml` to `.github/workflows/` in your repo
+2. Commit `vibe-iterator.config.yaml` to your repo root (see [Configuration](#configuration))
+3. Add secrets in repo **Settings → Secrets and variables → Actions**:
+
+| Secret | Required | Description |
+|--------|----------|-------------|
+| `VIBE_ITERATOR_TEST_EMAIL` | Yes | Test account email |
+| `VIBE_ITERATOR_TEST_PASSWORD` | Yes | Test account password |
+| `VIBE_ITERATOR_TEST_EMAIL_2` | No | Second account (privilege escalation tests) |
+| `VIBE_ITERATOR_TEST_PASSWORD_2` | No | Second account password |
+
+4. Go to **Actions tab → "vibe-iterator Security Scan" → Run workflow** → choose a stage
+5. Download the HTML report from the run artifacts when complete
+
+### When to Run It
+
+Run this after adding a major feature (auth, Firebase, payments), before merging a security-sensitive branch, or any time you want to validate a specific attack surface — not on every commit.
+
+### Reusable Workflow
+
+Power users can call the template from their own pipelines:
+
+```yaml
+jobs:
+  security-scan:
+    uses: your-org/your-repo/.github/workflows/vibe-iterator-scan.yml@main
+    with:
+      stage: firebase
+    secrets: inherit
+```
+
+This lets you insert a security gate at specific milestones (post-firebase-merge, pre-prod-deploy) without writing any scan orchestration yourself.
 
 ---
 
@@ -245,12 +286,31 @@ stages:
   dev:
     scanners: [data_leakage, auth_check, client_tampering]
   pre-deploy:
-    scanners: [data_leakage, auth_check, client_tampering, rls_bypass, tier_escalation, bucket_limits, sql_injection, xss_check, api_exposure]
+    scanners:
+      [
+        data_leakage,
+        auth_check,
+        client_tampering,
+        rls_bypass,
+        tier_escalation,
+        bucket_limits,
+        sql_injection,
+        xss_check,
+        api_exposure,
+      ]
   post-deploy:
-    scanners: [cors_check, data_leakage, auth_check, api_exposure, bucket_limits, sql_injection]
+    scanners:
+      [
+        cors_check,
+        data_leakage,
+        auth_check,
+        api_exposure,
+        bucket_limits,
+        sql_injection,
+      ]
 
 stack:
-  backend: supabase    # supabase | firebase | custom
+  backend: supabase # supabase | firebase | custom
   auth: supabase-auth
   storage: supabase
 ```
@@ -287,14 +347,14 @@ Just paste it into Claude, ChatGPT, Copilot, or whatever AI you used to build th
 
 ## How It's Different
 
-| | Static Scanners | **Vibe Iterator** |
-|---|---|---|
-| **Method** | Reads your source code | Runs your app in a real browser |
-| **Proof** | "This pattern looks risky" | "I just exploited it — here's the HTTP proof" |
-| **Supabase** | Checks RLS syntax | Actually queries through RLS and proves bypass |
-| **Auth** | Flags `jwt.decode()` calls | Sends tampered JWTs and proves the server accepts them |
-| **Output** | Code annotations | Live dashboard + exportable report + LLM fix prompts |
-| **Audience** | Security engineers | Anyone who built an app with AI |
+|              | Static Scanners            | **Vibe Iterator**                                      |
+| ------------ | -------------------------- | ------------------------------------------------------ |
+| **Method**   | Reads your source code     | Runs your app in a real browser                        |
+| **Proof**    | "This pattern looks risky" | "I just exploited it — here's the HTTP proof"          |
+| **Supabase** | Checks RLS syntax          | Actually queries through RLS and proves bypass         |
+| **Auth**     | Flags `jwt.decode()` calls | Sends tampered JWTs and proves the server accepts them |
+| **Output**   | Code annotations           | Live dashboard + exportable report + LLM fix prompts   |
+| **Audience** | Security engineers         | Anyone who built an app with AI                        |
 
 **Pairs perfectly with [raroque/vibe-security-skill](https://github.com/raroque/vibe-security-skill)** — Raroque's skill scans your code for risky patterns. Vibe Iterator proves which of those patterns are actually exploitable at runtime. Static + runtime = full coverage.
 
@@ -347,13 +407,13 @@ See `docs/ADDING_SCANNERS.md` for the full guide.
 
 > **v0.1.0 — All 5 phases complete.**
 
-| Phase | What | Status |
-|-------|------|--------|
-| 1 | Foundation — config, CLI, browser/crawler, listeners, base scanner | ✅ Done |
-| 2 | Scan engine + core scanners (auth, SQL injection, RLS, tiers, buckets, client tampering, data leakage) | ✅ Done |
-| 3 | Live hacker-themed dashboard (FastAPI + WebSocket + GUI) | ✅ Done |
-| 4 | Exportable HTML reports + extended scanners (XSS, CORS, API exposure) | ✅ Done |
-| 5 | Polish, finding deep-dive, CLI flags, PyPI packaging | ✅ Done |
+| Phase | What                                                                                                   | Status  |
+| ----- | ------------------------------------------------------------------------------------------------------ | ------- |
+| 1     | Foundation — config, CLI, browser/crawler, listeners, base scanner                                     | ✅ Done |
+| 2     | Scan engine + core scanners (auth, SQL injection, RLS, tiers, buckets, client tampering, data leakage) | ✅ Done |
+| 3     | Live hacker-themed dashboard (FastAPI + WebSocket + GUI)                                               | ✅ Done |
+| 4     | Exportable HTML reports + extended scanners (XSS, CORS, API exposure)                                  | ✅ Done |
+| 5     | Polish, finding deep-dive, CLI flags, PyPI packaging                                                   | ✅ Done |
 
 ---
 
