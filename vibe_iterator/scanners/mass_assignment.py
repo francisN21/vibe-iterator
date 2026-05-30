@@ -1,0 +1,188 @@
+"""Mass assignment scanner — tests POST/PUT/PATCH endpoints for unfiltered field acceptance."""
+
+from __future__ import annotations
+
+import json
+import time
+import urllib.error
+import urllib.request
+from typing import Any
+
+from vibe_iterator.scanners.base import BaseScanner, Finding, Severity
+from vibe_iterator.utils.supabase_helpers import truncate
+
+# (field_name, value, is_financial)
+_PRIVILEGE_FIELDS: list[tuple[str, Any, bool]] = [
+    ("role", "admin", False),
+    ("is_admin", True, False),
+    ("isAdmin", True, False),
+    ("admin", True, False),
+    ("user_role", "admin", False),
+    ("permissions", ["admin"], False),
+    ("credits", 99999, True),
+    ("balance", 99999, True),
+    ("price", 0, True),
+    ("discount", 100, True),
+    ("account_type", "enterprise", False),
+    ("subscription", "premium", False),
+    ("verified", True, False),
+    ("email_verified", True, False),
+]
+
+_WRITE_METHODS = {"POST", "PUT", "PATCH"}
+
+
+class Scanner(BaseScanner):
+    """Replays write endpoints with injected privilege fields to detect mass assignment."""
+
+    name = "mass_assignment"
+    category = "Access Control"
+    stages = ["pre-deploy", "post-deploy"]
+    requires_stack = ["any"]
+    requires_second_account = False
+
+    def run(self, session: Any, listeners: dict, config: Any) -> list[Finding]:
+        findings: list[Finding] = []
+        stack = config.stack.backend if hasattr(config, "stack") else "unknown"
+        network = listeners["network"]
+        token = _get_auth_headers(config)
+
+        tested: set[str] = set()
+
+        for req in network.get_requests():
+            if req.method not in _WRITE_METHODS:
+                continue
+            if not req.post_data:
+                continue
+            if not req.url.startswith("http"):
+                continue
+            if any(skip in req.url for skip in ["/static/", ".js", ".css", "/auth/", "/login"]):
+                continue
+
+            endpoint_key = f"{req.method}:{req.url}"
+            if endpoint_key in tested:
+                continue
+            tested.add(endpoint_key)
+
+            try:
+                original_body = json.loads(req.post_data)
+                if not isinstance(original_body, dict):
+                    continue
+            except (json.JSONDecodeError, TypeError):
+                continue
+
+            for field_name, field_value, is_financial in _PRIVILEGE_FIELDS:
+                if field_name in original_body:
+                    continue
+
+                injected_body = {**original_body, field_name: field_value}
+                resp_body, status, _ = _make_request(
+                    req.url, req.method,
+                    json.dumps(injected_body).encode(),
+                    token,
+                )
+
+                if status not in (200, 201) or not resp_body:
+                    continue
+
+                try:
+                    resp_data = json.loads(resp_body)
+                except (json.JSONDecodeError, ValueError):
+                    continue
+
+                if not isinstance(resp_data, dict):
+                    continue
+
+                if field_name not in resp_data:
+                    continue
+
+                returned_val = resp_data[field_name]
+                if str(returned_val).lower() != str(field_value).lower():
+                    continue
+
+                sev = Severity.CRITICAL if is_financial else Severity.HIGH
+                desc = (
+                    f"The endpoint `{req.method} {req.url}` accepted and echoed back "
+                    f"the injected field `{field_name}={field_value}`. "
+                    "The server does not filter unexpected fields from the request body. "
+                    "An attacker can escalate privileges or manipulate protected attributes "
+                    "(such as account role or pricing) by adding extra fields to legitimate API requests."
+                )
+                findings.append(self.new_finding(
+                    scanner=self.name,
+                    severity=sev,
+                    title=f"Mass assignment: server accepted `{field_name}` in {req.method} {req.url}",
+                    description=desc,
+                    evidence={
+                        "request": {
+                            "method": req.method,
+                            "url": req.url,
+                            "body": truncate(json.dumps(injected_body), 300),
+                        },
+                        "response": {"status": status, "body_excerpt": truncate(resp_body, 300)},
+                        "injected_field": field_name,
+                        "injected_value": str(field_value),
+                        "returned_value": str(returned_val),
+                        "payload_used": json.dumps({field_name: field_value}),
+                        "payload_type": "mass_assignment",
+                        "injection_point": f"json_body:{field_name}",
+                        "network_events": [],
+                    },
+                    llm_prompt=self.build_llm_prompt(
+                        title=f"Mass assignment: server accepted `{field_name}`",
+                        severity=sev,
+                        scanner=self.name,
+                        page=req.url,
+                        category=self.category,
+                        description=desc,
+                        evidence_summary=(
+                            f"{req.method} {req.url}\n"
+                            f"Injected: {field_name}={field_value}\n"
+                            f"Response echoed: {field_name}={returned_val}"
+                        ),
+                        stack=stack,
+                    ),
+                    remediation=(
+                        f"**What to fix:** The `{field_name}` field is accepted from the client and "
+                        "stored/processed without an allowlist filter.\n\n"
+                        "**How to fix:** Use an explicit allowlist of permitted fields before saving. "
+                        "Never use `Object.assign(record, req.body)` or `model.create(req.body)` directly. "
+                        "In JavaScript: `const safe = pick(req.body, ['name', 'email'])`. "
+                        "For Supabase: use column-level grants — "
+                        f"`REVOKE UPDATE ({field_name}) ON profiles FROM authenticated;`\n\n"
+                        "**Verify the fix:** Re-run mass_assignment scanner — injected field must not appear in response."
+                    ),
+                    category=self.category,
+                    page=req.url,
+                ))
+
+        return findings
+
+
+def _make_request(
+    url: str, method: str, data: bytes | None, headers: dict, timeout: int = 6
+) -> tuple[str, int | None, float]:
+    start = time.monotonic()
+    try:
+        req = urllib.request.Request(url, data=data, method=method, headers=headers)
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            body = resp.read(50_000).decode("utf-8", errors="replace")
+            return body, resp.status, time.monotonic() - start
+    except urllib.error.HTTPError as e:
+        body = ""
+        try:
+            body = e.read(50_000).decode("utf-8", errors="replace")
+        except Exception:
+            pass
+        return body, e.code, time.monotonic() - start
+    except Exception:
+        return "", None, time.monotonic() - start
+
+
+def _get_auth_headers(config: Any) -> dict:
+    headers: dict = {"Content-Type": "application/json"}
+    anon_key = getattr(config, "supabase_anon_key", None)
+    if anon_key:
+        headers["apikey"] = anon_key
+        headers["Authorization"] = f"Bearer {anon_key}"
+    return headers
