@@ -106,7 +106,7 @@ def test_lockout_detected_code_shift():
     assert len(findings) == 1
     f = findings[0]
     assert f.severity == Severity.LOW
-    assert "lockout" in f.title.lower() or "Lockout" in f.title
+    assert "lockout" in f.title.lower()
     assert "DoS" in f.title
 
 
@@ -115,6 +115,7 @@ def test_lockout_detected_body_signal():
     responses = [(401, {}, '{"error": "invalid"}')
                  ] * 5 + [(401, {}, '{"error": "account locked"}')]
     findings = _run(burst_responses=responses)
+    assert len(findings) == 1
     b_findings = [f for f in findings if f.severity == Severity.LOW]
     assert len(b_findings) == 1
     assert b_findings[0].evidence["lockout_detected_at_attempt"] == 6
