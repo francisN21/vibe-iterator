@@ -215,7 +215,7 @@ def test_rate_limit_deep_scan_loaded_from_yaml(tmp_path):
     env = tmp_path / ".env"
     env.write_text("VIBE_ITERATOR_TEST_EMAIL=t@e.com\nVIBE_ITERATOR_TEST_PASSWORD=pw\nVIBE_ITERATOR_TARGET=http://localhost:3000\n")
     yaml_file = tmp_path / "vibe-iterator.config.yaml"
-    yaml_file.write_text("rate_limit_deep_scan: true\n")
+    yaml_file.write_text("rate_limit_deep_scan: true\n", encoding="utf-8")
     cfg = load_config(env_path=str(env), yaml_path=str(yaml_file))
     assert cfg.rate_limit_deep_scan is True
 

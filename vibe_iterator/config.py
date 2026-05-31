@@ -212,7 +212,7 @@ def load_config(
     # ------------------------------------------------------------------ #
     # Rate limit scanner                                                   #
     # ------------------------------------------------------------------ #
-    rate_limit_deep_scan: bool = bool(yaml_data.get("rate_limit_deep_scan", False))
+    rate_limit_deep_scan = bool(yaml_data.get("rate_limit_deep_scan", False))
 
     # ------------------------------------------------------------------ #
     # Pages                                                               #
