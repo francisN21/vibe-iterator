@@ -59,7 +59,7 @@ def run_discovery(
     _log(f"[spider] Sitemap: {len(sitemap_routes)} routes")
 
     # 2. DOM crawl + JS extraction per page
-    seeds = list(dict.fromkeys(sitemap_routes + config.pages))
+    seeds = list(dict.fromkeys(["/"] + sitemap_routes + config.pages))
     _log(f"[spider] DOM crawl: max_pages={max_pages}, max_depth={max_depth}, seeds={len(seeds)}")
 
     js_routes: list[str] = []
