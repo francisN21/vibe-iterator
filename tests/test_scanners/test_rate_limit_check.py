@@ -163,3 +163,102 @@ def test_finding_c_evidence_structure():
     assert ev["response_code"] == 429
     assert "endpoint" in ev
     assert "expected_behavior" in ev
+
+
+# ── Deep scan ─────────────────────────────────────────────────────────────────
+
+def test_deep_scan_probes_network_endpoints():
+    """With deep_scan=True, POST endpoints from network listener are probed."""
+    post_urls = [
+        "http://localhost:3000/api/custom/action",
+        "http://localhost:3000/api/other/submit",
+    ]
+    # active_path=None skips standard endpoints; deep scan picks up network ones
+    probed: list[str] = []
+
+    def _full_side(url):
+        probed.append(url)
+        return (401, {}, '{"error": "x"}')
+
+    scanner = Scanner()
+    config = _make_config(deep_scan=True)
+    network = _make_network(post_urls)
+
+    with patch("vibe_iterator.scanners.rate_limit_check._find_active_path",
+               return_value=None), \
+         patch("vibe_iterator.scanners.rate_limit_check._post_full",
+               side_effect=_full_side):
+        findings = scanner.run(
+            session=None,
+            listeners={"network": network},
+            config=config,
+        )
+
+    # Each deep-scan endpoint probed (up to 10 burst attempts each)
+    assert any("/api/custom/action" in p for p in probed)
+    assert any("/api/other/submit" in p for p in probed)
+    # Both unprotected → 2 findings
+    assert len(findings) == 2
+
+
+def test_deep_scan_skips_already_covered_endpoints():
+    """Deep scan does not double-probe an endpoint from the standard list."""
+    post_urls = [
+        "http://localhost:3000/api/auth/login",  # overlaps standard list
+        "http://localhost:3000/api/custom/new",
+    ]
+    probed: list[str] = []
+
+    def _full_side(url):
+        probed.append(url)
+        return (401, {}, '{}')
+
+    scanner = Scanner()
+    config = _make_config(deep_scan=True)
+    network = _make_network(post_urls)
+
+    with patch("vibe_iterator.scanners.rate_limit_check._find_active_path",
+               return_value="/api/auth/login"), \
+         patch("vibe_iterator.scanners.rate_limit_check._post_full",
+               side_effect=_full_side):
+        scanner.run(
+            session=None,
+            listeners={"network": network},
+            config=config,
+        )
+
+    login_probes = [p for p in probed if "/api/auth/login" in p]
+    new_probes = [p for p in probed if "/api/custom/new" in p]
+    # login probed exactly once (from standard list, 10 burst attempts)
+    assert len(login_probes) == 10
+    # custom/new also probed
+    assert len(new_probes) == 10
+
+
+def test_deep_scan_caps_at_20_endpoints():
+    """Deep scan probes at most 20 additional endpoints beyond the standard list."""
+    post_urls = [
+        f"http://localhost:3000/api/ep/{i}" for i in range(25)
+    ]
+    probed_paths: set[str] = set()
+
+    def _full_side(url):
+        from urllib.parse import urlparse
+        probed_paths.add(urlparse(url).path)
+        return (401, {}, '{}')
+
+    scanner = Scanner()
+    config = _make_config(deep_scan=True)
+    network = _make_network(post_urls)
+
+    with patch("vibe_iterator.scanners.rate_limit_check._find_active_path",
+               return_value=None), \
+         patch("vibe_iterator.scanners.rate_limit_check._post_full",
+               side_effect=_full_side):
+        scanner.run(
+            session=None,
+            listeners={"network": network},
+            config=config,
+        )
+
+    assert len(probed_paths) == 20
