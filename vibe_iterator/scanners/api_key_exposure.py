@@ -8,6 +8,7 @@ Three scan groups:
 
 from __future__ import annotations
 
+import hashlib
 import re
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -219,11 +220,13 @@ class Scanner(BaseScanner):
                 continue
             seen.add(dedup_key)
 
-            matched = truncate(m.group(0), 40)
+            raw = m.group(0)
+            fp = hashlib.sha256(raw.encode()).hexdigest()[:8]
+            masked = f"{raw[:4]}***{raw[-2:]} (sha256:{fp})"
             title = f"API key exposed in {context}: {label}"
             desc = (
                 f"A `{label}` was detected in {context} at `{truncate(url, 80)}`. "
-                f"Matched value (truncated): `{matched}`. "
+                f"Masked value: `{masked}`. "
                 "Exposed API keys can be extracted by any user monitoring network traffic, "
                 "reading browser DevTools, or running a script on your page."
             )
@@ -244,7 +247,7 @@ class Scanner(BaseScanner):
                     "url": url,
                     "location": location,
                     "key_type": label,
-                    "matched_prefix": matched,
+                    "masked_value": masked,
                     "payload_type": "api_key_exposure",
                     "payload_used": "passive — pattern match",
                     "injection_point": location,
@@ -257,7 +260,7 @@ class Scanner(BaseScanner):
                     page=url,
                     category=self.category,
                     description=desc,
-                    evidence_summary=f"Location: {location}\nKey type: {label}\nMatched (truncated): {matched}",
+                    evidence_summary=f"Location: {location}\nKey type: {label}\nMasked value: {masked}",
                 ),
                 remediation=remediation,
                 category=self.category,
