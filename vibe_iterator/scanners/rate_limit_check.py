@@ -222,8 +222,11 @@ def _finding_b(
     desc = (
         f"{label} endpoint locks accounts after {lockout_at} failed attempts "
         f"(response changed from {code_before} to {code_after}). "
-        "An attacker can deliberately trigger this to lock out any user whose email they know "
-        "— no password needed. The account owner is the victim, not the attacker."
+        "An attacker only needs a valid email address — no password required — to permanently "
+        "lock out any user. The locked account owner must then go through manual recovery: "
+        "opening an IT support ticket, waiting for a timed reset, or contacting the service. "
+        "The attacker pays nothing; the victim pays with lost access. "
+        "This is a denial-of-service vector disguised as a security feature."
     )
     return scanner.new_finding(
         scanner=scanner.name,
@@ -249,7 +252,15 @@ def _finding_b(
             page=url,
             category=scanner.category,
             description=desc,
-            evidence_summary=f"Attempt {lockout_at} on {url}: code changed {code_before} → {code_after}.",
+            evidence_summary=(
+                f"Attempt {lockout_at} on {url}: status changed {code_before} → {code_after} "
+                f"(lockout triggered). "
+                "This is a DoS vector: an attacker only needs a target's email address to permanently "
+                "lock their account — no password required. The victim must open an IT ticket or wait "
+                "for a manual reset to regain access. "
+                "Fix: replace lockout with 429 + Retry-After progressive throttling keyed on "
+                "(IP + email). Never lock the account — throttle the attacker instead."
+            ),
             stack=stack,
         ),
         remediation=_REMEDIATION_B.format(label=label),
@@ -340,18 +351,43 @@ _REMEDIATION_A = (
 
 _REMEDIATION_B = (
     "**What to fix:** {label} endpoint locks accounts after failed attempts. "
-    "A locked account requires manual recovery (e.g. opening an IT ticket or "
-    "waiting for a timed reset). An attacker can deliberately trigger this to "
-    "lock out any user whose email they know — no password needed.\n\n"
-    "**How to fix:** Replace lockout with 429 + Retry-After progressive throttling:\n"
-    "- Attempts 1–5:  allow (normal 401)\n"
-    "- Attempts 6–20: return 429, Retry-After: 60\n"
+    "A locked account requires manual recovery — the victim must open an IT support ticket "
+    "or wait for a timed reset. An attacker only needs a valid email address to trigger this; "
+    "no password required. They lock you out; you pay the recovery cost.\n\n"
+    "**How to fix:** Remove the lockout. Replace it with 429 + Retry-After progressive throttling "
+    "keyed on (IP + email) together:\n\n"
+    "```js\n"
+    "// Next.js route handler (app router)\n"
+    "import {{ RateLimiterMemory }} from 'rate-limiter-flexible';\n\n"
+    "const limiter = new RateLimiterMemory({{\n"
+    "  points: 5,      // allow 5 attempts\n"
+    "  duration: 60,   // per 60-second window\n"
+    "}});\n\n"
+    "export async function POST(req) {{\n"
+    "  const {{ email }} = await req.json();\n"
+    '  const ip = req.headers.get("x-forwarded-for") ?? "anon";\n'
+    "  const key = `${{ip}}:${{email}}`;\n\n"
+    "  try {{\n"
+    "    await limiter.consume(key);\n"
+    "  }} catch (e) {{\n"
+    "    const retryAfter = Math.ceil(e.msBeforeNextReset / 1000);\n"
+    "    return Response.json(\n"
+    '      {{ error: "Too many attempts. Try again later." }},\n'
+    '      {{ status: 429, headers: {{ "Retry-After": String(retryAfter) }} }}\n'
+    "    );\n"
+    "  }}\n\n"
+    "  // ... authenticate normally, return 401 on wrong password\n"
+    "  // NEVER return 403/423/locked — always 401 until the rate limit kicks in\n"
+    "}}\n"
+    "```\n\n"
+    "**Progressive throttling tiers (optional, for high-value endpoints):**\n"
+    "- Attempts 1–5:   allow (normal 401)\n"
+    "- Attempts 6–20:  return 429, Retry-After: 60\n"
     "- Attempts 21–50: return 429, Retry-After: 300\n"
-    "- Attempts 51+:  return 429, Retry-After: 3600\n\n"
-    "Key on (IP + target email) together — not email alone (locks out the real "
-    "user) and not IP alone (trivially bypassed with proxies).\n\n"
-    "Never lock the account. The account owner is the victim of lockout, not the attacker.\n\n"
-    "**Verify the fix:** Re-run rate_limit_check — lockout finding must be gone, "
+    "- Attempts 51+:   return 429, Retry-After: 3600\n\n"
+    "**Key rule:** Key on (IP + target email) together. Not email alone — that lets the attacker "
+    "lock out real users. Not IP alone — trivially bypassed with proxies.\n\n"
+    "**Verify the fix:** Re-run rate_limit_check — the lockout finding must be gone "
     "and a 429 must appear by attempt 6."
 )
 
