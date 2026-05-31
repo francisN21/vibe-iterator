@@ -149,7 +149,7 @@ def test_rate_limited_missing_retry_after_finding_c():
                  ] * 5 + [(429, {}, '{"error": "rate limited"}')]
     findings = _run(burst_responses=responses)
     assert len(findings) == 1
-    c_findings = [f for f in findings if "Retry-After" in f.title or "retry" in f.title.lower()]
+    c_findings = [f for f in findings if "Retry-After" in f.title]
     assert len(c_findings) == 1
     assert c_findings[0].severity == Severity.INFO
 
