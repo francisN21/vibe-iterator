@@ -101,6 +101,7 @@ def _probe_endpoint(
     for i in range(_BURST_COUNT):
         code, headers, body = _post_full(url)
         if code is None:
+            # Connection error or timeout — silently skip; not enough signal to classify
             break
 
         if code == 429:
@@ -111,7 +112,7 @@ def _probe_endpoint(
         body_lower = body.lower()
         if any(sig in body_lower for sig in _LOCKOUT_BODY_SIGNALS):
             lockout_at = i + 1
-            lockout_code_before = codes[-1] if codes else code
+            lockout_code_before = codes[-1] if codes else None
             lockout_code_after = code
             lockout_body = body[:200]
             break
