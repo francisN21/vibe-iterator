@@ -195,8 +195,10 @@ def test_deep_scan_probes_network_endpoints():
         )
 
     # Each deep-scan endpoint probed (up to 10 burst attempts each)
-    assert any("/api/custom/action" in p for p in probed)
-    assert any("/api/other/submit" in p for p in probed)
+    from urllib.parse import urlparse
+    probed_paths_set = {urlparse(u).path for u in probed}
+    assert "/api/custom/action" in probed_paths_set
+    assert "/api/other/submit" in probed_paths_set
     # Both unprotected → 2 findings
     assert len(findings) == 2
 
@@ -237,13 +239,13 @@ def test_deep_scan_skips_already_covered_endpoints():
 
 def test_deep_scan_caps_at_20_endpoints():
     """Deep scan probes at most 20 additional endpoints beyond the standard list."""
+    from urllib.parse import urlparse
     post_urls = [
         f"http://localhost:3000/api/ep/{i}" for i in range(25)
     ]
     probed_paths: set[str] = set()
 
     def _full_side(url):
-        from urllib.parse import urlparse
         probed_paths.add(urlparse(url).path)
         return (401, {}, '{}')
 
