@@ -297,6 +297,91 @@ code, pre { font-family: var(--font-mono); }
   border-top: 1px solid var(--border);
 }
 
+/* ── Scanner checkbox chips with hover tooltip ─────────────────────────────── */
+.scanner-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.scanner-chip-info {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 8px;
+  cursor: help;
+  flex-shrink: 0;
+  transition: border-color var(--transition), color var(--transition);
+  user-select: none;
+}
+
+.scanner-chip:hover .scanner-chip-info {
+  border-color: var(--cyan);
+  color: var(--cyan);
+}
+
+.scanner-tooltip-card {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 999;
+  width: 230px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-bright);
+  border-radius: 6px;
+  padding: 10px 12px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
+
+.scanner-chip:hover .scanner-tooltip-card {
+  display: block;
+}
+
+.scanner-tooltip-name {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-muted);
+  margin-bottom: 5px;
+  letter-spacing: 0.03em;
+}
+
+.scanner-tooltip-desc {
+  font-size: 11px;
+  color: var(--text);
+  line-height: 1.55;
+  margin-bottom: 8px;
+}
+
+.scanner-tooltip-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.scanner-tooltip-category {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: rgba(0, 212, 255, 0.1);
+  color: var(--cyan);
+  border: 1px solid rgba(0, 212, 255, 0.2);
+}
+
+.scanner-tooltip-time {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-muted);
+}
+
 .config-row {
   display: flex;
   align-items: center;

@@ -26,17 +26,102 @@ router = APIRouter()
 # --------------------------------------------------------------------------- #
 
 _SCANNER_META: dict[str, dict] = {
-    "data_leakage":     {"requires_stack": ["any"],      "requires_second_account": False, "category": "Data Leakage",         "est_seconds": 15},
-    "rls_bypass":       {"requires_stack": ["supabase"],  "requires_second_account": True,  "category": "Access Control",       "est_seconds": 30},
-    "tier_escalation":  {"requires_stack": ["supabase"],  "requires_second_account": False, "category": "Access Control",       "est_seconds": 20},
-    "bucket_limits":    {"requires_stack": ["supabase"],  "requires_second_account": False, "category": "Access Control",       "est_seconds": 25},
-    "auth_check":       {"requires_stack": ["any"],       "requires_second_account": True,  "category": "Authentication",       "est_seconds": 60},
-    "client_tampering": {"requires_stack": ["any"],       "requires_second_account": False, "category": "Client-Side Tampering","est_seconds": 20},
-    "sql_injection":    {"requires_stack": ["any"],       "requires_second_account": False, "category": "Injection",            "est_seconds": 60},
-    "cors_check":       {"requires_stack": ["any"],       "requires_second_account": False, "category": "Misconfiguration",     "est_seconds": 15},
-    "xss_check":        {"requires_stack": ["any"],       "requires_second_account": False, "category": "Injection",            "est_seconds": 30},
-    "api_exposure":     {"requires_stack": ["any"],       "requires_second_account": False, "category": "API Security",         "est_seconds": 20},
-    "rate_limit_check": {"requires_stack": ["any"],       "requires_second_account": False, "category": "Rate Limiting",        "est_seconds": 45},
+    "data_leakage": {
+        "label": "Data Leakage",
+        "requires_stack": ["any"], "requires_second_account": False,
+        "category": "Data Leakage", "est_seconds": 15,
+        "description": "Finds auth tokens, UUIDs, and PII exposed in network traffic, localStorage, and API responses.",
+    },
+    "rls_bypass": {
+        "label": "RLS Bypass",
+        "requires_stack": ["supabase"], "requires_second_account": True,
+        "category": "Access Control", "est_seconds": 30,
+        "description": "Tests Supabase Row Level Security by querying as a second user — finds tables missing RLS rules.",
+    },
+    "tier_escalation": {
+        "label": "Tier Escalation",
+        "requires_stack": ["supabase"], "requires_second_account": False,
+        "category": "Access Control", "est_seconds": 20,
+        "description": "Manipulates subscription tier flags to check if premium features can be unlocked for free.",
+    },
+    "bucket_limits": {
+        "label": "Storage Limits",
+        "requires_stack": ["supabase"], "requires_second_account": False,
+        "category": "Access Control", "est_seconds": 25,
+        "description": "Tests Supabase storage buckets for missing file size limits, type restrictions, and public access.",
+    },
+    "auth_check": {
+        "label": "Auth & Sessions",
+        "requires_stack": ["any"], "requires_second_account": True,
+        "category": "Authentication", "est_seconds": 60,
+        "description": "Six-group audit: token security, session fixation, login brute-force, password reset, auth bypass, and OAuth.",
+    },
+    "client_tampering": {
+        "label": "Client Tampering",
+        "requires_stack": ["any"], "requires_second_account": False,
+        "category": "Client-Side Tampering", "est_seconds": 20,
+        "description": "Modifies localStorage, cookies, and request bodies to test if the server enforces business rules server-side.",
+    },
+    "sql_injection": {
+        "label": "SQL Injection",
+        "requires_stack": ["any"], "requires_second_account": False,
+        "category": "Injection", "est_seconds": 60,
+        "description": "Active injection testing across captured API endpoints — includes blind injection and PostgREST filter bypass.",
+    },
+    "cors_check": {
+        "label": "CORS",
+        "requires_stack": ["any"], "requires_second_account": False,
+        "category": "Misconfiguration", "est_seconds": 15,
+        "description": "Probes CORS with crafted Origin headers to find overly permissive cross-origin access policies.",
+    },
+    "xss_check": {
+        "label": "XSS",
+        "requires_stack": ["any"], "requires_second_account": False,
+        "category": "Injection", "est_seconds": 30,
+        "description": "Injects reflected, stored, and DOM-based XSS payloads into all discovered input fields and URL parameters.",
+    },
+    "api_exposure": {
+        "label": "Unprotected APIs",
+        "requires_stack": ["any"], "requires_second_account": False,
+        "category": "API Security", "est_seconds": 20,
+        "description": "Replays captured API requests without auth headers — finds endpoints that serve data without authentication.",
+    },
+    "api_key_exposure": {
+        "label": "API Key Exposure",
+        "requires_stack": ["any"], "requires_second_account": False,
+        "category": "Data Leakage", "est_seconds": 10,
+        "description": "Scans network traffic, response bodies, and browser storage for leaked API keys (Stripe, AWS, GitHub, OpenAI, and more).",
+    },
+    "rate_limit_check": {
+        "label": "Rate Limiting",
+        "requires_stack": ["any"], "requires_second_account": False,
+        "category": "Rate Limiting", "est_seconds": 45,
+        "description": "Sends 10-attempt bursts to auth endpoints — detects missing rate limits, lockout DoS, and missing Retry-After.",
+    },
+    "mass_assignment": {
+        "label": "Mass Assignment",
+        "requires_stack": ["any"], "requires_second_account": False,
+        "category": "Access Control", "est_seconds": 20,
+        "description": "Injects extra fields into API requests to test if the server exposes unintended writable properties like role or is_admin.",
+    },
+    "info_disclosure": {
+        "label": "Info Disclosure",
+        "requires_stack": ["any"], "requires_second_account": False,
+        "category": "Misconfiguration", "est_seconds": 15,
+        "description": "Looks for verbose error messages, stack traces, version numbers, and debug info leaked in API responses.",
+    },
+    "idor_check": {
+        "label": "IDOR",
+        "requires_stack": ["any"], "requires_second_account": False,
+        "category": "Access Control", "est_seconds": 25,
+        "description": "Tests Insecure Direct Object Reference by replaying requests with swapped IDs to check cross-user data access.",
+    },
+    "http_method_tampering": {
+        "label": "Method Tampering",
+        "requires_stack": ["any"], "requires_second_account": False,
+        "category": "Misconfiguration", "est_seconds": 15,
+        "description": "Sends DELETE/PUT/PATCH to endpoints expecting GET/POST — checks if method overrides bypass access controls.",
+    },
 }
 
 _STAGE_LABELS = {
@@ -110,10 +195,12 @@ def _scanner_availability(scanner_name: str, config: Any) -> dict:
 
     return {
         "name": scanner_name,
+        "label": meta.get("label", scanner_name.replace("_", " ").title()),
         "available": available,
         "skip_reason": skip_reason,
         "category": meta.get("category", ""),
         "est_seconds": meta.get("est_seconds", 30),
+        "description": meta.get("description", ""),
     }
 
 

@@ -169,8 +169,11 @@ function selectStage(stage, cardEl, scanners) {
   scanners.forEach(s => {
     _overrideStates[s.name] = s.available; // default: include if available
 
+    const chip = document.createElement('div');
+    chip.className = 'scanner-chip';
+
     const label = document.createElement('label');
-    label.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-dim);cursor:pointer';
+    label.style.cssText = 'display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text-dim);cursor:pointer';
 
     const cb = document.createElement('input');
     cb.type = 'checkbox';
@@ -180,9 +183,55 @@ function selectStage(stage, cardEl, scanners) {
     cb.style.accentColor = 'var(--green)';
     cb.addEventListener('change', () => { _overrideStates[s.name] = cb.checked; });
 
+    const displayName = s.label || s.name;
+    const nameSpan = document.createElement('span');
+    nameSpan.textContent = displayName + (s.skip_reason ? ` (${s.skip_reason})` : '');
+    if (!s.available) nameSpan.style.opacity = '0.45';
+
     label.appendChild(cb);
-    label.appendChild(document.createTextNode(s.name + (s.skip_reason ? ` (${s.skip_reason})` : '')));
-    container.appendChild(label);
+    label.appendChild(nameSpan);
+    chip.appendChild(label);
+
+    if (s.description) {
+      const infoBtn = document.createElement('span');
+      infoBtn.className = 'scanner-chip-info';
+      infoBtn.textContent = '?';
+      chip.appendChild(infoBtn);
+
+      const t = s.est_seconds;
+      const tStr = t >= 60 ? `~${Math.round(t / 60)}m` : `~${t}s`;
+
+      const tip = document.createElement('div');
+      tip.className = 'scanner-tooltip-card';
+
+      const tipName = document.createElement('div');
+      tipName.className = 'scanner-tooltip-name';
+      tipName.textContent = s.name;
+
+      const tipDesc = document.createElement('div');
+      tipDesc.className = 'scanner-tooltip-desc';
+      tipDesc.textContent = s.description;
+
+      const tipMeta = document.createElement('div');
+      tipMeta.className = 'scanner-tooltip-meta';
+
+      const tipCat = document.createElement('span');
+      tipCat.className = 'scanner-tooltip-category';
+      tipCat.textContent = s.category;
+
+      const tipTime = document.createElement('span');
+      tipTime.className = 'scanner-tooltip-time';
+      tipTime.textContent = tStr;
+
+      tipMeta.appendChild(tipCat);
+      tipMeta.appendChild(tipTime);
+      tip.appendChild(tipName);
+      tip.appendChild(tipDesc);
+      tip.appendChild(tipMeta);
+      chip.appendChild(tip);
+    }
+
+    container.appendChild(chip);
   });
 
   updateStartBtn();
