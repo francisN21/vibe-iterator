@@ -94,3 +94,39 @@ def test_all_endpoints_404_no_findings():
     """If all path variants 404, no findings emitted."""
     findings = _run(active_path=None)
     assert findings == []
+
+
+# ── Finding B ────────────────────────────────────────────────────────────────
+
+def test_lockout_detected_code_shift():
+    """Attempts 1-4 return 401, attempt 5 returns 403 → Finding B, LOW."""
+    responses = [(401, {}, '{"error": "invalid"}')
+                 ] * 4 + [(403, {}, '{"error": "forbidden"}')]
+    findings = _run(burst_responses=responses)
+    assert len(findings) == 1
+    f = findings[0]
+    assert f.severity == Severity.LOW
+    assert "lockout" in f.title.lower() or "Lockout" in f.title
+    assert "DoS" in f.title
+
+
+def test_lockout_detected_body_signal():
+    """All 401 but body contains 'locked' at attempt 6 → Finding B."""
+    responses = [(401, {}, '{"error": "invalid"}')
+                 ] * 5 + [(401, {}, '{"error": "account locked"}')]
+    findings = _run(burst_responses=responses)
+    b_findings = [f for f in findings if f.severity == Severity.LOW]
+    assert len(b_findings) == 1
+    assert b_findings[0].evidence["lockout_detected_at_attempt"] == 6
+
+
+def test_lockout_evidence_structure():
+    """Finding B evidence has all required keys."""
+    responses = [(401, {}, '{"error": "x"}') ] * 4 + [(403, {}, '{"error": "locked"}')]
+    findings = _run(burst_responses=responses)
+    ev = findings[0].evidence
+    assert "lockout_detected_at_attempt" in ev
+    assert "code_before" in ev
+    assert "code_after" in ev
+    assert ev["code_before"] == 401
+    assert ev["code_after"] == 403
