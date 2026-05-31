@@ -16,15 +16,18 @@ _DEFAULT_STAGES: dict[str, list[str]] = {
         "data_leakage", "auth_check", "client_tampering",
         "rls_bypass", "tier_escalation", "bucket_limits",
         "sql_injection", "xss_check", "api_exposure",
+        "rate_limit_check",
     ],
     "post-deploy": [
         "cors_check", "data_leakage", "auth_check",
         "api_exposure", "bucket_limits", "sql_injection",
+        "rate_limit_check",
     ],
     "all": [
         "data_leakage", "rls_bypass", "tier_escalation", "bucket_limits",
         "auth_check", "client_tampering", "sql_injection",
         "cors_check", "xss_check", "api_exposure",
+        "rate_limit_check",
     ],
 }
 
@@ -76,6 +79,9 @@ class Config:
     # Spider (endpoint discovery)
     spider_max_pages: int = 30
     spider_max_depth: int = 3
+
+    # Rate limit scanner
+    rate_limit_deep_scan: bool = False
 
     # History
     results_dir: Path = field(default_factory=lambda: Path.cwd() / "vibe-iterator-results")
@@ -204,6 +210,11 @@ def load_config(
         raise ConfigError("spider.max_depth must be 0 or greater.")
 
     # ------------------------------------------------------------------ #
+    # Rate limit scanner                                                   #
+    # ------------------------------------------------------------------ #
+    rate_limit_deep_scan: bool = bool(yaml_data.get("rate_limit_deep_scan", False))
+
+    # ------------------------------------------------------------------ #
     # Pages                                                               #
     # ------------------------------------------------------------------ #
     pages_raw = yaml_data.get("pages", _DEFAULT_PAGES)
@@ -280,5 +291,6 @@ def load_config(
         scanner_timeout_seconds=scanner_timeout_seconds,
         spider_max_pages=spider_max_pages,
         spider_max_depth=spider_max_depth,
+        rate_limit_deep_scan=rate_limit_deep_scan,
         results_dir=results_dir,
     )

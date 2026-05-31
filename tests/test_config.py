@@ -196,3 +196,41 @@ def test_second_account_configured_false_when_partial(monkeypatch, tmp_path) -> 
     with warnings.catch_warnings(record=True):
         cfg = load_config(env_path=env_path)
     assert cfg.second_account_configured is False
+
+
+# --------------------------------------------------------------------------- #
+# Rate limit scanner config                                                     #
+# --------------------------------------------------------------------------- #
+
+def test_rate_limit_deep_scan_defaults_false(tmp_path):
+    """rate_limit_deep_scan defaults to False when not in YAML."""
+    env = tmp_path / ".env"
+    env.write_text("VIBE_ITERATOR_TEST_EMAIL=t@e.com\nVIBE_ITERATOR_TEST_PASSWORD=pw\nVIBE_ITERATOR_TARGET=http://localhost:3000\n")
+    cfg = load_config(env_path=str(env))
+    assert cfg.rate_limit_deep_scan is False
+
+
+def test_rate_limit_deep_scan_loaded_from_yaml(tmp_path):
+    """rate_limit_deep_scan is read from YAML."""
+    env = tmp_path / ".env"
+    env.write_text("VIBE_ITERATOR_TEST_EMAIL=t@e.com\nVIBE_ITERATOR_TEST_PASSWORD=pw\nVIBE_ITERATOR_TARGET=http://localhost:3000\n")
+    yaml_file = tmp_path / "vibe-iterator.config.yaml"
+    yaml_file.write_text("rate_limit_deep_scan: true\n")
+    cfg = load_config(env_path=str(env), yaml_path=str(yaml_file))
+    assert cfg.rate_limit_deep_scan is True
+
+
+def test_rate_limit_check_in_pre_deploy_stage(tmp_path):
+    """rate_limit_check scanner appears in pre-deploy stage."""
+    env = tmp_path / ".env"
+    env.write_text("VIBE_ITERATOR_TEST_EMAIL=t@e.com\nVIBE_ITERATOR_TEST_PASSWORD=pw\nVIBE_ITERATOR_TARGET=http://localhost:3000\n")
+    cfg = load_config(env_path=str(env))
+    assert "rate_limit_check" in cfg.scanners_for_stage("pre-deploy")
+
+
+def test_rate_limit_check_not_in_dev_stage(tmp_path):
+    """rate_limit_check scanner is NOT in the dev stage (too slow)."""
+    env = tmp_path / ".env"
+    env.write_text("VIBE_ITERATOR_TEST_EMAIL=t@e.com\nVIBE_ITERATOR_TEST_PASSWORD=pw\nVIBE_ITERATOR_TARGET=http://localhost:3000\n")
+    cfg = load_config(env_path=str(env))
+    assert "rate_limit_check" not in cfg.scanners_for_stage("dev")
