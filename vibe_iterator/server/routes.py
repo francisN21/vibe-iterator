@@ -36,6 +36,7 @@ _SCANNER_META: dict[str, dict] = {
     "cors_check":       {"requires_stack": ["any"],       "requires_second_account": False, "category": "Misconfiguration",     "est_seconds": 15},
     "xss_check":        {"requires_stack": ["any"],       "requires_second_account": False, "category": "Injection",            "est_seconds": 30},
     "api_exposure":     {"requires_stack": ["any"],       "requires_second_account": False, "category": "API Security",         "est_seconds": 20},
+    "rate_limit_check": {"requires_stack": ["any"],       "requires_second_account": False, "category": "Rate Limiting",        "est_seconds": 45},
 }
 
 _STAGE_LABELS = {
