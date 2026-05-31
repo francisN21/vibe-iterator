@@ -24,6 +24,9 @@ import threading
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+# Module-level attempt counter — reset by VulnerableApp.start()
+_attempt_counts: dict[str, int] = {}
+
 
 class VulnerableHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
@@ -105,19 +108,48 @@ class VulnerableHandler(BaseHTTPRequestHandler):
         # Check for method override header
         override = self.headers.get("X-HTTP-Method-Override", "") or self.headers.get("X-Method-Override", "")
         if override.upper() == "DELETE" and path == "/api/resource":
-            # Method tampering: should reject override but doesn't
             self._respond_json(200, {"deleted": True, "message": "resource deleted via override"})
             return
 
         if path == "/api/profile":
-            # Mass assignment: echoes ALL submitted fields back (vulnerable)
             try:
                 submitted = json.loads(body_bytes.decode("utf-8"))
             except Exception:
                 submitted = {}
             self._respond_json(201, {"id": 42, **submitted})
+
         elif path == "/api/auth/login":
+            # No rate limiting — always 401 (triggers Finding A)
             self._respond_json(401, {"error": "invalid credentials"})
+
+        elif path == "/api/auth/signup":
+            # No rate limiting — always 200 (triggers Finding A)
+            self._respond_json(200, {"message": "registered"})
+
+        elif path == "/api/auth/forgot-password":
+            # Lockout: attempts 1-4 → 401, attempt 5+ → 403 (triggers Finding B)
+            _attempt_counts[path] = _attempt_counts.get(path, 0) + 1
+            n = _attempt_counts[path]
+            if n < 5:
+                self._respond_json(401, {"error": "invalid credentials"})
+            else:
+                self._respond_json(403, {"error": "account locked"})
+
+        elif path == "/api/auth/rate-limited-login":
+            # Properly rate-limited: attempt 2+ → 429 + Retry-After (negative control)
+            _attempt_counts[path] = _attempt_counts.get(path, 0) + 1
+            n = _attempt_counts[path]
+            if n == 1:
+                self._respond_json(401, {"error": "invalid credentials"})
+            else:
+                data = json.dumps({"error": "Too many attempts."}).encode()
+                self.send_response(429)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Retry-After", "30")
+                self.end_headers()
+                self.wfile.write(data)
+
         else:
             self._respond_json(404, {"error": "not found"})
 
@@ -238,6 +270,7 @@ class VulnerableApp:
         self.base_url: str = ""
 
     def start(self) -> str:
+        _attempt_counts.clear()          # reset per test session
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), VulnerableHandler)
         port = self._server.server_address[1]
         self.base_url = f"http://127.0.0.1:{port}"
