@@ -131,3 +131,35 @@ def test_lockout_evidence_structure():
     assert "code_after" in ev
     assert ev["code_before"] == 401
     assert ev["code_after"] == 403
+
+
+# ── Finding C ────────────────────────────────────────────────────────────────
+
+def test_rate_limited_with_retry_after_no_finding():
+    """429 with Retry-After present → no findings at all."""
+    responses = [(401, {}, '{"error": "x"}')
+                 ] * 5 + [(429, {"retry-after": "60"}, '{"error": "rate limited"}')]
+    findings = _run(burst_responses=responses)
+    assert findings == []
+
+
+def test_rate_limited_missing_retry_after_finding_c():
+    """429 present but no Retry-After header → Finding C, INFO."""
+    responses = [(401, {}, '{"error": "x"}')
+                 ] * 5 + [(429, {}, '{"error": "rate limited"}')]
+    findings = _run(burst_responses=responses)
+    assert len(findings) == 1
+    c_findings = [f for f in findings if "Retry-After" in f.title or "retry" in f.title.lower()]
+    assert len(c_findings) == 1
+    assert c_findings[0].severity == Severity.INFO
+
+
+def test_finding_c_evidence_structure():
+    """Finding C evidence has response_code and endpoint keys."""
+    responses = [(401, {}, '{}') ] * 5 + [(429, {}, '{}')]
+    findings = _run(burst_responses=responses)
+    assert len(findings) == 1
+    ev = findings[0].evidence
+    assert ev["response_code"] == 429
+    assert "endpoint" in ev
+    assert "expected_behavior" in ev
