@@ -4,6 +4,8 @@ from __future__ import annotations
 import base64 as _base64
 import json
 import re
+import socket
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -12,6 +14,10 @@ from typing import Any
 PROBE_PREFIX = "vibe_iterator_probe_"
 REQUEST_TIMEOUT = 6
 IDENTITY_TOOLKIT_BASE = "https://identitytoolkit.googleapis.com/v1"
+LOCAL_REACHABILITY_TIMEOUT_SECONDS = 0.25
+LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
+LOCAL_REACHABILITY_CACHE_SECONDS = 2.0
+_CLOSED_LOCAL_ENDPOINTS: dict[tuple[str, int], float] = {}
 
 _FUNCTION_HOST_RE = re.compile(
     r"https://([a-z0-9-]+)\.cloudfunctions\.net|https://([a-z0-9-]+)\.([a-z0-9-]+)\.run\.app"
@@ -22,6 +28,36 @@ _JWT_RE = re.compile(r"eyJ[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+")
 def truncate(text: str, max_len: int = 300) -> str:
     s = str(text)
     return s if len(s) <= max_len else s[:max_len] + "...[truncated]"
+
+
+def is_closed_local_url(url: str) -> bool:
+    """Return True when a localhost URL has no listener on its target port."""
+    parsed = urllib.parse.urlparse(url)
+    host = parsed.hostname
+    if host not in LOCAL_HOSTS:
+        return False
+
+    try:
+        port = parsed.port
+    except ValueError:
+        return False
+    if port is None:
+        port = 443 if parsed.scheme == "https" else 80
+
+    endpoint = (host, port)
+    now = time.monotonic()
+    cached_at = _CLOSED_LOCAL_ENDPOINTS.get(endpoint)
+    if cached_at is not None and now - cached_at < LOCAL_REACHABILITY_CACHE_SECONDS:
+        return True
+    if cached_at is not None:
+        _CLOSED_LOCAL_ENDPOINTS.pop(endpoint, None)
+
+    try:
+        with socket.create_connection(endpoint, timeout=LOCAL_REACHABILITY_TIMEOUT_SECONDS):
+            return False
+    except OSError:
+        _CLOSED_LOCAL_ENDPOINTS[endpoint] = now
+        return True
 
 
 # --------------------------------------------------------------------------- #

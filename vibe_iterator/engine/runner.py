@@ -441,13 +441,13 @@ class ScanRunner:
                 self._result.completed_at = datetime.now(timezone.utc).isoformat()
                 self._result.duration_seconds = round(time.monotonic() - scan_start, 2)
         finally:
-            if session:
-                session.quit()
             try:
                 network.detach()
                 console.detach()
             except Exception:
                 pass
+            if session:
+                session.quit()
 
         assert self._result is not None
         return self._result
@@ -534,12 +534,12 @@ class ScanRunner:
                 self._result.duration_seconds = round(time.monotonic() - scan_start, 2)
 
         finally:
-            if session:
-                session.quit()
             try:
                 network.detach()
             except Exception:
                 pass
+            if session:
+                session.quit()
 
         assert self._result is not None
         return self._result

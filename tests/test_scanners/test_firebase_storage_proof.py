@@ -85,3 +85,30 @@ def test_negative_unreachable_host() -> None:
     net.get_requests.return_value = []
     findings = scanner.run(session=None, listeners={"network": net}, config=cfg)
     assert findings == []
+
+def test_unreachable_local_bucket_skips_http_requests(monkeypatch: pytest.MonkeyPatch) -> None:
+    scanner = Scanner()
+    cfg = MagicMock()
+    cfg.target = "http://localhost:1"
+    cfg.stack.backend = "firebase"
+    cfg.second_account_configured = False
+    cfg._firebase_cfg = {
+        "projectId": "testproj",
+        "storageBucket": "127.0.0.1:1",
+        "databaseURL": "http://localhost:1",
+    }
+    net = MagicMock()
+    net.get_requests.return_value = []
+    calls = 0
+
+    def fail_if_called(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        raise AssertionError("urlopen should not be called for a closed local Firebase Storage endpoint")
+
+    monkeypatch.setattr("vibe_iterator.scanners.firebase_storage.urllib.request.urlopen", fail_if_called)
+
+    findings = scanner.run(session=None, listeners={"network": net}, config=cfg)
+
+    assert findings == []
+    assert calls == 0

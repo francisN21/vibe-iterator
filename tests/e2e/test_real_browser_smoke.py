@@ -6,6 +6,7 @@ Run with:
 
 from __future__ import annotations
 
+import asyncio
 import os
 import threading
 import time
@@ -13,7 +14,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
+from tests.fixtures.vulnerable_app.app import VulnerableApp
+from vibe_iterator.config import Config, StackConfig
 from vibe_iterator.crawler import browser
+from vibe_iterator.engine.runner import ScanRunner
 from vibe_iterator.listeners.network import NetworkListener
 
 
@@ -87,3 +91,57 @@ def test_real_chrome_cdp_captures_local_app(smoke_server: str) -> None:
     finally:
         network.detach()
         session.quit()
+
+
+@pytest.mark.skipif(
+    os.getenv("VIBE_ITERATOR_RUN_E2E_SMOKE") != "1",
+    reason="Set VIBE_ITERATOR_RUN_E2E_SMOKE=1 to run the real Selenium/CDP vulnerable-app scan.",
+)
+def test_real_scan_runner_finds_vulnerable_fixture_issues() -> None:
+    events = []
+
+    with VulnerableApp() as app:
+        config = Config(
+            target=app.base_url,
+            test_email="tester@example.com",
+            test_password="password123",
+            test_email_2=None,
+            test_password_2=None,
+            supabase_url=None,
+            supabase_anon_key=None,
+            pages=["/", "/dashboard", "/api/data", "/api/user", "/api/protected", "/api/login"],
+            stages={
+                "phase6-proof": [
+                    "xss_check",
+                    "cors_check",
+                    "api_exposure",
+                    "info_disclosure",
+                ],
+            },
+            stack=StackConfig(backend="custom", auth="custom", storage="custom"),
+            port=3001,
+            scanner_timeout_seconds=20,
+        )
+        runner = ScanRunner(
+            config=config,
+            on_event=events.append,
+            scanner_overrides=None,
+            browser_headless=True,
+            scan_id="phase6-e2e-proof",
+        )
+        result = asyncio.run(runner.run("phase6-proof"))
+
+    titles = [finding.title.lower() for finding in result.findings]
+
+    assert result.status == "completed"
+    assert result.requests_captured["total"] > 0
+    assert {r.scanner_name for r in result.scanner_results} == {
+        "xss_check",
+        "cors_check",
+        "api_exposure",
+        "info_disclosure",
+    }
+    assert any("unauthenticated access" in title for title in titles)
+    assert any("cors" in title and "reflected" in title for title in titles)
+    assert any("sensitive path exposed" in title for title in titles)
+    assert any(event.type == "scan_completed" for event in events)

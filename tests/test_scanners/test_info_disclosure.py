@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from unittest.mock import MagicMock
+import urllib.error
 
 import pytest
 
 from tests.fixtures.vulnerable_app.app import VulnerableApp
-from vibe_iterator.scanners.info_disclosure import Scanner
+from vibe_iterator.scanners.info_disclosure import Scanner, _MAX_CONSECUTIVE_PROBE_FAILURES
 from vibe_iterator.scanners.base import Severity
 
 
@@ -147,6 +148,42 @@ def test_no_finding_on_clean_app() -> None:
     findings = scanner.run(session=None, listeners={"network": net}, config=config)
     # Path probes all fail (no server), no network traffic → no findings
     assert findings == []
+
+
+def test_sensitive_path_probe_aborts_after_repeated_connection_failures(monkeypatch: pytest.MonkeyPatch) -> None:
+    scanner = Scanner()
+    calls = 0
+
+    def fail_connect(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        raise urllib.error.URLError("connection refused")
+
+    monkeypatch.setattr("vibe_iterator.scanners.info_disclosure.urllib.request.urlopen", fail_connect)
+
+    findings: list = []
+    scanner._probe_sensitive_paths("http://example.invalid", "custom", findings)
+
+    assert findings == []
+    assert calls == _MAX_CONSECUTIVE_PROBE_FAILURES
+
+
+def test_local_closed_port_skips_sensitive_path_urlopen(monkeypatch: pytest.MonkeyPatch) -> None:
+    scanner = Scanner()
+    calls = 0
+
+    def fail_if_called(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        raise AssertionError("urlopen should not be called for a closed local port")
+
+    monkeypatch.setattr("vibe_iterator.scanners.info_disclosure.urllib.request.urlopen", fail_if_called)
+
+    findings: list = []
+    scanner._probe_sensitive_paths("http://127.0.0.1:1", "custom", findings)
+
+    assert findings == []
+    assert calls == 0
 
 
 # ---------------------------------------------------------------------------

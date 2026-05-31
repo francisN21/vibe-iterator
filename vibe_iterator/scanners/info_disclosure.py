@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import re
+import socket
 import ssl
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Any
 
@@ -68,6 +70,9 @@ _SECRET_PATTERNS: list[tuple[re.Pattern, str, Severity]] = [
 ]
 
 _JS_CONTENT_TYPES = {"application/javascript", "text/javascript", "application/x-javascript"}
+_MAX_CONSECUTIVE_PROBE_FAILURES = 3
+_LOCAL_REACHABILITY_TIMEOUT_SECONDS = 0.25
+_LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
 
 class Scanner(BaseScanner):
@@ -99,8 +104,12 @@ class Scanner(BaseScanner):
     def _probe_sensitive_paths(
         self, target: str, stack: str, findings: list[Finding]
     ) -> None:
+        if _is_closed_local_target(target):
+            return
+
         ctx = ssl._create_unverified_context()
         seen_fps: set[str] = set()
+        consecutive_probe_failures = 0
 
         for path, label, severity in _SENSITIVE_PATHS:
             url = target + path
@@ -110,12 +119,20 @@ class Scanner(BaseScanner):
                     status = resp.status
                     body = resp.read(2048).decode("utf-8", errors="replace")
             except urllib.error.HTTPError:
+                consecutive_probe_failures = 0
                 continue  # 401/403/404 — expected, not exposed
             except (urllib.error.URLError, OSError, TimeoutError):
+                consecutive_probe_failures += 1
+                if consecutive_probe_failures >= _MAX_CONSECUTIVE_PROBE_FAILURES:
+                    break
                 continue  # connection refused, DNS failure, timeout — path not exposed
             except Exception:
+                consecutive_probe_failures += 1
+                if consecutive_probe_failures >= _MAX_CONSECUTIVE_PROBE_FAILURES:
+                    break
                 continue  # any other network error — skip silently
 
+            consecutive_probe_failures = 0
             if status != 200:
                 continue
 
@@ -355,3 +372,23 @@ class Scanner(BaseScanner):
                     category=self.category, page=req.url,
                 ))
                 break  # one finding per JS file
+
+
+def _is_closed_local_target(target: str) -> bool:
+    parsed = urllib.parse.urlparse(target)
+    host = parsed.hostname
+    if host not in _LOCAL_HOSTS:
+        return False
+
+    try:
+        port = parsed.port
+    except ValueError:
+        return False
+    if port is None:
+        port = 443 if parsed.scheme == "https" else 80
+
+    try:
+        with socket.create_connection((host, port), timeout=_LOCAL_REACHABILITY_TIMEOUT_SECONDS):
+            return False
+    except OSError:
+        return True

@@ -90,6 +90,35 @@ def test_negative_anonymous_disabled() -> None:
     assert anon == []
 
 
+def test_unreachable_local_toolkit_skips_http_requests(monkeypatch: pytest.MonkeyPatch) -> None:
+    scanner = Scanner()
+    cfg = MagicMock()
+    cfg.target = "http://localhost:1"
+    cfg.stack.backend = "firebase"
+    cfg._firebase_cfg = {
+        "projectId": "testproj",
+        "apiKey": "fakekey",
+        "_toolkit_base": "http://localhost:1/v1",
+    }
+    net = MagicMock()
+    net.get_requests.return_value = []
+    storage = MagicMock()
+    storage.get_snapshot.return_value = {}
+    calls = 0
+
+    def fail_if_called(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        raise AssertionError("urlopen should not be called for a closed local Firebase Auth endpoint")
+
+    monkeypatch.setattr("vibe_iterator.scanners.firebase_auth.urllib.request.urlopen", fail_if_called)
+
+    findings = scanner.run(session=None, listeners={"network": net, "storage": storage}, config=cfg)
+
+    assert findings == []
+    assert calls == 0
+
+
 def test_group4_token_exposure_medium() -> None:
     # Build a fake URL with a JWT-shaped token in the query string
     fake_token = (

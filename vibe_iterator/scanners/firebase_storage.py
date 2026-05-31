@@ -14,6 +14,7 @@ from vibe_iterator.utils.firebase_helpers import (
     build_firebase_llm_prompt,
     detect_firebase_config,
     extract_firebase_config,
+    is_closed_local_url,
     truncate,
 )
 
@@ -83,6 +84,9 @@ class Scanner(BaseScanner):
         return "https://firebasestorage.googleapis.com"
 
     def _http_get(self, url: str, token: str | None = None) -> tuple[str, int | None]:
+        if is_closed_local_url(url):
+            return "", None
+
         headers: dict = {}
         if token:
             headers["Authorization"] = f"Bearer {token}"
@@ -100,6 +104,9 @@ class Scanner(BaseScanner):
 
     def _http_post(self, url: str, content: bytes, content_type: str,
                    token: str | None = None) -> tuple[str, int | None]:
+        if is_closed_local_url(url):
+            return "", None
+
         headers: dict = {"Content-Type": content_type}
         if token:
             headers["Authorization"] = f"Bearer {token}"
@@ -116,6 +123,9 @@ class Scanner(BaseScanner):
             return "", None
 
     def _http_delete(self, url: str, token: str | None = None) -> tuple[str, int | None]:
+        if is_closed_local_url(url):
+            return "", None
+
         headers: dict = {}
         if token:
             headers["Authorization"] = f"Bearer {token}"

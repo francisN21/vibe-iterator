@@ -16,6 +16,7 @@ from vibe_iterator.utils.firebase_helpers import (
     detect_firebase_config,
     extract_firebase_config,
     find_id_tokens,
+    is_closed_local_url,
     truncate,
 )
 
@@ -75,6 +76,9 @@ class Scanner(BaseScanner):
         return cfg if cfg.get("projectId") else None
 
     def _post(self, url: str, payload: dict) -> tuple[str, int | None]:
+        if is_closed_local_url(url):
+            return "", None
+
         body = json.dumps(payload).encode()
         try:
             req = urllib.request.Request(

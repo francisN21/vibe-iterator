@@ -1,29 +1,28 @@
 # Vibe Iterator Handoff Memory
 
-Last updated: 2026-04-29
+Last updated: 2026-05-31
 
 ## Current State
 
-All original build phases are implemented, and the latest Codex hardening pass moved the repo much closer to true Phase 6 readiness.
-
-Latest committed work:
-
-- `da27323 test: harden phase 6 readiness gates`
+The repo is now in a much stronger Phase 6-ready state. The latest local Phase 6 pass focused on making the proof harness real, keeping verification fast, and making test results independent of this machine's local `.env`.
 
 Current verification baseline:
 
 - `.\.venv\Scripts\python.exe -m pytest`
-  - `219 passed, 1 skipped`
+  - `417 passed, 2 skipped`
+  - runtime: about 32 seconds
 - `.\.venv\Scripts\python.exe -m pytest --cov=vibe_iterator --cov-report=term-missing`
-  - `219 passed, 1 skipped`
-  - total coverage: `81%`
+  - `417 passed, 2 skipped`
+  - total coverage: `80%`
+- Opt-in real browser smoke:
+  - `$env:VIBE_ITERATOR_RUN_E2E_SMOKE="1"; .\.venv\Scripts\python.exe -m pytest -q tests\e2e`
+  - `2 passed`
 - Packaging verified:
-  - wheel build passed with `py -m pip wheel . --no-deps -w tests\.tmp-wheelhouse`
-  - fresh venv install passed
-  - installed CLI works: `vibe-iterator --version`
-  - installed package includes dashboard static files and report templates
+  - `py -m pip wheel . --no-deps -w tests\.tmp-wheelhouse`
+  - fresh venv install from the wheel passed
+  - installed CLI works: `vibe-iterator, version 0.1.0`
 
-Only known untracked local files after the commit:
+Known untracked local files historically seen in this workspace:
 
 - `.claude/`
 - `AGENTS.md`
@@ -32,113 +31,58 @@ Only known untracked local files after the commit:
 
 Do not assume these should be committed without checking with Francisco.
 
-## New Hardening And Features Introduced
+## New Phase 6 Work Introduced
 
-Configuration and CLI:
+Exploit proof harness:
 
-- `scanner_timeout_seconds` from `vibe-iterator.config.yaml` is now loaded and validated.
-- Config priority docs/code were aligned around CLI > env > YAML > defaults.
-- CLI help text now reflects that `--verbose` and `--output` are implemented.
-
-Dashboard/API lifecycle:
-
-- `POST /api/scan/start` now returns a stable `scan_id` immediately.
-- Invalid or empty `scanner_overrides` now return HTTP 400 before background scan startup.
-- A running background task now blocks double-start races.
-- Report export now only allows completed scans.
-- Dashboard app now sets baseline security headers:
-  - `X-Content-Type-Options`
-  - `X-Frame-Options`
-  - `Referrer-Policy`
-  - `Permissions-Policy`
-  - CSP with current inline allowances
-
-Engine/browser:
-
-- `ScanRunner` accepts a caller-provided `scan_id`.
-- Cancellation now reaches the active scanner task.
-- Chrome debug port defaults to `0` so Chrome chooses a free port.
-- `--disable-web-security` is now opt-in with `VIBE_ITERATOR_DISABLE_WEB_SECURITY=1`.
-- `.env.example` documents the new Chrome controls.
-
-Frontend safety:
-
-- Removed the dangerous inline `copyToClipboard(JSON.stringify(...))` path from finding cards.
-- Result-card copy/detail/category handlers are attached with JS listeners instead of the most risky inline string interpolation.
-- WebSocket client now chooses `ws:` or `wss:` based on page protocol.
-
-Testing:
-
-- Pytest cache provider is disabled in `pyproject.toml` because locked cache dirs caused Windows permission failures in this workspace.
-- Workspace-local temp path fixture was added in `tests/conftest.py`.
-- New coverage added for:
-  - auth scanner core checks
-  - SQL injection scanner core checks
-  - RLS scanner unauth/cross-user paths
-  - bucket cleanup/type checks
-  - crawler/browser helpers
-  - evidence collector
-  - Supabase helpers
-  - CLI GUI/report-error behavior
-  - docs/UI mojibake guard
-- Opt-in real Selenium/CDP smoke test added:
+- The generic vulnerable fixture app now includes a `/login` form so the real scan runner can authenticate.
+- The fixture dashboard now emits API traffic to:
+  - `/api/user`
+  - `/api/login`
+  - `/api/protected` with an `Authorization` header
+- Added fixture smoke coverage for the login/dashboard scan-target behavior.
+- Added an opt-in Selenium/CDP e2e scan runner test against the vulnerable fixture:
   - `tests/e2e/test_real_browser_smoke.py`
-  - skipped by default
-  - run manually with:
-    - PowerShell: `$env:VIBE_ITERATOR_RUN_E2E_SMOKE="1"; .\.venv\Scripts\python.exe -m pytest tests\e2e`
+  - verifies real Chrome launch, CDP network capture, `ScanRunner`, scanner execution, and actual findings for unauthenticated API access, reflected CORS, and sensitive path exposure.
 
-## Important Caveats
+Runtime/test reliability:
 
-The project is Phase 6-ready for the next iteration, but not "done done."
+- `info_disclosure` no longer serially waits through every sensitive path when a local target is down.
+- It now performs a fast local TCP reachability check and aborts after repeated network-level probe failures.
+- Scanner proof test runtime dropped from about 9.5 minutes to about 22 seconds.
+- Firebase Auth and Storage scanners now use a shared `is_closed_local_url()` helper to skip REST calls to closed local fixture endpoints.
+- Closed local Firebase endpoint checks are cached briefly to avoid repeated socket waits inside one run.
+- `ScanRunner` now detaches listeners before quitting Chrome, avoiding Selenium teardown retry noise.
+- Config tests now pass an explicit empty env file where required, preventing a developer's real `.env` from leaking into test expectations.
 
-Known remaining product gaps:
+## Remaining Before A Very Robust Phase 6+
 
-- `auth_check` and `sql_injection` now have much better tests, but several checks are still heuristic and need live vulnerable-app proof cases.
-- `xss_check` is still mostly passive/header/DOM-sink analysis. It does not yet prove reflected or stored XSS execution.
-- `cors_check` does not yet perform full OPTIONS preflight and credentialed browser-behavior tests.
-- `api_exposure` rate limiting is still header-based, not an active bounded repeated-request probe.
-- Dashboard CSP still allows inline scripts/styles because the existing UI uses inline handlers/styles in several places. Next hardening should remove `unsafe-inline`.
-- `NetworkListener` still relies on Selenium `add_cdp_listener`; the opt-in e2e smoke should confirm this on any release machine.
-- Locked local dirs may exist from old pytest cache behavior:
-  - `tests/pytest-cache-files-*`
-  - they are ignored and excluded from pytest recursion.
+The product is now Phase 6-ready to continue, but the next high-leverage items are:
 
-## Recommended Next Claude Task
+1. Dashboard CSP hardening:
+   - remove remaining inline scripts/styles/handlers where practical
+   - remove `script-src 'unsafe-inline'` from dashboard CSP
+   - add route/header tests for the stricter CSP
 
-Start Phase 6 with an "exploit proof harness" milestone.
+2. Deeper exploit proofs:
+   - XSS: prove reflected or DOM execution, not only dangerous sinks and reflected marker checks
+   - SQL injection: add JSON body and time-based vulnerable fixture proof cases
+   - Auth: add live proof for logout invalidation, brute-force/rate-limit behavior, and bypass vectors
 
-Recommended order:
+3. Firebase proof polish:
+   - Firestore and Functions negative tests are still the slowest scanner cases, though acceptable
+   - consider applying the shared closed-local helper there where the target URL is local
 
-1. Build a tiny intentionally vulnerable local demo app under `tests/fixtures/vulnerable_app/`.
-   - Include endpoints/pages for auth leak, SQL error, unprotected API, weak CORS, and simple reflected XSS.
-   - Keep it local-only and deterministic.
-
-2. Extend `tests/e2e/test_real_browser_smoke.py` or add new e2e tests to run real scans against that fixture.
-   - Keep them opt-in at first with `VIBE_ITERATOR_RUN_E2E_SMOKE=1`.
-   - Prove Selenium launch, CDP listener capture, page crawl, scanner result creation, and report export.
-
-3. Turn the most important scanners from heuristic to proof-oriented:
-   - `xss_check`: add controlled payload injection and execution detection.
-   - `cors_check`: add OPTIONS preflight and credentialed checks.
-   - `api_exposure`: add bounded active rate-limit probe and better API endpoint classification.
-   - `auth_check`: add live-app proof coverage for logout invalidation, brute-force rate limiting, and auth bypass.
-   - `sql_injection`: add vulnerable fixture proof for URL params, JSON body, and time-based behavior.
-
-4. Finish dashboard CSP hardening.
-   - Remove remaining inline `onclick` and inline style usage where practical.
-   - Change CSP to remove `script-src 'unsafe-inline'`.
-   - Add tests that key dashboard pages include the stricter CSP.
-
-5. Add release workflow polish.
-   - CI matrix for Windows/Linux with Python 3.11+.
-   - Separate normal unit tests from opt-in Selenium smoke tests.
-   - Packaging verification job that builds the wheel, installs it into a fresh venv, checks CLI entry point, and checks package data.
+4. Release workflow:
+   - add CI matrix for Windows/Linux and Python 3.11+
+   - separate normal tests from opt-in Selenium smoke tests
+   - add packaging verification job that builds, installs, checks CLI, and confirms package data
 
 ## Commands Claude Should Run First
 
 ```powershell
 git status --short
-git log -3 --oneline
+git log -5 --oneline
 .\.venv\Scripts\python.exe -m pytest
 .\.venv\Scripts\python.exe -m pytest --cov=vibe_iterator --cov-report=term-missing
 ```
@@ -147,23 +91,19 @@ Optional real browser smoke:
 
 ```powershell
 $env:VIBE_ITERATOR_RUN_E2E_SMOKE="1"
-.\.venv\Scripts\python.exe -m pytest tests\e2e
+.\.venv\Scripts\python.exe -m pytest -q tests\e2e
 Remove-Item Env:\VIBE_ITERATOR_RUN_E2E_SMOKE
 ```
 
-Packaging verification, if needed:
-
-```powershell
-py -m pip wheel . --no-deps -w tests\.tmp-wheelhouse
-py -m venv tests\.tmp-install-venv
-tests\.tmp-install-venv\Scripts\python.exe -m pip install tests\.tmp-wheelhouse\vibe_iterator-0.1.0-py3-none-any.whl
-tests\.tmp-install-venv\Scripts\vibe-iterator.exe --version
-```
-
-Clean temp packaging dirs after verification:
+Packaging verification:
 
 ```powershell
 Remove-Item -LiteralPath tests\.tmp-wheelhouse -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath tests\.tmp-install-venv -Recurse -Force -ErrorAction SilentlyContinue
+py -m pip wheel . --no-deps -w tests\.tmp-wheelhouse
+py -m venv tests\.tmp-install-venv
+tests\.tmp-install-venv\Scripts\python.exe -m pip install tests\.tmp-wheelhouse\vibe_iterator-0.1.0-py3-none-any.whl
+tests\.tmp-install-venv\Scripts\vibe-iterator.exe --version
+Remove-Item -LiteralPath tests\.tmp-wheelhouse -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath tests\.tmp-install-venv -Recurse -Force -ErrorAction SilentlyContinue
 ```
-

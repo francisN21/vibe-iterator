@@ -11,6 +11,7 @@ Vulnerabilities baked in (all deliberate, local-only):
   - /swagger.json   — exposed API docs (info disclosure)
   - /.env           — exposed env file (info disclosure)
   - /api/resource   — GET-only resource but accepts DELETE (method tampering)
+  - /login          — permissive test login form for e2e scan runner
   - /               — page with innerHTML DOM sink + no security headers
   - All responses   — no X-Content-Type-Options, no X-Frame-Options, no CSP
 """
@@ -88,6 +89,8 @@ class VulnerableHandler(BaseHTTPRequestHandler):
             self.wfile.write(data)
         elif path == "/":
             self._respond_html(200, _INDEX_HTML)
+        elif path == "/login":
+            self._respond_html(200, _LOGIN_HTML)
         elif path == "/dashboard":
             self._respond_html(200, _DASHBOARD_HTML)
         else:
@@ -200,10 +203,29 @@ _INDEX_HTML = """<!DOCTYPE html>
 </body>
 </html>"""
 
+_LOGIN_HTML = """<!DOCTYPE html>
+<html>
+<head><title>Login</title></head>
+<body>
+  <form action="/dashboard" method="get">
+    <input type="email" name="email" autocomplete="email">
+    <input type="password" name="password" autocomplete="current-password">
+    <button type="submit">Sign in</button>
+  </form>
+</body>
+</html>"""
+
 _DASHBOARD_HTML = """<!DOCTYPE html>
 <html>
 <head><title>Dashboard</title></head>
-<body><h1>Private Dashboard</h1></body>
+<body>
+  <h1>Private Dashboard</h1>
+  <script>
+    fetch('/api/user');
+    fetch('/api/login');
+    fetch('/api/protected', {headers: {'Authorization': 'Bearer fake-jwt'}});
+  </script>
+</body>
 </html>"""
 
 

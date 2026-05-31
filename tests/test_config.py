@@ -44,13 +44,15 @@ def test_port_override(monkeypatch) -> None:
     assert cfg.port == 9999
 
 
-def test_missing_required_fields_raises(monkeypatch) -> None:
+def test_missing_required_fields_raises(monkeypatch, tmp_path) -> None:
     from vibe_iterator.config import ConfigError
     monkeypatch.delenv("VIBE_ITERATOR_TEST_EMAIL", raising=False)
     monkeypatch.delenv("VIBE_ITERATOR_TEST_PASSWORD", raising=False)
     monkeypatch.delenv("VIBE_ITERATOR_TARGET", raising=False)
+    env_path = tmp_path / "empty.env"
+    env_path.write_text("", encoding="utf-8")
     with pytest.raises(ConfigError):
-        load_config()
+        load_config(env_path=env_path)
 
 
 # --------------------------------------------------------------------------- #
@@ -182,13 +184,15 @@ def test_second_account_configured_true(monkeypatch) -> None:
     assert cfg.second_account_configured is True
 
 
-def test_second_account_configured_false_when_partial(monkeypatch) -> None:
+def test_second_account_configured_false_when_partial(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("VIBE_ITERATOR_TEST_EMAIL", "t@e.com")
     monkeypatch.setenv("VIBE_ITERATOR_TEST_PASSWORD", "pw")
     monkeypatch.setenv("VIBE_ITERATOR_TARGET", "http://localhost:3000")
     monkeypatch.setenv("VIBE_ITERATOR_TEST_EMAIL_2", "t2@e.com")
     monkeypatch.delenv("VIBE_ITERATOR_TEST_PASSWORD_2", raising=False)
+    env_path = tmp_path / "empty.env"
+    env_path.write_text("", encoding="utf-8")
     import warnings
     with warnings.catch_warnings(record=True):
-        cfg = load_config()
+        cfg = load_config(env_path=env_path)
     assert cfg.second_account_configured is False
