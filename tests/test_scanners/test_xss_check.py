@@ -134,6 +134,21 @@ def test_cross_origin_requests_produce_no_header_findings() -> None:
     assert weak_csp == []
 
 
+def test_hashed_static_script_path_produces_no_header_or_csp_findings() -> None:
+    req = _make_req(
+        "https://example.com/8615121666b064d1/script.js",
+        {"content-type": "application/javascript"},
+    )
+
+    findings = _run([req], target="https://example.com")
+
+    assert [
+        f for f in findings
+        if "missing security header" in f.title.lower()
+        or "content security policy" in f.title.lower()
+    ] == []
+
+
 # --------------------------------------------------------------------------- #
 # DOM sinks (active)                                                            #
 # --------------------------------------------------------------------------- #

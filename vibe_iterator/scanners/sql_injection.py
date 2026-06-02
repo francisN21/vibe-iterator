@@ -155,7 +155,8 @@ class Scanner(BaseScanner):
                     if time.monotonic() >= deadline:
                         return
                     test_url = _inject_postgrest_filter(req.url, col, val, payload)
-                    body, status, elapsed = _make_request(test_url, "GET", None, token, timeout=_ACTIVE_TIMEOUT)
+                    probe_url = _rewrite_to_backend_url(test_url, config)
+                    body, status, elapsed = _make_request(probe_url, "GET", None, token, timeout=_ACTIVE_TIMEOUT)
 
                     if _has_sql_error(body):
                         desc = (
@@ -169,7 +170,7 @@ class Scanner(BaseScanner):
                             title=f"SQL injection in PostgREST filter parameter `{col}`",
                             description=desc,
                             evidence={
-                                "request": {"method": "GET", "url": test_url, "headers": token, "body": None},
+                                "request": {"method": "GET", "url": probe_url, "headers": token, "body": None},
                                 "response": {"status": status, "body_excerpt": truncate(body, 400), "body_truncated": len(body) > 400},
                                 "payload_used": payload,
                                 "payload_type": payload_type,
@@ -181,7 +182,7 @@ class Scanner(BaseScanner):
                                 severity=Severity.CRITICAL, scanner=self.name,
                                 page=req.url, category=self.category, description=desc,
                                 evidence_summary=(
-                                    f"GET {test_url}\n"
+                                    f"GET {probe_url}\n"
                                     f"Payload: {payload}\n"
                                     f"Response: HTTP {status}\n{truncate(body, 200)}"
                                 ),
@@ -238,7 +239,8 @@ class Scanner(BaseScanner):
                     test_query = urllib.parse.urlencode(test_params, doseq=True)
                     test_url = urllib.parse.urlunparse(parsed._replace(query=test_query))
 
-                    body, status, elapsed = _make_request(test_url, "GET", None, token, timeout=_ACTIVE_TIMEOUT)
+                    probe_url = _rewrite_to_backend_url(test_url, config)
+                    body, status, elapsed = _make_request(probe_url, "GET", None, token, timeout=_ACTIVE_TIMEOUT)
 
                     if _has_sql_error(body):
                         desc = (
@@ -252,7 +254,7 @@ class Scanner(BaseScanner):
                             title=f"SQL injection in URL parameter `{param_name}`",
                             description=desc,
                             evidence={
-                                "request": {"method": "GET", "url": test_url, "headers": token, "body": None},
+                                "request": {"method": "GET", "url": probe_url, "headers": token, "body": None},
                                 "response": {"status": status, "body_excerpt": truncate(body, 400), "body_truncated": len(body) > 400},
                                 "payload_used": payload,
                                 "payload_type": payload_type,
@@ -264,7 +266,7 @@ class Scanner(BaseScanner):
                                 severity=Severity.CRITICAL, scanner=self.name,
                                 page=req.url, category=self.category, description=desc,
                                 evidence_summary=(
-                                    f"GET {test_url}\n"
+                                    f"GET {probe_url}\n"
                                     f"Payload in `{param_name}`: {payload}\n"
                                     f"Response: HTTP {status} — SQL error detected"
                                 ),
@@ -295,8 +297,9 @@ class Scanner(BaseScanner):
                             if time.monotonic() >= deadline:
                                 return
                             test_body = {**body_data, field_name: payload}
+                            probe_url = _rewrite_to_backend_url(req.url, config)
                             resp_body, status, _ = _make_request(
-                                req.url, req.method,
+                                probe_url, req.method,
                                 json.dumps(test_body).encode(), token,
                                 timeout=_ACTIVE_TIMEOUT,
                             )
@@ -311,7 +314,7 @@ class Scanner(BaseScanner):
                                     title=f"SQL injection in JSON body field `{field_name}`",
                                     description=desc,
                                     evidence={
-                                        "request": {"method": req.method, "url": req.url, "headers": token, "body": json.dumps(test_body)[:200]},
+                                        "request": {"method": req.method, "url": probe_url, "headers": token, "body": json.dumps(test_body)[:200]},
                                         "response": {"status": status, "body_excerpt": truncate(resp_body, 400), "body_truncated": False},
                                         "payload_used": payload,
                                         "payload_type": payload_type,
@@ -375,7 +378,8 @@ class Scanner(BaseScanner):
 
             if time.monotonic() >= deadline:
                 break
-            _, _, elapsed = _make_request(test_url, "GET", None, token, timeout=_BLIND_TIMEOUT)
+            probe_url = _rewrite_to_backend_url(test_url, config)
+            _, _, elapsed = _make_request(probe_url, "GET", None, token, timeout=_BLIND_TIMEOUT)
 
             if elapsed >= _PG_SLEEP_THRESHOLD:
                 desc = (
@@ -389,7 +393,7 @@ class Scanner(BaseScanner):
                     title=f"Time-based blind SQL injection in parameter `{param_name}`",
                     description=desc,
                     evidence={
-                        "request": {"method": "GET", "url": test_url, "headers": token, "body": None},
+                        "request": {"method": "GET", "url": probe_url, "headers": token, "body": None},
                         "response": {"status": None, "body_excerpt": f"Response delayed by {elapsed:.1f}s (threshold: {_PG_SLEEP_THRESHOLD}s)", "body_truncated": False},
                         "payload_used": sleep_payload,
                         "payload_type": "time_based",
@@ -576,11 +580,30 @@ def _make_request(
 
 def _get_auth_headers(config: Any) -> dict:
     headers: dict = {"Content-Type": "application/json"}
+    target = getattr(config, "target", "")
+    backend_url = getattr(config, "backend_url", None)
+    if isinstance(backend_url, str) and backend_url and isinstance(target, str) and target:
+        headers["Origin"] = target.rstrip("/")
     anon_key = getattr(config, "supabase_anon_key", None)
     if anon_key:
         headers["apikey"] = anon_key
         headers["Authorization"] = f"Bearer {anon_key}"
     return headers
+
+
+def _rewrite_to_backend_url(url: str, config: Any) -> str:
+    backend_url_raw = getattr(config, "backend_url", None)
+    target_raw = getattr(config, "target", "")
+    if not isinstance(backend_url_raw, str) or not isinstance(target_raw, str):
+        return url
+    backend_url = backend_url_raw.rstrip("/")
+    target = target_raw.rstrip("/")
+    if not backend_url or not target or not url.startswith(target):
+        return url
+    suffix = url[len(target):]
+    if not suffix.startswith("/"):
+        return url
+    return backend_url + suffix
 
 
 def _inject_postgrest_filter(url: str, col: str, original_val: str, payload: str) -> str:

@@ -144,6 +144,19 @@ def test_header_findings_are_deduped() -> None:
     assert len(hsts) == 1
 
 
+def test_hashed_embed_view_path_produces_no_security_header_findings() -> None:
+    req = _make_req(
+        url="https://example.com/8615121666b064d1/view",
+        response_headers={"content-type": "text/html"},
+    )
+    req.response_mime_type = "text/html"
+
+    findings = _run([req])
+
+    header_findings = [f for f in findings if "missing security header" in f.title.lower()]
+    assert header_findings == []
+
+
 # --------------------------------------------------------------------------- #
 # Rate limiting on auth endpoints                                               #
 # --------------------------------------------------------------------------- #

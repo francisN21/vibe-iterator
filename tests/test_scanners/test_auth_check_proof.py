@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from unittest.mock import MagicMock
+import json
+import urllib.error
 
 import pytest
 
@@ -69,6 +71,43 @@ def test_no_rate_limiting_on_login_detected(vuln_app) -> None:
     rate_limit = [f for f in findings if "rate limit" in f.title.lower()]
     assert len(rate_limit) >= 1
     assert rate_limit[0].severity == Severity.MEDIUM
+
+
+def test_bruteforce_probe_uses_backend_url_with_frontend_origin(monkeypatch: pytest.MonkeyPatch) -> None:
+    scanner = Scanner()
+    config = _make_config("http://localhost:3000")
+    config.backend_url = "http://localhost:4001"
+    requests_seen: list[tuple[str, str, dict, dict]] = []
+
+    def fake_urlopen(req, timeout=0):
+        body = json.loads(req.data.decode("utf-8"))
+        requests_seen.append((req.full_url, req.get_method(), dict(req.header_items()), body))
+        raise urllib.error.HTTPError(
+            req.full_url,
+            401,
+            "Unauthorized",
+            {},
+            None,
+        )
+
+    monkeypatch.setattr("vibe_iterator.scanners.auth_check.urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("vibe_iterator.scanners.auth_check._get_login_error_message", lambda *args: None)
+
+    findings: list = []
+    scanner._group3_login_security(
+        session=None,
+        config=config,
+        findings=findings,
+        stack="custom",
+        network=_make_network([]),
+    )
+
+    assert len(requests_seen) == 10
+    assert all(url == "http://localhost:4001/api/auth/login" for url, _, _, _ in requests_seen)
+    assert all(method == "POST" for _, method, _, _ in requests_seen)
+    assert all(headers["Origin"] == "http://localhost:3000" for _, _, headers, _ in requests_seen)
+    assert all("email" in body and "password" in body for _, _, _, body in requests_seen)
+    assert findings
 
 
 # ---------------------------------------------------------------------------
