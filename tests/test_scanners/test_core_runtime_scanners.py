@@ -177,7 +177,8 @@ def test_auth_password_bypass_and_oauth_checks_report_findings() -> None:
 
     titles = [f.title for f in findings]
     assert "Password field returned in API response" in titles
-    assert any("Protected route `/dashboard`" in title for title in titles)
+    route_finding = next(f for f in findings if "Protected route `/dashboard`" in f.title)
+    assert route_finding.evidence["proof_quality"] == "protected_route_path_loaded_without_auth"
     assert any("API endpoint accessible without authentication" in title for title in titles)
     assert "OAuth flow missing CSRF state parameter" in titles
 

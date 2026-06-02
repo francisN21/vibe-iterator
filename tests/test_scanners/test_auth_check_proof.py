@@ -226,6 +226,31 @@ def test_public_api_replay_200_is_not_auth_bypass(monkeypatch: pytest.MonkeyPatc
     assert [f for f in findings if "accessible without authentication" in f.title.lower()] == []
 
 
+@pytest.mark.parametrize("path", ["/pricing", "/application"])
+def test_public_page_route_is_not_auth_bypass(monkeypatch: pytest.MonkeyPatch, path: str) -> None:
+    scanner = Scanner()
+    config = _make_config("http://localhost:3000")
+    config.pages = ["/", path]
+    session = MagicMock()
+    session.current_url.return_value = f"http://localhost:3000{path}"
+    session.driver.page_source = "pricing plans public product features"
+
+    monkeypatch.setattr("vibe_iterator.scanners.auth_check.time.sleep", lambda *args: None)
+    monkeypatch.setattr("vibe_iterator.crawler.auth.login", lambda *args, **kwargs: None)
+
+    findings: list = []
+    scanner._group5_auth_bypass(
+        session=session,
+        config=config,
+        findings=findings,
+        stack="custom",
+        network=_make_network([]),
+    )
+
+    route_findings = [f for f in findings if "protected route" in f.title.lower()]
+    assert route_findings == []
+
+
 def test_protected_endpoint_returning_401_no_finding(vuln_app) -> None:
     req = _make_api_req(url=vuln_app.base_url + "/api/data")
     req.status_code = 401

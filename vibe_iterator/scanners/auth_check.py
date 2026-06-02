@@ -23,6 +23,14 @@ _AUTH_BYPASS_SENSITIVE_BODY_TERMS = {
     "secret", "token", "password", "email", "user_id", "owner_id", "account",
     "billing", "subscription", "admin",
 }
+_AUTH_BYPASS_PROTECTED_ROUTE_PATHS = [
+    "/account", "/admin", "/app", "/billing", "/dashboard", "/me", "/portal",
+    "/private", "/profile", "/protected", "/settings", "/team", "/workspace",
+]
+_AUTH_BYPASS_SENSITIVE_PAGE_TERMS = {
+    "account", "admin", "billing", "dashboard", "email", "private", "profile",
+    "secret", "settings", "subscription", "team", "token", "user id", "workspace",
+}
 
 
 class Scanner(BaseScanner):
@@ -516,12 +524,14 @@ class Scanner(BaseScanner):
                 session.navigate(url)
                 time.sleep(0.8)
 
-                current = session.current_url()
-                page_source = session.driver.page_source.lower()
+                current = str(session.current_url())
+                page_source = str(session.driver.page_source).lower()
                 login_keywords = ["login", "sign in", "authenticate", "unauthorized", "401", "403"]
+                proof_quality = _auth_bypass_route_proof_quality(path, page_source)
 
                 if not any(kw in current.lower() for kw in ["login", "signin", "auth"]) and \
-                        not any(kw in page_source for kw in login_keywords):
+                        not any(kw in page_source for kw in login_keywords) and \
+                        proof_quality is not None:
                     desc = (
                         f"The page at `{path}` loaded successfully without authentication. "
                         "No redirect to login or 401/403 response was detected. "
@@ -537,6 +547,7 @@ class Scanner(BaseScanner):
                             "evidence_type": "response_analysis",
                             "observed_value": f"Navigated to {url} without auth — no redirect to login",
                             "expected_behavior": "Unauthenticated access should redirect to /login or return 401",
+                            "proof_quality": proof_quality,
                             "request": {"method": "GET", "url": url, "headers": {}, "body": None},
                             "response": {"status": 200, "body_excerpt": "Page loaded without auth redirect"},
                         },
@@ -716,6 +727,24 @@ def _auth_bypass_api_proof_quality(req: Any, replay_url: str) -> str | None:
         return "authenticated_api_response_body_contains_sensitive_terms"
 
     return None
+
+
+def _auth_bypass_route_proof_quality(path: str, page_source: str) -> str | None:
+    """Return why a loaded unauthenticated route is auth-bypass evidence."""
+    lowered_path = path.lower()
+    if any(_path_has_route_segment(lowered_path, fragment) for fragment in _AUTH_BYPASS_PROTECTED_ROUTE_PATHS):
+        return "protected_route_path_loaded_without_auth"
+
+    if page_source and any(term in page_source for term in _AUTH_BYPASS_SENSITIVE_PAGE_TERMS):
+        return "unauthenticated_page_contains_sensitive_terms"
+
+    return None
+
+
+def _path_has_route_segment(path: str, fragment: str) -> bool:
+    normalized_path = path.rstrip("/") or "/"
+    normalized_fragment = fragment.rstrip("/") or "/"
+    return normalized_path == normalized_fragment or normalized_path.startswith(normalized_fragment + "/")
 
 
 def _replay_with_token(token: str, target: str, origin: str | None = None) -> int | None:
