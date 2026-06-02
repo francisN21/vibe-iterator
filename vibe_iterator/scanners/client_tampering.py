@@ -96,11 +96,12 @@ class Scanner(BaseScanner):
 
                 # Check if server acted on the tampered value
                 suspicious = _detect_server_acceptance(network, target_value)
-                # Also check if the value persisted (server didn't reset it)
+                # Persistence alone only proves the client kept the value; server-trust
+                # findings need network/API evidence that the tampered value was used.
                 current = session.evaluate(
                     f"(function(){{ return localStorage.getItem('{key}'); }})()"
                 )
-                server_trusted = suspicious or (current == target_value)
+                server_trusted = suspicious
 
                 if server_trusted:
                     desc = (
@@ -117,10 +118,12 @@ class Scanner(BaseScanner):
                             "storage_key": key,
                             "original_value": original_str,
                             "tampered_value": target_value,
+                            "client_value_after_reload": current,
+                            "server_acceptance_evidence": "network_response_reflected_tampered_value",
                             "storage_type": "localStorage",
                             "action_performed": f"Set localStorage['{key}'] = '{target_value}', reloaded {page}",
                             "request": {"method": "GET", "url": page, "headers": {}, "body": None},
-                            "response": {"status": 200, "body_excerpt": f"Page loaded with tampered {key}={target_value}; server did not reject or reset it"},
+                            "response": {"status": 200, "body_excerpt": f"API/network response reflected tampered {key}={target_value}"},
                             "expected_response": f"Server should derive {key} from database, not client storage",
                         },
                         llm_prompt=self.build_llm_prompt(
@@ -129,7 +132,7 @@ class Scanner(BaseScanner):
                             page=page, category=self.category, description=desc,
                             evidence_summary=(
                                 f"localStorage['{key}']: '{original_str}' → '{target_value}'\n"
-                                f"Page reloaded — server did not reset the value or reject the tampered state."
+                                f"Post-reload API/network traffic reflected the tampered value."
                             ),
                             stack=stack,
                         ),

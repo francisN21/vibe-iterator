@@ -28,15 +28,16 @@ class Scanner(BaseScanner):
         findings: list[Finding] = []
         stack = config.stack.backend
         storage = listeners["storage"]
+        network = listeners.get("network")
 
         # Examine every captured storage snapshot for tier-related keys
         for snapshot in storage.get_snapshots():
-            self._check_snapshot(session, snapshot, config, findings, stack)
+            self._check_snapshot(session, snapshot, config, findings, stack, network)
 
         return findings
 
     def _check_snapshot(
-        self, session: Any, snapshot: Any, config: Any, findings: list[Finding], stack: str
+        self, session: Any, snapshot: Any, config: Any, findings: list[Finding], stack: str, network: Any
     ) -> None:
         local = snapshot.local_storage
         page = snapshot.url
@@ -74,25 +75,29 @@ class Scanner(BaseScanner):
                 # Navigate to trigger any tier-gated logic
                 session.navigate(page)
 
-                # Check if any API calls now reflect the escalated tier
                 # Re-read storage after navigation
                 read_script = f"(function(){{ return {storage_type}.getItem('{key}'); }})()"
-                server_saw_value = session.evaluate(read_script)
+                client_value_after_navigation = session.evaluate(read_script)
 
                 # Check Supabase user metadata if available
                 rpc_script = build_rpc_snippet("get_user_tier")
+                rpc_result = None
                 try:
-                    session.evaluate(rpc_script)
+                    rpc_result = session.evaluate(rpc_script)
                 except Exception:
                     pass
 
-                # Heuristic: if page loaded without error and server didn't reset the value,
-                # the server may be trusting the client-side tier
-                if server_saw_value == target_value:
+                server_acceptance_evidence = None
+                if _rpc_reflects_tier(rpc_result, target_value):
+                    server_acceptance_evidence = "supabase_rpc_reflected_tampered_tier"
+                elif _network_reflects_tier(network, key, target_value):
+                    server_acceptance_evidence = "network_response_reflected_tampered_tier"
+
+                if server_acceptance_evidence:
                     desc = (
                         f"The subscription tier stored in {storage_type} under `{key}` can be changed "
-                        f"from `{original_str}` to `{target_value}` on the client, and the server does not "
-                        "reset it on the next request. "
+                        f"from `{original_str}` to `{target_value}` on the client, and server-side runtime "
+                        "evidence reflected the tampered tier. "
                         "If your application grants access to features based on this client-side value, "
                         "any user can bypass subscription restrictions without paying."
                     )
@@ -104,10 +109,12 @@ class Scanner(BaseScanner):
                             "storage_key": key,
                             "original_value": original_str,
                             "tampered_value": target_value,
+                            "client_value_after_navigation": client_value_after_navigation,
+                            "server_acceptance_evidence": server_acceptance_evidence,
                             "storage_type": storage_type,
                             "action_performed": f"Set {storage_type}['{key}'] = '{target_value}', navigated to {page}",
                             "request": {"method": "GET", "url": page, "headers": {}, "body": None},
-                            "response": {"status": 200, "body_excerpt": f"Server did not reset {key} — value remained: {target_value}"},
+                            "response": {"status": 200, "body_excerpt": f"Server-side runtime evidence reflected {key}={target_value}"},
                             "expected_response": f"Server should reset {key} to the authenticated user's real tier",
                         },
                         llm_prompt=self.build_llm_prompt(
@@ -118,7 +125,7 @@ class Scanner(BaseScanner):
                                 f"Key: {storage_type}['{key}']\n"
                                 f"Original: {original_str}\n"
                                 f"Escalated to: {target_value}\n"
-                                f"Server response: did not reset the value"
+                                f"Server evidence: {server_acceptance_evidence}"
                             ),
                             stack=stack,
                         ),
@@ -146,3 +153,41 @@ class Scanner(BaseScanner):
                     session.evaluate(restore)
                 except Exception:
                     pass
+
+
+def _network_reflects_tier(network: Any, key: str, tampered_value: str) -> bool:
+    """Return True when post-tamper API traffic reflects the escalated tier."""
+    if network is None:
+        return False
+
+    try:
+        requests = network.get_requests()
+    except Exception:
+        return False
+
+    tier_terms = {key.lower(), "plan", "tier", "subscription"}
+    tampered_lower = tampered_value.lower()
+
+    for req in requests:
+        url = getattr(req, "url", "")
+        if "/api/" not in url and "supabase.co" not in url:
+            continue
+
+        body = (getattr(req, "response_body", "") or "").lower()
+        if tampered_lower in body and any(term in body for term in tier_terms):
+            return True
+
+    return False
+
+
+def _rpc_reflects_tier(value: Any, tampered_value: str) -> bool:
+    """Return True when a server-side RPC result contains the escalated tier."""
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return tampered_value.lower() in value.lower()
+    if isinstance(value, dict):
+        return any(_rpc_reflects_tier(v, tampered_value) for v in value.values())
+    if isinstance(value, (list, tuple)):
+        return any(_rpc_reflects_tier(v, tampered_value) for v in value)
+    return str(value).lower() == tampered_value.lower()

@@ -337,13 +337,38 @@ def test_tier_escalation_reports_client_side_plan_trust_and_restores() -> None:
     )
     storage = MagicMock()
     storage.get_snapshots.return_value = [snapshot]
+    network = MagicMock()
+    network.get_requests.return_value = [
+        _request("http://localhost:3000/api/subscription", body='{"plan":"premium"}'),
+    ]
     session = MagicMock()
     session.evaluate.side_effect = ["free", None, "premium", None, None]
     session.navigate.return_value = None
 
-    findings = scanner.run(session, {"storage": storage}, _config())
+    findings = scanner.run(session, {"storage": storage, "network": network}, _config())
 
     assert len(findings) == 1
     assert findings[0].scanner == "tier_escalation"
     assert findings[0].evidence["storage_key"] == "plan"
+    assert findings[0].evidence["server_acceptance_evidence"] == "network_response_reflected_tampered_tier"
     assert session.evaluate.call_args_list[-1].args[0].find("setItem('plan'") != -1
+
+
+def test_tier_escalation_does_not_report_when_tampered_plan_only_persists_locally() -> None:
+    scanner = TierScanner()
+    snapshot = SimpleNamespace(
+        url="http://localhost:3000/dashboard",
+        local_storage={"plan": "free"},
+        session_storage={},
+    )
+    storage = MagicMock()
+    storage.get_snapshots.return_value = [snapshot]
+    network = MagicMock()
+    network.get_requests.return_value = []
+    session = MagicMock()
+    session.evaluate.side_effect = ["free", None, "premium", None, None]
+    session.navigate.return_value = None
+
+    findings = scanner.run(session, {"storage": storage, "network": network}, _config())
+
+    assert findings == []

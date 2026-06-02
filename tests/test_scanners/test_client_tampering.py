@@ -99,6 +99,29 @@ class TestClientTamperingDetection:
         role_findings = [f for f in findings if "role" in (f.evidence.get("storage_key") or "")]
         assert role_findings == []
 
+    def test_no_server_trust_finding_when_tampered_value_only_persists_locally(self) -> None:
+        """A value surviving reload is not enough proof that the server trusted it."""
+        snapshot = _make_storage_snapshot(local={"role": "free"})
+        listeners = _make_listeners(snapshot=snapshot)
+        config = _make_config()
+
+        session = _make_session(evaluate_side_effects=[
+            "free",   # get original
+            None,     # set tampered
+            "admin",  # read after navigation -- value persisted in localStorage only
+            None,
+        ])
+
+        with patch("vibe_iterator.scanners.client_tampering._detect_server_acceptance", return_value=False):
+            scanner = Scanner()
+            findings = scanner.run(session, listeners, config)
+
+        server_trust_findings = [
+            f for f in findings
+            if "server trusts client-supplied" in f.title.lower()
+        ]
+        assert server_trust_findings == []
+
 
 # --------------------------------------------------------------------------- #
 # Tests — state restoration                                                   #

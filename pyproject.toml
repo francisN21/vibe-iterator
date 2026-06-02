@@ -7,7 +7,7 @@ name = "vibe-iterator"
 version = "0.1.0"
 description = "Runtime security testing for vibe-coded web apps"
 readme = "README.md"
-license = { text = "MIT" }
+license = "MIT"
 requires-python = ">=3.11"
 keywords = ["security", "testing", "supabase", "selenium", "pentesting"]
 classifiers = [
