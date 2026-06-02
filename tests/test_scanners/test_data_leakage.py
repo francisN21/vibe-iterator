@@ -50,6 +50,11 @@ SERVICE_ROLE_JWT = (
     "eyJyb2xlIjoic2VydmljZV9yb2xlIiwiaWF0IjoxNjAwMDAwMDAwfQ."
     "SIGNATURE_PLACEHOLDER"
 )
+USER_JWT = (
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+    "eyJyb2xlIjoiYXV0aGVudGljYXRlZCIsImlhdCI6MTYwMDAwMDAwMH0."
+    "SIGNATURE_PLACEHOLDER"
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -68,6 +73,7 @@ class TestDataLeakageFindsVulnerabilities:
         critical = [f for f in findings if f.severity == Severity.CRITICAL and "service role" in f.title.lower()]
         assert len(critical) >= 1
         assert critical[0].evidence["leak_type"] == "supabase_service_key"
+        assert critical[0].evidence["proof_quality"] == "supabase_service_role_jwt_in_response_body"
 
     def test_detects_jwt_in_url(self) -> None:
         url = f"http://localhost:3000/api/data?access_token={SERVICE_ROLE_JWT}"
@@ -77,6 +83,7 @@ class TestDataLeakageFindsVulnerabilities:
 
         jwt_url = [f for f in findings if "url" in f.title.lower() and "jwt" in f.title.lower()]
         assert len(jwt_url) >= 1
+        assert jwt_url[0].evidence["proof_quality"] == "jwt_token_in_url_query_string"
 
     def test_detects_bulk_pii_emails_in_api_response(self) -> None:
         emails = [f"user{i}@company.com" for i in range(10)]
@@ -95,7 +102,7 @@ class TestDataLeakageFindsVulnerabilities:
 
     def test_detects_jwt_in_console_log(self) -> None:
         entry = ConsoleEntry(
-            level="log", text=f"Session: {SERVICE_ROLE_JWT}",
+            level="log", text=f"Session: {USER_JWT}",
             url="http://localhost:3000/app.js", line=42, timestamp=1000.0,
         )
         listeners = _make_listeners(console_entries=[entry])
@@ -104,6 +111,45 @@ class TestDataLeakageFindsVulnerabilities:
 
         console_findings = [f for f in findings if "console" in f.title.lower() or "logged" in f.title.lower()]
         assert len(console_findings) >= 1
+        assert console_findings[0].evidence["proof_quality"] == "sensitive_jwt_logged_to_console"
+
+    def test_dedupes_same_console_token(self) -> None:
+        entries = [
+            ConsoleEntry(
+                level="log", text=f"Session: {SERVICE_ROLE_JWT}",
+                url="http://localhost:3000/app.js", line=42, timestamp=1000.0,
+            ),
+            ConsoleEntry(
+                level="debug", text=f"Session again: {SERVICE_ROLE_JWT}",
+                url="http://localhost:3000/app.js", line=43, timestamp=1001.0,
+            ),
+        ]
+        listeners = _make_listeners(console_entries=entries)
+        scanner = Scanner()
+        findings = scanner.run(MagicMock(), listeners, _make_config())
+
+        console_findings = [f for f in findings if "console" in f.title.lower() or "logged" in f.title.lower()]
+        assert len(console_findings) == 1
+        assert console_findings[0].evidence["proof_quality"] == "supabase_service_role_jwt_logged_to_console"
+
+    def test_console_dedupe_keeps_new_token_when_first_token_repeats(self) -> None:
+        entries = [
+            ConsoleEntry(
+                level="log", text=f"Session: {USER_JWT}",
+                url="http://localhost:3000/app.js", line=42, timestamp=1000.0,
+            ),
+            ConsoleEntry(
+                level="debug", text=f"Tokens: {USER_JWT} {SERVICE_ROLE_JWT}",
+                url="http://localhost:3000/app.js", line=43, timestamp=1001.0,
+            ),
+        ]
+        listeners = _make_listeners(console_entries=entries)
+        scanner = Scanner()
+        findings = scanner.run(MagicMock(), listeners, _make_config())
+
+        console_findings = [f for f in findings if "console" in f.title.lower() or "logged" in f.title.lower()]
+        assert len(console_findings) == 2
+        assert console_findings[1].evidence["proof_quality"] == "supabase_service_role_jwt_logged_to_console"
 
 
 # --------------------------------------------------------------------------- #

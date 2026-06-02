@@ -66,6 +66,7 @@ class Scanner(BaseScanner):
                             "url": req.url,
                             "leaked_value_excerpt": excerpt,
                             "context": f"Found in response body of {req.method} {req.url}",
+                            "proof_quality": "supabase_service_role_jwt_in_response_body",
                             "response_excerpt": truncate(body, 300),
                         },
                         llm_prompt=self.build_llm_prompt(
@@ -105,6 +106,7 @@ class Scanner(BaseScanner):
                             "url": truncate(req.url),
                             "leaked_value_excerpt": truncate(jwts_in_url[0]),
                             "context": "JWT found in URL query string",
+                            "proof_quality": "jwt_token_in_url_query_string",
                         },
                         llm_prompt=self.build_llm_prompt(
                             title="JWT token exposed in URL parameter",
@@ -168,19 +170,31 @@ class Scanner(BaseScanner):
     # ------------------------------------------------------------------ #
 
     def _check_console(self, console: Any, config: Any, findings: list[Finding], stack: str) -> None:
+        seen_tokens: set[str] = set()
         for entry in console.get_entries():
             text = entry.text or ""
             jwts = find_jwts(text)
             if not jwts:
                 continue
 
-            service_keys = [j for j in jwts if is_service_role_key(j)]
+            new_jwts = [jwt for jwt in jwts if jwt not in seen_tokens]
+            if not new_jwts:
+                continue
+            seen_tokens.update(new_jwts)
+
+            service_keys = [j for j in new_jwts if is_service_role_key(j)]
             severity = Severity.CRITICAL if service_keys else Severity.HIGH
+            proof_quality = (
+                "supabase_service_role_jwt_logged_to_console"
+                if service_keys else
+                "sensitive_jwt_logged_to_console"
+            )
             title = (
                 "Supabase service role key logged to console"
                 if service_keys else
                 "JWT token logged to browser console"
             )
+            leaked_jwt = service_keys[0] if service_keys else new_jwts[0]
             desc = (
                 "A sensitive authentication token was found in a browser console.log statement. "
                 "Any user who opens DevTools can see this token and use it to authenticate as "
@@ -195,8 +209,9 @@ class Scanner(BaseScanner):
                     "leak_type": "supabase_service_key" if service_keys else "jwt",
                     "leak_location": "console_log",
                     "url": page,
-                    "leaked_value_excerpt": truncate(jwts[0]),
+                    "leaked_value_excerpt": truncate(leaked_jwt),
                     "context": f"console.{entry.level}: {truncate(text, 150)}",
+                    "proof_quality": proof_quality,
                 },
                 llm_prompt=self.build_llm_prompt(
                     title=title, severity=severity, scanner=self.name,
