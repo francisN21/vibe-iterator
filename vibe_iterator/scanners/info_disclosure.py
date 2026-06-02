@@ -69,6 +69,20 @@ _SECRET_PATTERNS: list[tuple[re.Pattern, str, Severity]] = [
     (re.compile(r"(?:secret_?key|SECRET_?KEY)\s*[=:]\s*['\"]([^'\"]{8,})", re.I), "Hardcoded secret key", Severity.HIGH),
 ]
 
+_ENV_FILE_PATTERN = re.compile(r"(?m)^[A-Z][A-Z0-9_]{2,}\s*=")
+_OPENAPI_PATTERNS = [
+    re.compile(r'"openapi"\s*:', re.I),
+    re.compile(r'"swagger"\s*:', re.I),
+    re.compile(r"(?m)^\s*openapi\s*:", re.I),
+    re.compile(r"(?m)^\s*swagger\s*:", re.I),
+    re.compile(r"\bswagger-ui\b", re.I),
+    re.compile(r"\bredoc\b", re.I),
+]
+_DEBUG_BODY_TERMS = {
+    "__debug__", "activeprofiles", "debug", "environment", "process.env",
+    "propertysources", "runtime", "stack", "traceback",
+}
+_SERVER_STATUS_TERMS = {"apache server status", "server uptime", "total accesses"}
 _JS_CONTENT_TYPES = {"application/javascript", "text/javascript", "application/x-javascript"}
 _MAX_CONSECUTIVE_PROBE_FAILURES = 3
 _LOCAL_REACHABILITY_TIMEOUT_SECONDS = 0.25
@@ -135,6 +149,9 @@ class Scanner(BaseScanner):
             consecutive_probe_failures = 0
             if status != 200:
                 continue
+            proof_quality = _sensitive_path_proof_quality(path, label, body)
+            if proof_quality is None:
+                continue
 
             fp = self.make_fingerprint(self.name, f"Sensitive path exposed: {path}", target)
             if fp in seen_fps:
@@ -153,6 +170,7 @@ class Scanner(BaseScanner):
                 evidence={
                     "request": {"method": "GET", "url": url},
                     "response": {"status": status, "body_excerpt": truncate(body, 300)},
+                    "proof_quality": proof_quality,
                     "payload_type": "path_probe",
                     "payload_used": path,
                     "injection_point": "url_path",
@@ -377,6 +395,48 @@ class Scanner(BaseScanner):
                     category=self.category, page=req.url,
                 ))
                 break  # one finding per JS file
+
+
+def _sensitive_path_proof_quality(path: str, label: str, body: str) -> str | None:
+    """Return why a 200 response proves the probed sensitive artifact is exposed."""
+    lowered_label = label.lower()
+    lowered_body = body.lower()
+
+    if "environment file" in lowered_label:
+        return "env_file_key_value_response" if _ENV_FILE_PATTERN.search(body) else None
+
+    if "api documentation" in lowered_label or "swagger" in lowered_label:
+        if any(pattern.search(body) for pattern in _OPENAPI_PATTERNS) or (
+            '"paths"' in lowered_body and ('"info"' in lowered_body or '"openapi"' in lowered_body)
+        ):
+            return "api_documentation_response"
+        return None
+
+    if "debug endpoint" in lowered_label or "actuator" in lowered_label:
+        return "debug_or_actuator_response" if any(term in lowered_body for term in _DEBUG_BODY_TERMS) else None
+
+    if "health endpoint" in lowered_label:
+        if re.search(r'"status"\s*:\s*"(?:up|down|ok)"', body, re.I):
+            return "health_endpoint_status_response"
+        return None
+
+    if "git repository" in lowered_label:
+        if path.endswith("/HEAD") and lowered_body.startswith("ref: refs/"):
+            return "git_head_response"
+        if path.endswith("/config") and ("[core]" in lowered_body or "[remote " in lowered_body):
+            return "git_config_response"
+        return None
+
+    if "php info" in lowered_label:
+        return "phpinfo_response" if "phpinfo()" in lowered_body or "php version" in lowered_body else None
+
+    if "server status" in lowered_label:
+        return "server_status_response" if any(term in lowered_body for term in _SERVER_STATUS_TERMS) else None
+
+    if "admin console" in lowered_label:
+        return "admin_console_response" if "admin console" in lowered_body or "<title>console" in lowered_body else None
+
+    return None
 
 
 def _is_closed_local_target(target: str) -> bool:

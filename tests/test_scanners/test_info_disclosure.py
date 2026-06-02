@@ -59,6 +59,7 @@ def test_swagger_json_exposed(vuln_app) -> None:
     swagger = [f for f in findings if "swagger" in f.title.lower() or "api doc" in f.title.lower()]
     assert len(swagger) >= 1
     assert swagger[0].severity in (Severity.MEDIUM, Severity.HIGH)
+    assert swagger[0].evidence["proof_quality"] == "api_documentation_response"
 
 
 def test_env_file_exposed(vuln_app) -> None:
@@ -66,6 +67,36 @@ def test_env_file_exposed(vuln_app) -> None:
     env_f = [f for f in findings if ".env" in f.title.lower() or "environment" in f.title.lower()]
     assert len(env_f) >= 1
     assert env_f[0].severity in (Severity.HIGH, Severity.CRITICAL)
+    assert env_f[0].evidence["proof_quality"] == "env_file_key_value_response"
+
+
+def test_spa_fallback_200_is_not_sensitive_path_exposure(monkeypatch: pytest.MonkeyPatch) -> None:
+    scanner = Scanner()
+
+    class AppShellResponse:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return None
+
+        def read(self, _limit):
+            return (
+                b'<!doctype html><html><head><title>App</title></head>'
+                b'<body><div id="root"></div><script src="/assets/app.js"></script></body></html>'
+            )
+
+    monkeypatch.setattr(
+        "vibe_iterator.scanners.info_disclosure.urllib.request.urlopen",
+        lambda *args, **kwargs: AppShellResponse(),
+    )
+
+    findings: list = []
+    scanner._probe_sensitive_paths("http://example.test", "custom", findings)
+
+    assert findings == []
 
 
 # ---------------------------------------------------------------------------
