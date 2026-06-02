@@ -87,11 +87,19 @@ class Scanner(BaseScanner):
                 except Exception:
                     pass
 
+                proof_quality = None
                 server_acceptance_evidence = None
                 if _rpc_reflects_tier(rpc_result, target_value):
-                    server_acceptance_evidence = "supabase_rpc_reflected_tampered_tier"
-                elif _network_reflects_tier(network, key, target_value):
-                    server_acceptance_evidence = "network_response_reflected_tampered_tier"
+                    proof_quality = "supabase_rpc_reflected_tampered_tier"
+                    server_acceptance_evidence = {
+                        "source": "supabase_rpc",
+                        "rpc": "get_user_tier",
+                        "matched_value": target_value,
+                    }
+                else:
+                    server_acceptance_evidence = _network_reflects_tier(network, key, target_value)
+                    if server_acceptance_evidence:
+                        proof_quality = "structured_api_response_contains_tampered_tier"
 
                 if server_acceptance_evidence:
                     desc = (
@@ -111,10 +119,20 @@ class Scanner(BaseScanner):
                             "tampered_value": target_value,
                             "client_value_after_navigation": client_value_after_navigation,
                             "server_acceptance_evidence": server_acceptance_evidence,
+                            "proof_quality": proof_quality,
                             "storage_type": storage_type,
                             "action_performed": f"Set {storage_type}['{key}'] = '{target_value}', navigated to {page}",
                             "request": {"method": "GET", "url": page, "headers": {}, "body": None},
-                            "response": {"status": 200, "body_excerpt": f"Server-side runtime evidence reflected {key}={target_value}"},
+                            "response": {
+                                "status": (
+                                    server_acceptance_evidence.get("status")
+                                    if isinstance(server_acceptance_evidence, dict)
+                                    else 200
+                                ),
+                                "body_excerpt": (
+                                    f"Server-side runtime evidence reflected {key}={target_value}"
+                                ),
+                            },
                             "expected_response": f"Server should reset {key} to the authenticated user's real tier",
                         },
                         llm_prompt=self.build_llm_prompt(
@@ -155,29 +173,68 @@ class Scanner(BaseScanner):
                     pass
 
 
-def _network_reflects_tier(network: Any, key: str, tampered_value: str) -> bool:
-    """Return True when post-tamper API traffic reflects the escalated tier."""
+def _network_reflects_tier(network: Any, key: str, tampered_value: str) -> dict[str, Any] | None:
+    """Return structured proof when post-tamper API traffic reflects the escalated tier."""
     if network is None:
-        return False
+        return None
 
     try:
         requests = network.get_requests()
     except Exception:
-        return False
-
-    tier_terms = {key.lower(), "plan", "tier", "subscription"}
-    tampered_lower = tampered_value.lower()
+        return None
 
     for req in requests:
         url = getattr(req, "url", "")
         if "/api/" not in url and "supabase.co" not in url:
             continue
 
-        body = (getattr(req, "response_body", "") or "").lower()
-        if tampered_lower in body and any(term in body for term in tier_terms):
-            return True
+        body = getattr(req, "response_body", "") or ""
+        try:
+            data = json.loads(body)
+        except (json.JSONDecodeError, TypeError):
+            continue
 
-    return False
+        json_path = _find_tier_value_path(data, key, tampered_value)
+        if json_path:
+            return {
+                "url": url,
+                "status": getattr(req, "status_code", None),
+                "json_path": json_path,
+                "matched_value": tampered_value,
+            }
+
+    return None
+
+
+def _find_tier_value_path(data: Any, key: str, tampered_value: str, path: str = "") -> str | None:
+    tier_keys = {
+        key.lower(), "plan", "tier", "subscription", "subscription_tier",
+        "plan_name", "plantype", "tiername", "subscriptionplan",
+        "user_tier", "account_plan",
+    }
+
+    if isinstance(data, dict):
+        for field, value in data.items():
+            child_path = f"{path}.{field}" if path else str(field)
+            if field.lower() in tier_keys and _tier_value_matches(value, tampered_value):
+                return child_path
+            nested = _find_tier_value_path(value, key, tampered_value, child_path)
+            if nested:
+                return nested
+    elif isinstance(data, list):
+        for index, value in enumerate(data):
+            nested = _find_tier_value_path(value, key, tampered_value, f"{path}[{index}]")
+            if nested:
+                return nested
+    return None
+
+
+def _tier_value_matches(value: Any, tampered_value: str) -> bool:
+    if isinstance(value, list):
+        return any(_tier_value_matches(item, tampered_value) for item in value)
+    if isinstance(value, dict):
+        return False
+    return str(value).lower() == tampered_value.lower()
 
 
 def _rpc_reflects_tier(value: Any, tampered_value: str) -> bool:
