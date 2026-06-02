@@ -15,6 +15,14 @@ from vibe_iterator.scanners.request_targets import frontend_origin, rewrite_to_b
 from vibe_iterator.utils.supabase_helpers import truncate
 
 _JWT_PATTERN = re.compile(r"eyJ[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+")
+_AUTH_BYPASS_PROTECTED_PATHS = [
+    "/admin", "/protected", "/private", "/api/admin", "/api/user", "/api/account",
+    "/api/profile", "/api/me", "/api/session", "/api/settings", "/api/billing",
+]
+_AUTH_BYPASS_SENSITIVE_BODY_TERMS = {
+    "secret", "token", "password", "email", "user_id", "owner_id", "account",
+    "billing", "subscription", "admin",
+}
 
 
 class Scanner(BaseScanner):
@@ -566,6 +574,9 @@ class Scanner(BaseScanner):
                 continue
             replay_url = rewrite_to_backend_url(req.url, config)
             origin = frontend_origin(config)
+            proof_quality = _auth_bypass_api_proof_quality(req, replay_url)
+            if proof_quality is None:
+                continue
             code = _replay_without_auth(replay_url, req.method, req.post_data, origin=origin)
             if code not in (401, 403, None):
                 desc = (
@@ -586,6 +597,7 @@ class Scanner(BaseScanner):
                         "expected_behavior": "Must return 401 Unauthorized when no valid auth header is present",
                         "request": {"method": req.method, "url": replay_url, "headers": {}, "body": req.post_data},
                         "response": {"status": code},
+                        "proof_quality": proof_quality,
                         "network_events": [],
                     },
                     llm_prompt=self.build_llm_prompt(
@@ -690,6 +702,20 @@ def _auth_probe_url(config: Any) -> str:
     if isinstance(backend_url, str) and backend_url:
         return backend_url.rstrip("/")
     return config.target.rstrip("/")
+
+
+def _auth_bypass_api_proof_quality(req: Any, replay_url: str) -> str | None:
+    """Return why an unauthenticated API replay is auth-bypass evidence."""
+    lowered_url = replay_url.lower()
+    if any(fragment in lowered_url for fragment in _AUTH_BYPASS_PROTECTED_PATHS):
+        return "protected_api_path_replayed_without_auth"
+
+    raw_body = getattr(req, "response_body", "")
+    body = raw_body.lower() if isinstance(raw_body, str) else ""
+    if body and any(term in body for term in _AUTH_BYPASS_SENSITIVE_BODY_TERMS):
+        return "authenticated_api_response_body_contains_sensitive_terms"
+
+    return None
 
 
 def _replay_with_token(token: str, target: str, origin: str | None = None) -> int | None:

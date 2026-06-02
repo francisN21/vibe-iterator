@@ -158,6 +158,7 @@ def test_unprotected_protected_endpoint_detected(vuln_app) -> None:
     bypass = [f for f in findings if "accessible without authentication" in f.title.lower()]
     assert len(bypass) >= 1
     assert bypass[0].severity in (Severity.HIGH, Severity.CRITICAL)
+    assert bypass[0].evidence["proof_quality"] == "protected_api_path_replayed_without_auth"
 
 
 def test_unprotected_admin_endpoint_detected(vuln_app) -> None:
@@ -170,6 +171,7 @@ def test_unprotected_admin_endpoint_detected(vuln_app) -> None:
     bypass = [f for f in findings if "accessible without authentication" in f.title.lower()]
     assert len(bypass) >= 1
     assert bypass[0].severity in (Severity.HIGH, Severity.CRITICAL)
+    assert bypass[0].evidence["proof_quality"] == "protected_api_path_replayed_without_auth"
 
 
 # ---------------------------------------------------------------------------
@@ -200,6 +202,28 @@ def test_api_auth_bypass_replay_uses_backend_url_with_frontend_origin(monkeypatc
 
     assert [f for f in findings if "accessible without authentication" in f.title.lower()] == []
     assert replay_calls == [("http://localhost:4001/api/protected", "GET", "http://localhost:3000")]
+
+
+def test_public_api_replay_200_is_not_auth_bypass(monkeypatch: pytest.MonkeyPatch) -> None:
+    scanner = Scanner()
+    config = _make_config("http://localhost:3000")
+    req = _make_api_req(
+        "http://localhost:3000/api/products",
+        body='{"items": [{"id": 1, "name": "public"}]}',
+    )
+
+    monkeypatch.setattr("vibe_iterator.scanners.auth_check._replay_without_auth", lambda *args, **kwargs: 200)
+
+    findings: list = []
+    scanner._group5_auth_bypass(
+        session=MagicMock(),
+        config=config,
+        findings=findings,
+        stack="custom",
+        network=_make_network([req]),
+    )
+
+    assert [f for f in findings if "accessible without authentication" in f.title.lower()] == []
 
 
 def test_protected_endpoint_returning_401_no_finding(vuln_app) -> None:
