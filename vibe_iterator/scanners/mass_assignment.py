@@ -95,6 +95,9 @@ class Scanner(BaseScanner):
                 if not isinstance(resp_data, dict):
                     continue
 
+                if _is_plain_request_echo(resp_data, injected_body):
+                    continue
+
                 if field_name not in resp_data:
                     continue
 
@@ -125,6 +128,7 @@ class Scanner(BaseScanner):
                         "injected_field": field_name,
                         "injected_value": str(field_value),
                         "returned_value": str(returned_val),
+                        "proof_quality": "server_enriched_write_response_contains_injected_field",
                         "payload_used": json.dumps({field_name: field_value}),
                         "payload_type": "mass_assignment",
                         "injection_point": f"json_body:{field_name}",
@@ -188,3 +192,8 @@ def _get_auth_headers(config: Any) -> dict:
         headers["apikey"] = anon_key
         headers["Authorization"] = f"Bearer {anon_key}"
     return add_frontend_origin(headers, config)
+
+
+def _is_plain_request_echo(resp_data: dict, injected_body: dict) -> bool:
+    """Return True when the response only mirrors the submitted JSON body."""
+    return resp_data == injected_body

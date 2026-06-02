@@ -79,6 +79,22 @@ def test_mass_assignment_credits_critical(vuln_app) -> None:
     assert len(critical) >= 1
 
 
+def test_plain_json_echo_is_not_reported_as_mass_assignment(monkeypatch: pytest.MonkeyPatch) -> None:
+    scanner = Scanner()
+    config = _make_config()
+    req = _make_post_req("http://localhost:9999/api/echo", {"name": "alice"})
+    net = _make_network([req])
+
+    def fake_request(url, method, data, headers, timeout=6):
+        return data.decode("utf-8"), 200, 0.01
+
+    monkeypatch.setattr("vibe_iterator.scanners.mass_assignment._make_request", fake_request)
+
+    findings = scanner.run(session=None, listeners={"network": net}, config=config)
+
+    assert findings == []
+
+
 # ---------------------------------------------------------------------------
 # Negative: no POST body → no finding
 # ---------------------------------------------------------------------------
