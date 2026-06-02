@@ -60,20 +60,23 @@ class Scanner(BaseScanner):
                 continue
             if preflight_body and preflight_body.lstrip()[:9].lower().startswith("<!doctype"):
                 continue
-            self._test_dangerous_methods(probe_url, stack, target, findings, seen_fps, origin)
-            self._test_method_override(probe_url, stack, target, findings, seen_fps, origin)
+            self._test_dangerous_methods(probe_url, stack, target, findings, seen_fps, origin, preflight_body)
+            self._test_method_override(probe_url, stack, target, findings, seen_fps, origin, preflight_body)
 
         return findings
 
     def _test_dangerous_methods(
         self, url: str, stack: str, target: str,
-        findings: list[Finding], seen: set[str], origin: str | None,
+        findings: list[Finding], seen: set[str], origin: str | None, get_body: str,
     ) -> None:
         for method in _DANGEROUS_METHODS:
             status, body = _fetch(url, method, origin=origin)
             if status is None:
                 continue
             if status in (405, 501, 404, 403, 401):
+                continue
+            proof_quality = _method_response_proof_quality(get_body, body, status, method)
+            if proof_quality is None:
                 continue
 
             fp = self.make_fingerprint(self.name, f"{method} accepted on GET endpoint", url)
@@ -95,6 +98,7 @@ class Scanner(BaseScanner):
                 evidence={
                     "request": {"method": method, "url": url, "headers": {}},
                     "response": {"status": status, "body_excerpt": truncate(body, 200)},
+                    "proof_quality": proof_quality,
                     "payload_type": "method_tampering",
                     "payload_used": method,
                     "injection_point": "http_method",
@@ -120,13 +124,16 @@ class Scanner(BaseScanner):
 
     def _test_method_override(
         self, url: str, stack: str, target: str,
-        findings: list[Finding], seen: set[str], origin: str | None,
+        findings: list[Finding], seen: set[str], origin: str | None, get_body: str,
     ) -> None:
         for override_header in _OVERRIDE_HEADERS:
             status, body = _fetch_with_override(url, override_header, "DELETE", origin=origin)
             if status is None:
                 continue
             if status in (405, 501, 404, 403, 401):
+                continue
+            proof_quality = _method_response_proof_quality(get_body, body, status, "DELETE")
+            if proof_quality is None:
                 continue
 
             fp = self.make_fingerprint(self.name, f"Method override: {override_header}", url)
@@ -147,6 +154,7 @@ class Scanner(BaseScanner):
                 evidence={
                     "request": {"method": "POST", "url": url, "headers": {override_header: "DELETE"}},
                     "response": {"status": status, "body_excerpt": truncate(body, 200)},
+                    "proof_quality": proof_quality,
                     "payload_type": "method_override",
                     "payload_used": f"{override_header}: DELETE",
                     "injection_point": f"request_header:{override_header}",
@@ -230,3 +238,26 @@ def _fetch_with_override(
         return e.code, ""
     except Exception:
         return None, ""
+
+
+def _method_response_proof_quality(
+    get_body: str, method_body: str, status: int, method: str
+) -> str | None:
+    """Classify whether an alternate method response proves method processing."""
+    if 200 <= status < 300 and status == 204:
+        return f"{method.lower()}_returned_no_content_success"
+
+    if _normalise_body(method_body) == _normalise_body(get_body):
+        return None
+
+    if 200 <= status < 300:
+        return "alternate_method_response_differs_from_get"
+
+    if 300 <= status < 400:
+        return "alternate_method_redirected_differently_from_get"
+
+    return None
+
+
+def _normalise_body(body: str) -> str:
+    return (body or "").strip()

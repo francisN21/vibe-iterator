@@ -56,6 +56,7 @@ def test_delete_accepted_on_get_endpoint(vuln_app) -> None:
     method = [f for f in findings if "delete" in f.title.lower() or "method" in f.title.lower()]
     assert len(method) >= 1
     assert method[0].severity in (Severity.HIGH, Severity.CRITICAL)
+    assert method[0].evidence["proof_quality"] == "alternate_method_response_differs_from_get"
 
 
 def test_method_override_accepted(vuln_app) -> None:
@@ -63,6 +64,47 @@ def test_method_override_accepted(vuln_app) -> None:
     findings = _run(vuln_app, [req])
     override = [f for f in findings if "override" in f.title.lower() or "x-http-method" in f.title.lower()]
     assert len(override) >= 1
+    assert override[0].evidence["proof_quality"] == "alternate_method_response_differs_from_get"
+
+
+def test_no_finding_when_dangerous_method_returns_same_body_as_get(monkeypatch: pytest.MonkeyPatch) -> None:
+    scanner = Scanner()
+    config = _make_config()
+    req = _make_get_req("http://localhost:9999/api/resource")
+    net = _make_network([req])
+
+    def fake_fetch(url, method, origin=None, timeout=5):
+        return 200, '{"resource":"data"}'
+
+    def fake_override(url, override_header, method, origin=None, timeout=5):
+        return 405, ""
+
+    monkeypatch.setattr("vibe_iterator.scanners.http_method_tampering._fetch", fake_fetch)
+    monkeypatch.setattr("vibe_iterator.scanners.http_method_tampering._fetch_with_override", fake_override)
+
+    findings = scanner.run(session=None, listeners={"network": net}, config=config)
+
+    assert findings == []
+
+
+def test_no_finding_when_method_override_returns_same_body_as_get(monkeypatch: pytest.MonkeyPatch) -> None:
+    scanner = Scanner()
+    config = _make_config()
+    req = _make_get_req("http://localhost:9999/api/resource")
+    net = _make_network([req])
+
+    def fake_fetch(url, method, origin=None, timeout=5):
+        return 405 if method != "GET" else 200, '{"resource":"data"}'
+
+    def fake_override(url, override_header, method, origin=None, timeout=5):
+        return 200, '{"resource":"data"}'
+
+    monkeypatch.setattr("vibe_iterator.scanners.http_method_tampering._fetch", fake_fetch)
+    monkeypatch.setattr("vibe_iterator.scanners.http_method_tampering._fetch_with_override", fake_override)
+
+    findings = scanner.run(session=None, listeners={"network": net}, config=config)
+
+    assert findings == []
 
 
 def test_no_finding_when_no_requests() -> None:
