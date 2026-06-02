@@ -60,13 +60,28 @@ def test_wildcard_with_credentials_is_critical() -> None:
     assert len(findings) == 1
     assert findings[0].severity == Severity.CRITICAL
     assert "credentials" in findings[0].title.lower()
+    assert findings[0].evidence["proof_quality"] == "wildcard_origin_allows_credentials"
 
 
 # --------------------------------------------------------------------------- #
 # Reflected origin — HIGH                                                       #
 # --------------------------------------------------------------------------- #
 
-def test_reflected_origin_is_high() -> None:
+def test_reflected_origin_with_credentials_is_high() -> None:
+    findings = _run_scanner({
+        "https://evil-attacker.com": {
+            "access-control-allow-origin": "https://evil-attacker.com",
+            "access-control-allow-credentials": "true",
+        },
+        "null": {},
+    })
+    assert len(findings) == 1
+    assert findings[0].severity == Severity.HIGH
+    assert "reflected" in findings[0].title.lower()
+    assert findings[0].evidence["proof_quality"] == "reflected_origin_allows_credentials"
+
+
+def test_reflected_origin_without_credentials_is_medium() -> None:
     findings = _run_scanner({
         "https://evil-attacker.com": {
             "access-control-allow-origin": "https://evil-attacker.com",
@@ -74,8 +89,9 @@ def test_reflected_origin_is_high() -> None:
         "null": {},
     })
     assert len(findings) == 1
-    assert findings[0].severity == Severity.HIGH
+    assert findings[0].severity == Severity.MEDIUM
     assert "reflected" in findings[0].title.lower()
+    assert findings[0].evidence["proof_quality"] == "reflected_origin_without_credentials"
 
 
 # --------------------------------------------------------------------------- #
@@ -92,6 +108,8 @@ def test_wildcard_no_credentials_is_low() -> None:
     severities = {f.severity for f in findings}
     assert Severity.LOW in severities
     assert Severity.CRITICAL not in severities
+    wildcard = next(f for f in findings if f.severity == Severity.LOW)
+    assert wildcard.evidence["proof_quality"] == "wildcard_origin_without_credentials"
 
 
 # --------------------------------------------------------------------------- #
@@ -106,6 +124,7 @@ def test_null_origin_accepted_is_medium() -> None:
     assert len(findings) == 1
     assert findings[0].severity == Severity.MEDIUM
     assert "null" in findings[0].title.lower()
+    assert findings[0].evidence["proof_quality"] == "null_origin_accepted"
 
 
 # --------------------------------------------------------------------------- #

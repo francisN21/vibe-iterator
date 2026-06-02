@@ -136,6 +136,7 @@ class Scanner(BaseScanner):
                                 "Access-Control-Allow-Origin": acao,
                                 "Access-Control-Allow-Credentials": acac,
                             },
+                            "proof_quality": "wildcard_origin_allows_credentials",
                             "issue": "credentials_with_wildcard",
                         },
                         llm_prompt=self.build_llm_prompt(
@@ -164,14 +165,21 @@ class Scanner(BaseScanner):
                 fp = self.make_fingerprint(self.name, "CORS origin reflected without validation", url)
                 if fp not in seen:
                     seen.add(fp)
+                    proof_quality = (
+                        "reflected_origin_allows_credentials"
+                        if acac == "true"
+                        else "reflected_origin_without_credentials"
+                    )
+                    severity = Severity.HIGH if acac == "true" else Severity.MEDIUM
                     desc = (
                         "The server reflects any request Origin header directly into the response. "
-                        "This bypasses CORS protection entirely — any website can make cross-origin "
-                        "requests to your API using the victim's session. "
-                        "An attacker can exfiltrate authenticated API responses."
+                        "With credentials enabled, any website can make cross-origin requests using "
+                        "the victim's session and read the response. Without credentials, this still "
+                        "shows that the CORS allowlist is not enforced and can expose unauthenticated "
+                        "responses cross-origin."
                     )
                     findings.append(self.new_finding(
-                        scanner=self.name, severity=Severity.HIGH,
+                        scanner=self.name, severity=severity,
                         title="CORS: origin header reflected without validation",
                         description=desc,
                         evidence={
@@ -181,11 +189,12 @@ class Scanner(BaseScanner):
                                 "Access-Control-Allow-Origin": acao,
                                 "Access-Control-Allow-Credentials": acac or "not set",
                             },
+                            "proof_quality": proof_quality,
                             "issue": "reflected_origin",
                         },
                         llm_prompt=self.build_llm_prompt(
                             title="CORS origin reflected without validation",
-                            severity=Severity.HIGH, scanner=self.name, page=url,
+                            severity=severity, scanner=self.name, page=url,
                             category=self.category, description=desc,
                             evidence_summary=f"Sent Origin: {evil_origin}\nReceived ACAO: {acao}",
                             stack=stack,
@@ -217,6 +226,7 @@ class Scanner(BaseScanner):
                             "test_origin_sent": evil_origin,
                             "request": {"method": "GET", "url": url, "headers": {"Origin": evil_origin}},
                             "response_headers": {"Access-Control-Allow-Origin": acao},
+                            "proof_quality": "wildcard_origin_without_credentials",
                             "issue": "wildcard_origin",
                         },
                         llm_prompt=self.build_llm_prompt(
@@ -264,6 +274,7 @@ class Scanner(BaseScanner):
                                 "Access-Control-Allow-Origin": pacao,
                                 "Access-Control-Allow-Credentials": pacac,
                             },
+                            "proof_quality": "preflight_reflected_origin_allows_credentials",
                             "issue": "preflight_reflects_origin_with_credentials",
                         },
                         llm_prompt=self.build_llm_prompt(
@@ -307,6 +318,7 @@ class Scanner(BaseScanner):
                             "test_origin_sent": "null",
                             "request": {"method": "GET", "url": url, "headers": {"Origin": "null"}},
                             "response_headers": {"Access-Control-Allow-Origin": acao},
+                            "proof_quality": "null_origin_accepted",
                             "issue": "null_origin_accepted",
                         },
                         llm_prompt=self.build_llm_prompt(
