@@ -16,6 +16,8 @@ from vibe_iterator.utils.supabase_helpers import truncate
 _NUMERIC_ID_RE = re.compile(r"^(https?://[^/]+)(.*/)(\d+)(/.*)?$")
 
 _STATIC_EXTS = {".js", ".css", ".png", ".svg", ".ico", ".woff", ".jpg", ".gif", ".map"}
+_GENERIC_RESPONSE_KEYS = {"ok", "success", "status", "message", "error", "errors"}
+_ID_KEYS = {"id", "item_id", "user_id", "resource_id", "record_id", "profile_id", "account_id"}
 
 
 def _is_static(url: str) -> bool:
@@ -86,8 +88,11 @@ class Scanner(BaseScanner):
                     if not isinstance(data, dict) or not data:
                         continue
                 except (json.JSONDecodeError, ValueError):
-                    # Non-JSON 200 is still suspicious
-                    pass
+                    continue
+
+                proof_quality = _idor_proof_quality(data, probe_id)
+                if proof_quality is None:
+                    continue
 
                 desc = (
                     f"Accessing `{probe_url}` (ID={probe_id}) with the same auth credentials "
@@ -106,6 +111,7 @@ class Scanner(BaseScanner):
                         "probed_id": probe_id,
                         "request": {"method": "GET", "url": probe_url, "headers": auth_header},
                         "response": {"status": status, "body_excerpt": truncate(resp_body, 300)},
+                        "proof_quality": proof_quality,
                         "payload_used": str(probe_id),
                         "payload_type": "idor_id_enumeration",
                         "injection_point": "url_path:numeric_id",
@@ -154,3 +160,16 @@ def _fetch(url: str, headers: dict, timeout: int = 5) -> tuple[str, int | None]:
         return "", e.code
     except Exception:
         return "", None
+
+
+def _idor_proof_quality(data: dict, probe_id: int) -> str | None:
+    """Classify whether a JSON response is strong enough IDOR evidence."""
+    for key in _ID_KEYS:
+        if key in data and str(data[key]) == str(probe_id):
+            return f"response_{key}_matches_probed_id"
+
+    keys = {str(key).lower() for key in data}
+    if keys and keys.issubset(_GENERIC_RESPONSE_KEYS):
+        return None
+
+    return "resource_like_json_response_for_probed_id"
