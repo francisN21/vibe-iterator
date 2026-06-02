@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 _THIRD_PARTY_EMBED_RE = re.compile(r"/[0-9a-f]{12,}(?:/|$)", re.I)
 
 from vibe_iterator.scanners.base import BaseScanner, Finding, Severity
+from vibe_iterator.scanners.request_targets import frontend_origin, rewrite_to_backend_url
 
 _STATIC_EXTS = {".js", ".css", ".png", ".svg", ".ico", ".woff", ".woff2", ".jpg", ".gif", ".map"}
 _AUTH_INDICATORS = {"authorization", "x-api-key", "cookie"}
@@ -31,14 +32,17 @@ _SECURITY_HEADERS = {
 
 
 def _fetch_without_auth(
-    url: str, method: str = "GET", body: bytes | None = None, timeout: int = 5,
+    url: str, method: str = "GET", body: bytes | None = None, origin: str | None = None, timeout: int = 5,
 ) -> tuple[int, dict[str, str]] | None:
     """Make an HTTP request without auth headers; return (status, headers) or None."""
     try:
         ctx = ssl._create_unverified_context()
+        headers = {"Content-Type": "application/json", "User-Agent": "vibe-iterator/api-check"}
+        if origin:
+            headers["Origin"] = origin
         req = urllib.request.Request(
             url, data=body, method=method,
-            headers={"Content-Type": "application/json", "User-Agent": "vibe-iterator/api-check"},
+            headers=headers,
         )
         with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
             return resp.status, {k.lower(): v for k, v in resp.headers.items()}
@@ -56,11 +60,14 @@ def _has_auth_header(req: Any) -> bool:
 
 _SKIP_PATH_PREFIXES = ("/_next/", "/__next/")
 
-def _is_api_url(url: str, target: str) -> bool:
+def _is_api_url(url: str, target: str, backend_url: str | None = None) -> bool:
     if any(url.endswith(ext) for ext in _STATIC_EXTS):
         return False
     parsed = urlparse(url)
-    if parsed.netloc != urlparse(target).netloc:
+    allowed_netlocs = {urlparse(target).netloc}
+    if backend_url:
+        allowed_netlocs.add(urlparse(backend_url).netloc)
+    if parsed.netloc not in allowed_netlocs:
         return False
     # Skip Next.js internal routes (image optimisation, RSC, etc.) — these are
     # served by the CDN edge layer with different headers than the app sets.
@@ -83,13 +90,16 @@ class Scanner(BaseScanner):
         stack = config.stack.backend if hasattr(config, "stack") else "unknown"
         network = listeners["network"]
         target = config.target
+        backend_url = getattr(config, "backend_url", None)
+        backend_url = backend_url if isinstance(backend_url, str) and backend_url else None
+        origin = frontend_origin(config)
 
-        requests = [r for r in network.get_requests() if _is_api_url(r.url, target)]
+        requests = [r for r in network.get_requests() if _is_api_url(r.url, target, backend_url)]
 
         self._check_security_headers(requests, target, stack, findings)
-        self._check_unauth_access(requests, target, stack, findings)
+        self._check_unauth_access(requests, target, stack, findings, config, origin)
         self._check_rate_limiting(requests, target, stack, findings)
-        self._probe_rate_limiting(requests, target, stack, findings)
+        self._probe_rate_limiting(requests, target, stack, findings, config, origin)
         return findings
 
     # ------------------------------------------------------------------ #
@@ -172,7 +182,7 @@ class Scanner(BaseScanner):
     # ------------------------------------------------------------------ #
 
     def _probe_rate_limiting(
-        self, requests: list, target: str, stack: str, findings: list[Finding],
+        self, requests: list, target: str, stack: str, findings: list[Finding], config: Any, origin: str | None,
     ) -> None:
         seen_fps: set[str] = set()
         probed: set[str] = set()
@@ -189,7 +199,7 @@ class Scanner(BaseScanner):
             if req.response_mime_type and "text/html" in req.response_mime_type:
                 continue
 
-            base_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+            base_url = rewrite_to_backend_url(f"{parsed.scheme}://{parsed.netloc}{parsed.path}", config)
             if base_url in probed:
                 continue
             probed.add(base_url)
@@ -197,7 +207,7 @@ class Scanner(BaseScanner):
             # Send _RATE_LIMIT_PROBE_COUNT rapid requests; check if any return 429
             got_429 = False
             for _ in range(_RATE_LIMIT_PROBE_COUNT):
-                result = _fetch_without_auth(base_url, method="POST", timeout=3)
+                result = _fetch_without_auth(base_url, method="POST", origin=origin, timeout=3)
                 if result and result[0] == 429:
                     got_429 = True
                     break
@@ -252,7 +262,7 @@ class Scanner(BaseScanner):
     # ------------------------------------------------------------------ #
 
     def _check_unauth_access(
-        self, requests: list, target: str, stack: str, findings: list[Finding],
+        self, requests: list, target: str, stack: str, findings: list[Finding], config: Any, origin: str | None,
     ) -> None:
         seen_fps: set[str] = set()
         tested: set[str] = set()
@@ -262,16 +272,17 @@ class Scanner(BaseScanner):
                 continue
 
             parsed = urlparse(req.url)
-            endpoint_key = f"{req.method}:{parsed.netloc}{parsed.path}"
+            base_url = rewrite_to_backend_url(f"{parsed.scheme}://{parsed.netloc}{parsed.path}", config)
+            base_parsed = urlparse(base_url)
+            endpoint_key = f"{req.method}:{base_parsed.netloc}{base_parsed.path}"
             if endpoint_key in tested:
                 continue
 
-            base_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
             if len(tested) >= _MAX_ENDPOINTS:
                 break
             tested.add(endpoint_key)
 
-            result = _fetch_without_auth(base_url, method=req.method)
+            result = _fetch_without_auth(base_url, method=req.method, origin=origin)
             if result is None:
                 continue
             status, resp_headers = result
@@ -294,7 +305,7 @@ class Scanner(BaseScanner):
                 )
                 findings.append(self.new_finding(
                     scanner=self.name, severity=sev,
-                    title=f"Unauthenticated access: {req.method} {parsed.path}",
+                    title=f"Unauthenticated access: {req.method} {base_parsed.path}",
                     description=desc,
                     evidence={
                         "endpoint": base_url,
@@ -305,7 +316,7 @@ class Scanner(BaseScanner):
                         "actual_response": f"{status} OK — endpoint accessible without auth",
                     },
                     llm_prompt=self.build_llm_prompt(
-                        title=f"Unauthenticated access: {req.method} {parsed.path}",
+                        title=f"Unauthenticated access: {req.method} {base_parsed.path}",
                         severity=sev, scanner=self.name, page=base_url,
                         category=self.category, description=desc,
                         evidence_summary=(
@@ -316,7 +327,7 @@ class Scanner(BaseScanner):
                         stack=stack,
                     ),
                     remediation=(
-                        f"**What to fix:** `{req.method} {parsed.path}` does not require authentication.\n\n"
+                        f"**What to fix:** `{req.method} {base_parsed.path}` does not require authentication.\n\n"
                         "**How to fix:** Add authentication middleware to this endpoint. "
                         "For Supabase/Next.js: verify `session` on the server side before returning data. "
                         "For Express: add a `requireAuth` middleware that checks the JWT before the route handler.\n\n"

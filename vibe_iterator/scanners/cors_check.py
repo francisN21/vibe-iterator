@@ -8,6 +8,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from vibe_iterator.scanners.base import BaseScanner, Finding, Severity
+from vibe_iterator.scanners.request_targets import rewrite_to_backend_url
 
 _STATIC_EXTS = {".js", ".css", ".png", ".svg", ".ico", ".woff", ".woff2", ".jpg", ".gif", ".map"}
 _MAX_ENDPOINTS = 12
@@ -45,18 +46,21 @@ def _fetch_preflight(url: str, origin: str, timeout: int = 5) -> dict[str, str] 
         return None
 
 
-def _is_api_endpoint(url: str, target: str) -> bool:
+def _is_api_endpoint(url: str, target: str, backend_url: str | None = None) -> bool:
     if any(url.endswith(ext) for ext in _STATIC_EXTS):
         return False
     parsed = urlparse(url)
-    return parsed.netloc == urlparse(target).netloc
+    allowed_netlocs = {urlparse(target).netloc}
+    if backend_url:
+        allowed_netlocs.add(urlparse(backend_url).netloc)
+    return parsed.netloc in allowed_netlocs
 
 
-def _dedup_endpoints(requests: list, target: str) -> list[str]:
+def _dedup_endpoints(requests: list, target: str, backend_url: str | None = None) -> list[str]:
     seen: set[str] = set()
     result: list[str] = []
     for req in requests:
-        if not _is_api_endpoint(req.url, target):
+        if not _is_api_endpoint(req.url, target, backend_url):
             continue
         parsed = urlparse(req.url)
         key = f"{parsed.netloc}{parsed.path}"
@@ -82,10 +86,15 @@ class Scanner(BaseScanner):
         stack = config.stack.backend if hasattr(config, "stack") else "unknown"
         network = listeners["network"]
         target = config.target
+        backend_url = getattr(config, "backend_url", None)
+        backend_url = backend_url if isinstance(backend_url, str) and backend_url else None
 
-        endpoints = _dedup_endpoints(network.get_requests(), target)
+        endpoints = [
+            rewrite_to_backend_url(url, config)
+            for url in _dedup_endpoints(network.get_requests(), target, backend_url)
+        ]
         if not endpoints:
-            endpoints = [target.rstrip("/")]
+            endpoints = [(backend_url or target).rstrip("/")]
 
         seen_fps: set[str] = set()
         for url in endpoints:

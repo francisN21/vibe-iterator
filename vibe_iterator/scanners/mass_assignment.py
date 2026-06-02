@@ -9,6 +9,7 @@ import urllib.request
 from typing import Any
 
 from vibe_iterator.scanners.base import BaseScanner, Finding, Severity
+from vibe_iterator.scanners.request_targets import add_frontend_origin, rewrite_to_backend_url
 from vibe_iterator.utils.supabase_helpers import truncate
 
 # (field_name, value, is_financial)
@@ -76,8 +77,9 @@ class Scanner(BaseScanner):
                     continue
 
                 injected_body = {**original_body, field_name: field_value}
+                probe_url = rewrite_to_backend_url(req.url, config)
                 resp_body, status, _ = _make_request(
-                    req.url, req.method,
+                    probe_url, req.method,
                     json.dumps(injected_body).encode(),
                     token,
                 )
@@ -102,7 +104,7 @@ class Scanner(BaseScanner):
 
                 sev = Severity.CRITICAL if is_financial else Severity.HIGH
                 desc = (
-                    f"The endpoint `{req.method} {req.url}` accepted and echoed back "
+                    f"The endpoint `{req.method} {probe_url}` accepted and echoed back "
                     f"the injected field `{field_name}={field_value}`. "
                     "The server does not filter unexpected fields from the request body. "
                     "An attacker can escalate privileges or manipulate protected attributes "
@@ -116,7 +118,7 @@ class Scanner(BaseScanner):
                     evidence={
                         "request": {
                             "method": req.method,
-                            "url": req.url,
+                            "url": probe_url,
                             "body": truncate(json.dumps(injected_body), 300),
                         },
                         "response": {"status": status, "body_excerpt": truncate(resp_body, 300)},
@@ -132,11 +134,11 @@ class Scanner(BaseScanner):
                         title=f"Mass assignment: server accepted `{field_name}`",
                         severity=sev,
                         scanner=self.name,
-                        page=req.url,
+                        page=probe_url,
                         category=self.category,
                         description=desc,
                         evidence_summary=(
-                            f"{req.method} {req.url}\n"
+                            f"{req.method} {probe_url}\n"
                             f"Injected: {field_name}={field_value}\n"
                             f"Response echoed: {field_name}={returned_val}"
                         ),
@@ -153,7 +155,7 @@ class Scanner(BaseScanner):
                         "**Verify the fix:** Re-run mass_assignment scanner — injected field must not appear in response."
                     ),
                     category=self.category,
-                    page=req.url,
+                    page=probe_url,
                 ))
 
         return findings
@@ -185,4 +187,4 @@ def _get_auth_headers(config: Any) -> dict:
     if anon_key:
         headers["apikey"] = anon_key
         headers["Authorization"] = f"Bearer {anon_key}"
-    return headers
+    return add_frontend_origin(headers, config)

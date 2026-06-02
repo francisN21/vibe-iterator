@@ -18,9 +18,10 @@ def vuln_app():
         yield app
 
 
-def _make_config(target: str = "http://localhost:9999") -> MagicMock:
+def _make_config(target: str = "http://localhost:9999", backend_url: str | None = None) -> MagicMock:
     cfg = MagicMock()
     cfg.target = target
+    cfg.backend_url = backend_url
     cfg.stack.backend = "custom"
     cfg.supabase_anon_key = ""
     return cfg
@@ -100,6 +101,28 @@ def test_no_finding_when_get_only() -> None:
     net = _make_network([req])
     findings = scanner.run(session=None, listeners={"network": net}, config=config)
     assert findings == []
+
+
+def test_backend_url_routes_mass_assignment_probe_with_frontend_origin(monkeypatch: pytest.MonkeyPatch) -> None:
+    scanner = Scanner()
+    config = _make_config("http://localhost:3000", backend_url="http://localhost:4001")
+    req = _make_post_req("http://localhost:3000/api/profile", {"id": 42, "name": "alice"})
+    net = _make_network([req])
+    calls: list[tuple[str, str, dict]] = []
+
+    def fake_request(url, method, data, headers, timeout=6):
+        calls.append((url, method, headers))
+        return "", 403, 0.01
+
+    monkeypatch.setattr("vibe_iterator.scanners.mass_assignment._make_request", fake_request)
+
+    findings = scanner.run(session=None, listeners={"network": net}, config=config)
+
+    assert findings == []
+    assert calls
+    assert all(url == "http://localhost:4001/api/profile" for url, _, _ in calls)
+    assert all(method == "POST" for _, method, _ in calls)
+    assert all(headers["Origin"] == "http://localhost:3000" for _, _, headers in calls)
 
 
 # ---------------------------------------------------------------------------

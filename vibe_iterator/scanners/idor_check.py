@@ -9,6 +9,7 @@ import urllib.request
 from typing import Any
 
 from vibe_iterator.scanners.base import BaseScanner, Finding, Severity
+from vibe_iterator.scanners.request_targets import add_frontend_origin, rewrite_to_backend_url
 from vibe_iterator.utils.supabase_helpers import truncate
 
 # Matches paths like /api/users/42 or /api/items/7 — captures the numeric segment
@@ -65,11 +66,12 @@ class Scanner(BaseScanner):
                 for k, v in orig_headers.items():
                     if k.lower() in ("authorization", "cookie", "x-api-key"):
                         auth_header[k] = v
+            auth_header = add_frontend_origin(auth_header, config)
 
             original_body = req.response_body or ""
 
             for probe_id in probe_ids:
-                probe_url = f"{base}{prefix}{probe_id}{suffix}"
+                probe_url = rewrite_to_backend_url(f"{base}{prefix}{probe_id}{suffix}", config)
                 resp_body, status = _fetch(probe_url, auth_header)
 
                 if status != 200 or not resp_body:

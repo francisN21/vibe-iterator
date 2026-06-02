@@ -11,9 +11,10 @@ from vibe_iterator.scanners.base import Severity
 # Helpers                                                                      #
 # --------------------------------------------------------------------------- #
 
-def _make_config(target: str = "https://example.com") -> MagicMock:
+def _make_config(target: str = "https://example.com", backend_url: str | None = None) -> MagicMock:
     cfg = MagicMock()
     cfg.target = target
+    cfg.backend_url = backend_url
     cfg.stack.backend = "supabase"
     return cfg
 
@@ -33,9 +34,14 @@ def _make_req(
     return req
 
 
-def _run(requests: list, fetch_result=None, target: str = "https://example.com") -> list:
+def _run(
+    requests: list,
+    fetch_result=None,
+    target: str = "https://example.com",
+    backend_url: str | None = None,
+) -> list:
     scanner = Scanner()
-    config = _make_config(target)
+    config = _make_config(target, backend_url=backend_url)
     net = MagicMock()
     net.get_requests.return_value = requests
 
@@ -87,6 +93,54 @@ def test_unauth_fetch_failure_no_finding() -> None:
     findings = _run([req], fetch_result=None)
     unauth = [f for f in findings if "unauthenticated" in f.title.lower()]
     assert unauth == []
+
+
+def test_backend_url_routes_unauth_probe_from_frontend_proxy() -> None:
+    req = _make_req(
+        url="https://app.example.com/api/admin",
+        response_headers={
+            "content-type": "application/json",
+            "strict-transport-security": "max-age=31536000",
+            "x-frame-options": "DENY",
+            "x-content-type-options": "nosniff",
+        },
+        auth_header=True,
+    )
+    probes: list[tuple[str, str | None]] = []
+
+    def fake_fetch(url, method="GET", body=None, origin=None, timeout=5):
+        probes.append((url, origin))
+        return 401, {}
+
+    with patch("vibe_iterator.scanners.api_exposure._fetch_without_auth", side_effect=fake_fetch):
+        findings = _run([req], target="https://app.example.com", backend_url="https://api.example.com")
+
+    assert [f for f in findings if "unauthenticated" in f.title.lower()] == []
+    assert probes == [("https://api.example.com/api/admin", "https://app.example.com")]
+
+
+def test_backend_url_direct_api_origin_is_discovered_for_unauth_probe() -> None:
+    req = _make_req(
+        url="https://api.example.com/api/admin",
+        response_headers={
+            "content-type": "application/json",
+            "strict-transport-security": "max-age=31536000",
+            "x-frame-options": "DENY",
+            "x-content-type-options": "nosniff",
+        },
+        auth_header=True,
+    )
+    probes: list[tuple[str, str | None]] = []
+
+    def fake_fetch(url, method="GET", body=None, origin=None, timeout=5):
+        probes.append((url, origin))
+        return 401, {}
+
+    with patch("vibe_iterator.scanners.api_exposure._fetch_without_auth", side_effect=fake_fetch):
+        findings = _run([req], target="https://app.example.com", backend_url="https://api.example.com")
+
+    assert [f for f in findings if "unauthenticated" in f.title.lower()] == []
+    assert probes == [("https://api.example.com/api/admin", "https://app.example.com")]
 
 
 # --------------------------------------------------------------------------- #
@@ -209,3 +263,27 @@ def test_retry_after_header_satisfies_rate_limit() -> None:
     findings = _run([req], fetch_result=(429, {}))
     rl = [f for f in findings if "rate limiting" in f.title.lower()]
     assert rl == []
+
+
+def test_backend_url_routes_active_rate_limit_probe_from_frontend_proxy() -> None:
+    req = _make_req(
+        url="https://app.example.com/api/login",
+        response_headers={
+            "content-type": "application/json",
+            "retry-after": "60",
+            "strict-transport-security": "max-age=31536000",
+            "x-frame-options": "DENY",
+            "x-content-type-options": "nosniff",
+        },
+    )
+    probes: list[tuple[str, str | None]] = []
+
+    def fake_fetch(url, method="GET", body=None, origin=None, timeout=5):
+        probes.append((url, origin))
+        return 429, {}
+
+    with patch("vibe_iterator.scanners.api_exposure._fetch_without_auth", side_effect=fake_fetch):
+        findings = _run([req], target="https://app.example.com", backend_url="https://api.example.com")
+
+    assert [f for f in findings if "rate limiting" in f.title.lower()] == []
+    assert probes == [("https://api.example.com/api/login", "https://app.example.com")]

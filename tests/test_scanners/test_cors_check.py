@@ -11,9 +11,10 @@ from vibe_iterator.scanners.cors_check import Scanner
 # Helpers                                                                      #
 # --------------------------------------------------------------------------- #
 
-def _make_config(target: str = "https://example.com") -> MagicMock:
+def _make_config(target: str = "https://example.com", backend_url: str | None = None) -> MagicMock:
     cfg = MagicMock()
     cfg.target = target
+    cfg.backend_url = backend_url
     cfg.stack.backend = "supabase"
     return cfg
 
@@ -157,3 +158,41 @@ def test_duplicate_findings_are_deduped() -> None:
     # Same URL + same issue should produce exactly one finding
     reflected = [f for f in findings if "reflected" in f.title.lower()]
     assert len(reflected) == 1
+
+
+def test_backend_url_routes_frontend_proxy_endpoint_for_cors_probe() -> None:
+    scanner = Scanner()
+    config = _make_config("https://app.example.com", backend_url="https://api.example.com")
+    listeners = {"network": _make_network(["https://app.example.com/api/data"])}
+    probed_urls: list[str] = []
+
+    def fake_fetch(url, origin, timeout=5):
+        probed_urls.append(url)
+        return {}
+
+    with patch("vibe_iterator.scanners.cors_check._fetch_with_origin", side_effect=fake_fetch), \
+         patch("vibe_iterator.scanners.cors_check._fetch_preflight", return_value={}):
+        findings = scanner.run(session=None, listeners=listeners, config=config)
+
+    assert findings == []
+    assert probed_urls
+    assert all(url == "https://api.example.com/api/data" for url in probed_urls)
+
+
+def test_backend_url_direct_api_origin_is_discovered_for_cors_probe() -> None:
+    scanner = Scanner()
+    config = _make_config("https://app.example.com", backend_url="https://api.example.com")
+    listeners = {"network": _make_network(["https://api.example.com/api/data"])}
+    probed_urls: list[str] = []
+
+    def fake_fetch(url, origin, timeout=5):
+        probed_urls.append(url)
+        return {}
+
+    with patch("vibe_iterator.scanners.cors_check._fetch_with_origin", side_effect=fake_fetch), \
+         patch("vibe_iterator.scanners.cors_check._fetch_preflight", return_value={}):
+        findings = scanner.run(session=None, listeners=listeners, config=config)
+
+    assert findings == []
+    assert probed_urls
+    assert all(url == "https://api.example.com/api/data" for url in probed_urls)
