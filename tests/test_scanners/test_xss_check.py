@@ -11,9 +11,10 @@ from vibe_iterator.scanners.xss_check import Scanner
 # Helpers                                                                      #
 # --------------------------------------------------------------------------- #
 
-def _make_config(target: str = "https://example.com") -> MagicMock:
+def _make_config(target: str = "https://example.com", backend_url: str | None = None) -> MagicMock:
     cfg = MagicMock()
     cfg.target = target
+    cfg.backend_url = backend_url
     cfg.stack.backend = "nextjs"
     return cfg
 
@@ -27,9 +28,14 @@ def _make_req(url: str, response_headers: dict) -> MagicMock:
     return req
 
 
-def _run(requests: list, session=None, target: str = "https://example.com") -> list:
+def _run(
+    requests: list,
+    session=None,
+    target: str = "https://example.com",
+    backend_url: str | None = None,
+) -> list:
     scanner = Scanner()
-    config = _make_config(target)
+    config = _make_config(target, backend_url=backend_url)
     net = MagicMock()
     net.get_requests.return_value = requests
     return scanner.run(session=session, listeners={"network": net}, config=config)
@@ -206,3 +212,69 @@ def test_dom_check_handles_session_exception_gracefully() -> None:
     findings = _run([req], session=session)
     dom_findings = [f for f in findings if "dom xss" in f.title.lower()]
     assert dom_findings == []
+
+
+class _FakeReflectResponse:
+    headers = {"Content-Type": "text/html; charset=utf-8"}
+    status = 200
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def read(self, size=-1):
+        return b"<html><body>no reflection here</body></html>"
+
+
+def test_backend_url_routes_reflected_xss_probe_with_frontend_origin(monkeypatch) -> None:
+    req = _make_req(
+        "https://app.example.com/search?q=test",
+        {
+            "x-content-type-options": "nosniff",
+            "x-frame-options": "DENY",
+            "content-security-policy": "default-src 'self'",
+            "content-type": "text/html",
+        },
+    )
+    requests_seen: list[tuple[str, dict]] = []
+
+    def fake_urlopen(http_req, timeout=4, context=None):
+        requests_seen.append((http_req.full_url, dict(http_req.header_items())))
+        return _FakeReflectResponse()
+
+    monkeypatch.setattr("vibe_iterator.scanners.xss_check.urllib.request.urlopen", fake_urlopen)
+
+    findings = _run([req], target="https://app.example.com", backend_url="https://api.example.com")
+
+    assert [f for f in findings if "reflected xss" in f.title.lower()] == []
+    assert requests_seen
+    assert all(url.startswith("https://api.example.com/search?") for url, _ in requests_seen)
+    assert all(headers["Origin"] == "https://app.example.com" for _, headers in requests_seen)
+
+
+def test_backend_url_direct_api_origin_is_discovered_for_reflected_xss(monkeypatch) -> None:
+    req = _make_req(
+        "https://api.example.com/search?q=test",
+        {
+            "x-content-type-options": "nosniff",
+            "x-frame-options": "DENY",
+            "content-security-policy": "default-src 'self'",
+            "content-type": "text/html",
+        },
+    )
+    requests_seen: list[tuple[str, dict]] = []
+
+    def fake_urlopen(http_req, timeout=4, context=None):
+        requests_seen.append((http_req.full_url, dict(http_req.header_items())))
+        return _FakeReflectResponse()
+
+    monkeypatch.setattr("vibe_iterator.scanners.xss_check.urllib.request.urlopen", fake_urlopen)
+
+    findings = _run([req], target="https://app.example.com", backend_url="https://api.example.com")
+
+    assert [f for f in findings if "reflected xss" in f.title.lower()] == []
+    assert requests_seen
+    assert all(url.startswith("https://api.example.com/search?") for url, _ in requests_seen)
+    assert all(headers["Origin"] == "https://app.example.com" for _, headers in requests_seen)

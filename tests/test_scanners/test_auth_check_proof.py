@@ -110,6 +110,39 @@ def test_bruteforce_probe_uses_backend_url_with_frontend_origin(monkeypatch: pyt
     assert findings
 
 
+def test_alg_none_replay_uses_backend_url_with_frontend_origin(monkeypatch: pytest.MonkeyPatch) -> None:
+    scanner = Scanner()
+    config = _make_config("http://localhost:3000")
+    config.backend_url = "http://localhost:4001"
+    latest = MagicMock()
+    latest.url = "http://localhost:3000/dashboard"
+    latest.local_storage = {}
+    storage = MagicMock()
+    storage.get_latest.return_value = latest
+    session = MagicMock()
+    session.evaluate.return_value = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signature"
+    replay_calls: list[tuple[str, str | None]] = []
+
+    def fake_replay(token, target, origin=None):
+        replay_calls.append((target, origin))
+        return 401
+
+    monkeypatch.setattr("vibe_iterator.scanners.auth_check._replay_with_token", fake_replay)
+
+    findings: list = []
+    scanner._group1_token_security(
+        session=session,
+        storage=storage,
+        network=_make_network([]),
+        config=config,
+        findings=findings,
+        stack="custom",
+    )
+
+    assert [f for f in findings if "alg" in f.title.lower()] == []
+    assert replay_calls == [("http://localhost:4001", "http://localhost:3000")]
+
+
 # ---------------------------------------------------------------------------
 # Group 5b — Unprotected API endpoints (replayed without auth header)
 # ---------------------------------------------------------------------------
@@ -142,6 +175,32 @@ def test_unprotected_admin_endpoint_detected(vuln_app) -> None:
 # ---------------------------------------------------------------------------
 # Negative — endpoint that returns 401 must not produce an auth-bypass finding
 # ---------------------------------------------------------------------------
+
+def test_api_auth_bypass_replay_uses_backend_url_with_frontend_origin(monkeypatch: pytest.MonkeyPatch) -> None:
+    scanner = Scanner()
+    config = _make_config("http://localhost:3000")
+    config.backend_url = "http://localhost:4001"
+    req = _make_api_req("http://localhost:3000/api/protected")
+    replay_calls: list[tuple[str, str, str | None]] = []
+
+    def fake_replay(url, method, body, origin=None):
+        replay_calls.append((url, method, origin))
+        return 401
+
+    monkeypatch.setattr("vibe_iterator.scanners.auth_check._replay_without_auth", fake_replay)
+
+    findings: list = []
+    scanner._group5_auth_bypass(
+        session=MagicMock(),
+        config=config,
+        findings=findings,
+        stack="custom",
+        network=_make_network([req]),
+    )
+
+    assert [f for f in findings if "accessible without authentication" in f.title.lower()] == []
+    assert replay_calls == [("http://localhost:4001/api/protected", "GET", "http://localhost:3000")]
+
 
 def test_protected_endpoint_returning_401_no_finding(vuln_app) -> None:
     req = _make_api_req(url=vuln_app.base_url + "/api/data")
