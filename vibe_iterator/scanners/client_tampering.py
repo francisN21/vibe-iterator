@@ -95,15 +95,24 @@ class Scanner(BaseScanner):
                 time.sleep(1.0)
 
                 # Check if server acted on the tampered value
-                suspicious = _detect_server_acceptance(network, target_value)
+                acceptance_proof = _detect_server_acceptance(network, target_value)
                 # Persistence alone only proves the client kept the value; server-trust
                 # findings need network/API evidence that the tampered value was used.
                 current = session.evaluate(
                     f"(function(){{ return localStorage.getItem('{key}'); }})()"
                 )
-                server_trusted = suspicious
 
-                if server_trusted:
+                if acceptance_proof:
+                    proof_evidence = (
+                        acceptance_proof
+                        if isinstance(acceptance_proof, dict)
+                        else {
+                            "url": page,
+                            "status": 200,
+                            "json_path": "unknown",
+                            "matched_value": target_value,
+                        }
+                    )
                     desc = (
                         f"The server appears to trust the `{key}` value stored in localStorage. "
                         f"By changing `{key}` from `{original_str}` to `{target_value}`, "
@@ -119,11 +128,18 @@ class Scanner(BaseScanner):
                             "original_value": original_str,
                             "tampered_value": target_value,
                             "client_value_after_reload": current,
-                            "server_acceptance_evidence": "network_response_reflected_tampered_value",
+                            "server_acceptance_evidence": proof_evidence,
+                            "proof_quality": "structured_api_response_contains_tampered_authorization_value",
                             "storage_type": "localStorage",
                             "action_performed": f"Set localStorage['{key}'] = '{target_value}', reloaded {page}",
                             "request": {"method": "GET", "url": page, "headers": {}, "body": None},
-                            "response": {"status": 200, "body_excerpt": f"API/network response reflected tampered {key}={target_value}"},
+                            "response": {
+                                "status": proof_evidence.get("status"),
+                                "body_excerpt": (
+                                    f"API response included {proof_evidence.get('json_path')}="
+                                    f"{proof_evidence.get('matched_value')}"
+                                ),
+                            },
                             "expected_response": f"Server should derive {key} from database, not client storage",
                         },
                         llm_prompt=self.build_llm_prompt(
@@ -201,9 +217,19 @@ class Scanner(BaseScanner):
                 session.navigate(page)
                 time.sleep(0.8)
 
-                suspicious = _detect_server_acceptance(network, target_value)
+                acceptance_proof = _detect_server_acceptance(network, target_value)
 
-                if suspicious:
+                if acceptance_proof:
+                    proof_evidence = (
+                        acceptance_proof
+                        if isinstance(acceptance_proof, dict)
+                        else {
+                            "url": page,
+                            "status": 200,
+                            "json_path": "unknown",
+                            "matched_value": target_value,
+                        }
+                    )
                     desc = (
                         f"The `{name}` cookie value was changed from `{original_value}` to `{target_value}`. "
                         "The server appears to have accepted this tampered value. "
@@ -218,9 +244,17 @@ class Scanner(BaseScanner):
                             "original_value": original_value,
                             "tampered_value": target_value,
                             "storage_type": "cookie",
+                            "server_acceptance_evidence": proof_evidence,
+                            "proof_quality": "structured_api_response_contains_tampered_authorization_value",
                             "action_performed": f"Changed cookie `{name}` to `{target_value}`, reloaded {page}",
                             "request": {"method": "GET", "url": page, "headers": {"Cookie": f"{name}={target_value}"}, "body": None},
-                            "response": {"status": 200, "body_excerpt": "Server accepted tampered cookie value"},
+                            "response": {
+                                "status": proof_evidence.get("status"),
+                                "body_excerpt": (
+                                    f"API response included {proof_evidence.get('json_path')}="
+                                    f"{proof_evidence.get('matched_value')}"
+                                ),
+                            },
                             "expected_response": "Server should derive authorization from JWT/session, not plain cookie value",
                         },
                         llm_prompt=self.build_llm_prompt(
@@ -321,12 +355,54 @@ class Scanner(BaseScanner):
             pass
 
 
-def _detect_server_acceptance(network: Any, tampered_value: str) -> bool:
-    """Heuristic: check if any post-navigation API response references the tampered value."""
+def _detect_server_acceptance(network: Any, tampered_value: str) -> dict[str, Any] | None:
+    """Return structured proof that an API response used a tampered auth value."""
     for req in network.get_requests():
         if "/api/" not in req.url and "supabase.co" not in req.url:
             continue
-        body = (req.response_body or "").lower()
-        if tampered_value.lower() in body:
-            return True
-    return False
+        body = req.response_body or ""
+        try:
+            data = json.loads(body)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        json_path = _find_authorization_value_path(data, tampered_value)
+        if json_path:
+            return {
+                "url": req.url,
+                "status": getattr(req, "status_code", None),
+                "json_path": json_path,
+                "matched_value": tampered_value,
+            }
+    return None
+
+
+def _find_authorization_value_path(data: Any, tampered_value: str, path: str = "") -> str | None:
+    sensitive_keys = {
+        "role", "user_role", "userrole", "account_type", "accounttype",
+        "permissions", "is_admin", "isadmin", "admin", "is_premium",
+        "ispremium", "tier", "plan", "plantype", "subscription",
+        "feature_flags", "featureflags",
+    }
+
+    if isinstance(data, dict):
+        for key, value in data.items():
+            child_path = f"{path}.{key}" if path else str(key)
+            if key.lower() in sensitive_keys and _value_matches(value, tampered_value):
+                return child_path
+            nested = _find_authorization_value_path(value, tampered_value, child_path)
+            if nested:
+                return nested
+    elif isinstance(data, list):
+        for index, value in enumerate(data):
+            nested = _find_authorization_value_path(value, tampered_value, f"{path}[{index}]")
+            if nested:
+                return nested
+    return None
+
+
+def _value_matches(value: Any, expected: str) -> bool:
+    if isinstance(value, list):
+        return any(_value_matches(item, expected) for item in value)
+    if isinstance(value, dict):
+        return False
+    return str(value).lower() == str(expected).lower()

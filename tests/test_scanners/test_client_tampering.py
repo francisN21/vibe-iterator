@@ -5,7 +5,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from vibe_iterator.scanners.base import Severity
-from vibe_iterator.scanners.client_tampering import Scanner
+from vibe_iterator.scanners.client_tampering import Scanner, _detect_server_acceptance
 
 # --------------------------------------------------------------------------- #
 # Helpers                                                                     #
@@ -27,6 +27,19 @@ def _make_listeners(snapshot=None) -> dict:
     network.get_requests.return_value = []
     network.clear.return_value = None
     return {"storage": storage, "network": network, "console": MagicMock()}
+
+
+def _make_network_request(
+    url: str = "http://localhost:3000/api/profile",
+    body: str = "",
+    status_code: int = 200,
+) -> MagicMock:
+    req = MagicMock()
+    req.url = url
+    req.method = "GET"
+    req.status_code = status_code
+    req.response_body = body
+    return req
 
 
 def _make_config() -> MagicMock:
@@ -122,6 +135,56 @@ class TestClientTamperingDetection:
         ]
         assert server_trust_findings == []
 
+    def test_no_server_trust_finding_when_tampered_value_appears_in_unrelated_text(self) -> None:
+        snapshot = _make_storage_snapshot(local={"role": "free"})
+        listeners = _make_listeners(snapshot=snapshot)
+        listeners["network"].get_requests.return_value = [
+            _make_network_request(body='{"copy":"Contact an administrator for support"}')
+        ]
+        config = _make_config()
+
+        session = _make_session(evaluate_side_effects=[
+            "free",
+            None,
+            "admin",
+            None,
+        ])
+
+        scanner = Scanner()
+        findings = scanner.run(session, listeners, config)
+
+        server_trust_findings = [
+            f for f in findings
+            if "server trusts client-supplied" in f.title.lower()
+        ]
+        assert server_trust_findings == []
+
+    def test_server_trust_finding_includes_structured_acceptance_proof(self) -> None:
+        snapshot = _make_storage_snapshot(local={"role": "free"})
+        listeners = _make_listeners(snapshot=snapshot)
+        listeners["network"].get_requests.return_value = [
+            _make_network_request(body='{"user":{"role":"admin","id":42}}')
+        ]
+        config = _make_config()
+
+        session = _make_session(evaluate_side_effects=[
+            "free",
+            None,
+            "admin",
+            None,
+        ])
+
+        scanner = Scanner()
+        findings = scanner.run(session, listeners, config)
+
+        server_trust_findings = [
+            f for f in findings
+            if "server trusts client-supplied" in f.title.lower()
+        ]
+        assert len(server_trust_findings) == 1
+        assert server_trust_findings[0].evidence["proof_quality"] == "structured_api_response_contains_tampered_authorization_value"
+        assert server_trust_findings[0].evidence["server_acceptance_evidence"]["json_path"] == "user.role"
+
 
 # --------------------------------------------------------------------------- #
 # Tests — state restoration                                                   #
@@ -206,3 +269,28 @@ class TestClientTamperingNoFindings:
         scanner = Scanner()
         findings = scanner.run(session, listeners, _make_config())
         assert isinstance(findings, list)
+
+
+def test_detect_server_acceptance_ignores_unrelated_textual_match() -> None:
+    network = MagicMock()
+    network.get_requests.return_value = [
+        _make_network_request(body='{"message":"Ask an administrator to upgrade your plan"}')
+    ]
+
+    assert _detect_server_acceptance(network, "admin") is None
+
+
+def test_detect_server_acceptance_returns_structured_json_path() -> None:
+    network = MagicMock()
+    network.get_requests.return_value = [
+        _make_network_request(body='{"profile":{"plan":"premium"}}')
+    ]
+
+    proof = _detect_server_acceptance(network, "premium")
+
+    assert proof == {
+        "url": "http://localhost:3000/api/profile",
+        "status": 200,
+        "json_path": "profile.plan",
+        "matched_value": "premium",
+    }
