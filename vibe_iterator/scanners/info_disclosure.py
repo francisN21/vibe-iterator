@@ -327,6 +327,11 @@ class Scanner(BaseScanner):
                 m = pattern.search(body)
                 if not m:
                     continue
+                # Patterns with a capturing group match credential value — skip if
+                # it looks like UI copy (sentence with 2+ spaces, e.g. error messages
+                # that get minified alongside a "password" key name in JS bundles)
+                if m.lastindex and m.group(1).count(" ") >= 2:
+                    continue
 
                 fp = self.make_fingerprint(self.name, f"Secret in JS: {label}", req.url)
                 if fp in seen_fps:

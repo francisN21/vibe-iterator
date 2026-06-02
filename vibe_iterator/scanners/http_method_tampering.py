@@ -45,6 +45,15 @@ class Scanner(BaseScanner):
 
         seen_fps: set[str] = set()
         for url in get_endpoints[:_MAX_ENDPOINTS]:
+            # Active preflight: skip HTML page routes. Next.js returns 200 for every
+            # HTTP method on page routes (they just re-render HTML), producing false
+            # positives. Check the actual GET response body rather than relying on
+            # captured response headers, which vary in key casing across CDN layers.
+            preflight_status, preflight_body = _fetch(url, "GET")
+            if preflight_status is None:
+                continue
+            if preflight_body and preflight_body.lstrip()[:9].lower().startswith("<!doctype"):
+                continue
             self._test_dangerous_methods(url, stack, target, findings, seen_fps)
             self._test_method_override(url, stack, target, findings, seen_fps)
 
@@ -162,6 +171,11 @@ def _discover_get_endpoints(network: Any, target: str) -> list[str]:
         if req.method != "GET":
             continue
         if not _is_api_endpoint(req.url, target):
+            continue
+        # Skip HTML page routes using CDP's normalised mimeType field.
+        # The active preflight in run() is the authoritative filter; this is
+        # a cheap early-out to avoid collecting page URLs in the first place.
+        if req.response_mime_type and "text/html" in req.response_mime_type:
             continue
         parsed = urlparse(req.url)
         key = f"{parsed.netloc}{parsed.path}"

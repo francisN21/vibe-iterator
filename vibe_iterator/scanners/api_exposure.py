@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import re
 import ssl
 import urllib.request
 from typing import Any
 from urllib.parse import urlparse
+
+# Path segments that are 12+ contiguous hex chars signal third-party embed IDs
+# (Intercom workspace IDs, CDN chunk hashes, etc.) — these aren't app pages.
+_THIRD_PARTY_EMBED_RE = re.compile(r"/[0-9a-f]{12,}(?:/|$)", re.I)
 
 from vibe_iterator.scanners.base import BaseScanner, Finding, Severity
 
@@ -49,11 +54,19 @@ def _has_auth_header(req: Any) -> bool:
     return bool(lowered & _AUTH_INDICATORS)
 
 
+_SKIP_PATH_PREFIXES = ("/_next/", "/__next/")
+
 def _is_api_url(url: str, target: str) -> bool:
     if any(url.endswith(ext) for ext in _STATIC_EXTS):
         return False
     parsed = urlparse(url)
-    return parsed.netloc == urlparse(target).netloc
+    if parsed.netloc != urlparse(target).netloc:
+        return False
+    # Skip Next.js internal routes (image optimisation, RSC, etc.) — these are
+    # served by the CDN edge layer with different headers than the app sets.
+    if any(parsed.path.startswith(p) for p in _SKIP_PATH_PREFIXES):
+        return False
+    return True
 
 
 class Scanner(BaseScanner):
@@ -88,8 +101,23 @@ class Scanner(BaseScanner):
     ) -> None:
         seen_fps: set[str] = set()
 
+        _SKIP_EXTS = {".js", ".css", ".woff", ".woff2", ".png", ".jpg", ".svg", ".ico", ".map", ".gif"}
         for req in requests:
             if req.response_headers is None:
+                continue
+            parsed_path = urlparse(req.url).path
+            # Skip static assets — frame-options/nosniff are meant for documents and APIs.
+            if any(parsed_path.endswith(ext) for ext in _SKIP_EXTS):
+                continue
+            # Skip third-party embed paths (Intercom/HubSpot workspace IDs, CDN hashes).
+            # A path segment of 12+ contiguous hex chars indicates an embed, not an app page.
+            if _THIRD_PARTY_EMBED_RE.search(parsed_path):
+                continue
+            # Skip explicitly non-document mime types (JS, images, fonts).
+            # Only filter when mime is an actual string from CDP — MagicMock in tests
+            # would have __contains__ return False, wrongly skipping everything.
+            mime = req.response_mime_type if isinstance(req.response_mime_type, str) else ""
+            if mime and not any(t in mime for t in ("text/html", "application/json", "text/plain")):
                 continue
             lowered = {k.lower(): v for k, v in req.response_headers.items()}
 
@@ -153,6 +181,12 @@ class Scanner(BaseScanner):
             parsed = urlparse(req.url)
             is_auth_path = any(frag in parsed.path.lower() for frag in _AUTH_PATHS)
             if not is_auth_path:
+                continue
+            # Skip RSC prefetch variants and HTML page routes — same reasons as
+            # _check_rate_limiting: page routes don't process credentials.
+            if "_rsc=" in (parsed.query or ""):
+                continue
+            if req.response_mime_type and "text/html" in req.response_mime_type:
                 continue
 
             base_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
@@ -304,6 +338,12 @@ class Scanner(BaseScanner):
             parsed = urlparse(req.url)
             is_auth_path = any(frag in parsed.path.lower() for frag in _AUTH_PATHS)
             if not is_auth_path:
+                continue
+            # Skip RSC prefetch variants and HTML page responses — the rate limiter
+            # lives on the API endpoint, not the page that renders the login form.
+            if "_rsc=" in (parsed.query or ""):
+                continue
+            if req.response_mime_type and "text/html" in req.response_mime_type:
                 continue
 
             headers = req.response_headers or {}

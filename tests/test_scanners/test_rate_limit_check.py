@@ -14,6 +14,7 @@ def _make_config(deep_scan: bool = False) -> MagicMock:
     cfg.target = "http://localhost:3000"
     cfg.stack.backend = "custom"
     cfg.rate_limit_deep_scan = deep_scan
+    cfg.backend_url = None
     return cfg
 
 
@@ -49,7 +50,7 @@ def _run(
         burst_responses = [(401, {}, '{"error": "invalid"}')]
 
     # Cycle responses if fewer than 10 provided
-    def _side_effect(url):
+    def _side_effect(url, origin=None):
         idx = len(call_log)
         call_log.append(url)
         r = burst_responses[min(idx, len(burst_responses) - 1)]
@@ -176,7 +177,7 @@ def test_deep_scan_probes_network_endpoints():
     # active_path=None skips standard endpoints; deep scan picks up network ones
     probed: list[str] = []
 
-    def _full_side(url):
+    def _full_side(url, origin=None):
         probed.append(url)
         return (401, {}, '{"error": "x"}')
 
@@ -211,7 +212,7 @@ def test_deep_scan_skips_already_covered_endpoints():
     ]
     probed: list[str] = []
 
-    def _full_side(url):
+    def _full_side(url, origin=None):
         probed.append(url)
         return (401, {}, '{}')
 
@@ -245,7 +246,7 @@ def test_deep_scan_caps_at_20_endpoints():
     ]
     probed_paths: set[str] = set()
 
-    def _full_side(url):
+    def _full_side(url, origin=None):
         probed_paths.add(urlparse(url).path)
         return (401, {}, '{}')
 

@@ -10,6 +10,11 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
+_ACTIVE_TIMEOUT = 4        # per-request timeout for active injection tests
+_BLIND_TIMEOUT  = 6        # per-request timeout for blind injection (must outlast pg_sleep(3))
+_MAX_ACTIVE_URLS = 5       # max URLs to actively probe per group
+_SCAN_BUDGET_S   = 52      # stop active probing after this many elapsed seconds
+
 from vibe_iterator.scanners.base import BaseScanner, Finding, Severity
 from vibe_iterator.utils.supabase_helpers import (
     parse_postgrest_url,
@@ -59,12 +64,13 @@ class Scanner(BaseScanner):
         findings: list[Finding] = []
         stack = config.stack.backend if hasattr(config, "stack") else "unknown"
         network = listeners["network"]
+        deadline = time.monotonic() + _SCAN_BUDGET_S
 
         self._group1_passive_analysis(network, config, findings, stack)
-        self._group2_postgrest_injection(network, config, findings, stack)
-        self._group3_classic_injection(network, config, findings, stack)
-        self._group4_blind_injection(network, config, findings, stack)
-        self._group5_input_vectors(session, network, config, findings, stack)
+        self._group2_postgrest_injection(network, config, findings, stack, deadline)
+        self._group3_classic_injection(network, config, findings, stack, deadline)
+        self._group4_blind_injection(network, config, findings, stack, deadline)
+        self._group5_input_vectors(session, network, config, findings, stack, deadline)
         self._group6_post_exploitation(network, config, findings, stack)
 
         return findings
@@ -127,7 +133,7 @@ class Scanner(BaseScanner):
     # ------------------------------------------------------------------ #
 
     def _group2_postgrest_injection(
-        self, network: Any, config: Any, findings: list[Finding], stack: str
+        self, network: Any, config: Any, findings: list[Finding], stack: str, deadline: float = float("inf")
     ) -> None:
         """Inject payloads into PostgREST filter parameters."""
         postgrest_requests = [r for r in network.get_requests() if "rest/v1/" in r.url]
@@ -136,16 +142,20 @@ class Scanner(BaseScanner):
 
         token = _get_auth_headers(config)
 
-        for req in postgrest_requests[:5]:
+        for req in postgrest_requests[:3]:
+            if time.monotonic() >= deadline:
+                break
             parsed = parse_postgrest_url(req.url)
             if not parsed or not parsed.get("filters"):
                 continue
 
             table = parsed["table"]
-            for col, val in list(parsed["filters"].items())[:2]:
-                for payload, payload_type in _ERROR_PAYLOADS[:3]:
+            for col, val in list(parsed["filters"].items())[:1]:
+                for payload, payload_type in _ERROR_PAYLOADS[:2]:
+                    if time.monotonic() >= deadline:
+                        return
                     test_url = _inject_postgrest_filter(req.url, col, val, payload)
-                    body, status, elapsed = _make_request(test_url, "GET", None, token)
+                    body, status, elapsed = _make_request(test_url, "GET", None, token, timeout=_ACTIVE_TIMEOUT)
 
                     if _has_sql_error(body):
                         desc = (
@@ -194,13 +204,17 @@ class Scanner(BaseScanner):
     # ------------------------------------------------------------------ #
 
     def _group3_classic_injection(
-        self, network: Any, config: Any, findings: list[Finding], stack: str
+        self, network: Any, config: Any, findings: list[Finding], stack: str, deadline: float = float("inf")
     ) -> None:
         """Replay API requests with classic SQLi payloads in URL params and JSON bodies."""
         token = _get_auth_headers(config)
         tested: set[str] = set()
 
         for req in network.get_requests():
+            if time.monotonic() >= deadline:
+                break
+            if len(tested) >= _MAX_ACTIVE_URLS:
+                break
             if req.url in tested:
                 continue
             if not req.url.startswith("http"):
@@ -214,13 +228,17 @@ class Scanner(BaseScanner):
             parsed = urllib.parse.urlparse(req.url)
             params = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
 
-            for param_name, param_vals in list(params.items())[:3]:
+            for param_name, param_vals in list(params.items())[:2]:
+                if time.monotonic() >= deadline:
+                    return
                 for payload, payload_type in _ERROR_PAYLOADS[:2]:
+                    if time.monotonic() >= deadline:
+                        return
                     test_params = {**params, param_name: [payload]}
                     test_query = urllib.parse.urlencode(test_params, doseq=True)
                     test_url = urllib.parse.urlunparse(parsed._replace(query=test_query))
 
-                    body, status, elapsed = _make_request(test_url, "GET", None, token)
+                    body, status, elapsed = _make_request(test_url, "GET", None, token, timeout=_ACTIVE_TIMEOUT)
 
                     if _has_sql_error(body):
                         desc = (
@@ -270,14 +288,17 @@ class Scanner(BaseScanner):
                     body_data = json.loads(req.post_data)
                     if not isinstance(body_data, dict):
                         continue
-                    for field_name, field_val in list(body_data.items())[:3]:
+                    for field_name, field_val in list(body_data.items())[:2]:
                         if not isinstance(field_val, str):
                             continue
                         for payload, payload_type in _ERROR_PAYLOADS[:2]:
+                            if time.monotonic() >= deadline:
+                                return
                             test_body = {**body_data, field_name: payload}
                             resp_body, status, _ = _make_request(
                                 req.url, req.method,
                                 json.dumps(test_body).encode(), token,
+                                timeout=_ACTIVE_TIMEOUT,
                             )
                             if _has_sql_error(resp_body):
                                 desc = (
@@ -321,13 +342,17 @@ class Scanner(BaseScanner):
     # ------------------------------------------------------------------ #
 
     def _group4_blind_injection(
-        self, network: Any, config: Any, findings: list[Finding], stack: str
+        self, network: Any, config: Any, findings: list[Finding], stack: str, deadline: float = float("inf")
     ) -> None:
-        """Test for time-based and boolean-based blind SQLi in API endpoints."""
+        """Test for time-based blind SQLi in API endpoints."""
         token = _get_auth_headers(config)
         tested: set[str] = set()
 
         for req in network.get_requests():
+            if time.monotonic() >= deadline:
+                break
+            if len(tested) >= _MAX_ACTIVE_URLS:
+                break
             if req.url in tested or not req.url.startswith("http"):
                 continue
             if any(skip in req.url for skip in ["/static/", ".js", ".css"]):
@@ -342,13 +367,15 @@ class Scanner(BaseScanner):
             param_name = next(iter(params))
             original_val = params[param_name][0]
 
-            # Time-based: inject pg_sleep
+            # Time-based: inject pg_sleep(3) — response >2.5s confirms execution
             sleep_payload = f"{original_val}'; SELECT pg_sleep(3)--"
             test_params = {**params, param_name: [sleep_payload]}
             test_query = urllib.parse.urlencode(test_params, doseq=True)
             test_url = urllib.parse.urlunparse(parsed._replace(query=test_query))
 
-            _, _, elapsed = _make_request(test_url, "GET", None, token, timeout=10)
+            if time.monotonic() >= deadline:
+                break
+            _, _, elapsed = _make_request(test_url, "GET", None, token, timeout=_BLIND_TIMEOUT)
 
             if elapsed >= _PG_SLEEP_THRESHOLD:
                 desc = (
@@ -392,7 +419,7 @@ class Scanner(BaseScanner):
     # ------------------------------------------------------------------ #
 
     def _group5_input_vectors(
-        self, session: Any, network: Any, config: Any, findings: list[Finding], stack: str
+        self, session: Any, network: Any, config: Any, findings: list[Finding], stack: str, deadline: float = float("inf")
     ) -> None:
         """Test form inputs discovered in the live DOM."""
         try:
@@ -401,7 +428,9 @@ class Scanner(BaseScanner):
         except Exception:
             return
 
-        for input_el in inputs[:5]:
+        for input_el in inputs[:3]:
+            if time.monotonic() >= deadline:
+                break
             try:
                 name = input_el.get_attribute("name") or input_el.get_attribute("id") or "unknown"
                 placeholder = input_el.get_attribute("placeholder") or ""
@@ -524,7 +553,7 @@ def _has_sql_error(body: str) -> bool:
 
 
 def _make_request(
-    url: str, method: str, data: bytes | None, headers: dict, timeout: int = 6
+    url: str, method: str, data: bytes | None, headers: dict, timeout: int = _ACTIVE_TIMEOUT
 ) -> tuple[str, int | None, float]:
     """Make an HTTP request and return (body, status_code, elapsed_seconds)."""
     start = time.monotonic()

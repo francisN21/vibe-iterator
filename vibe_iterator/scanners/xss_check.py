@@ -103,10 +103,22 @@ class Scanner(BaseScanner):
     ) -> None:
         seen_fps: set[str] = set()
 
+        _SKIP_EXTS = {".js", ".css", ".woff", ".woff2", ".png", ".jpg", ".svg", ".ico", ".map", ".gif"}
+        # Path segments of 12+ hex chars → third-party embed IDs (Intercom, HubSpot, etc.)
+        _embed_re = re.compile(r"/[0-9a-f]{12,}(?:/|$)", re.I)
         for req in network.get_requests():
             if req.response_headers is None:
                 continue
             if not req.url.startswith(target):
+                continue
+            parsed_path = urllib.parse.urlparse(req.url).path
+            # Skip Next.js CDN-served internal routes and static assets.
+            if "/_next/" in req.url or "/__next/" in req.url:
+                continue
+            if any(parsed_path.endswith(ext) for ext in _SKIP_EXTS):
+                continue
+            # Skip third-party embed paths — these aren't controlled by next.config.ts headers.
+            if _embed_re.search(parsed_path):
                 continue
             lowered = {k.lower(): v for k, v in req.response_headers.items()}
 

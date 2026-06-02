@@ -39,16 +39,19 @@ class Scanner(BaseScanner):
 
     def run(self, session: Any, listeners: dict, config: Any) -> list[Finding]:
         findings: list[Finding] = []
-        base = config.target.rstrip("/")
+        target = config.target.rstrip("/")
+        backend_base = (getattr(config, "backend_url", None) or target).rstrip("/")
         stack = config.stack.backend if hasattr(config, "stack") else "unknown"
+        # Origin is always the frontend URL — what the browser sends when hitting the backend
+        origin = target
 
         probed_paths: set[str] = set()
         for path_variants, label in _AUTH_ENDPOINTS:
-            path = _find_active_path(base, path_variants)
+            path = _find_active_path(backend_base, path_variants, origin)
             if path is None or path in probed_paths:
                 continue
             probed_paths.add(path)
-            _probe_endpoint(base, path, label, stack, findings, self)
+            _probe_endpoint(backend_base, path, label, stack, findings, self, origin)
 
         if getattr(config, "rate_limit_deep_scan", False):
             network = listeners.get("network")
@@ -56,9 +59,10 @@ class Scanner(BaseScanner):
                 extra: list[str] = []
                 seen_paths: set[str] = set(probed_paths)
                 for req in network.get_requests():
-                    if req.method != "POST" or not req.url.startswith(base):
+                    # Network requests come from the browser hitting the frontend
+                    if req.method != "POST" or not req.url.startswith(target):
                         continue
-                    path = req.url[len(base):]
+                    path = req.url[len(target):]
                     if path and path not in seen_paths:
                         seen_paths.add(path)
                         extra.append(path)
@@ -66,15 +70,15 @@ class Scanner(BaseScanner):
                         break
                 for path in extra:
                     label = path.rstrip("/").split("/")[-1].replace("-", " ").title()
-                    _probe_endpoint(base, path, label, stack, findings, self)
+                    _probe_endpoint(backend_base, path, label, stack, findings, self, origin)
 
         return findings
 
 
-def _find_active_path(base: str, variants: list[str]) -> str | None:
+def _find_active_path(base: str, variants: list[str], origin: str) -> str | None:
     """Return first path variant that does not 404/405/501, or None."""
     for path in variants:
-        code = _post_once(base + path)
+        code = _post_once(base + path, origin)
         if code not in (404, 405, 501, None):
             return path
     return None
@@ -87,6 +91,7 @@ def _probe_endpoint(
     stack: str,
     findings: list[Finding],
     scanner: BaseScanner,
+    origin: str,
 ) -> None:
     """Phase 1 burst + Phase 2 Retry-After check for one endpoint."""
     url = base + path
@@ -99,7 +104,7 @@ def _probe_endpoint(
     lockout_body: str = ""
 
     for i in range(_BURST_COUNT):
-        code, headers, body = _post_full(url)
+        code, headers, body = _post_full(url, origin)
         if code is None:
             # Connection error or timeout — silently skip; not enough signal to classify
             break
@@ -138,15 +143,15 @@ def _probe_endpoint(
         ))
         return
 
-    if len(codes) >= _BURST_COUNT:
+    if len(codes) >= _BURST_COUNT and not all(c == 403 for c in codes):
         findings.append(_finding_a(scanner, url, path, label, stack, codes))
 
 
-def _post_once(url: str) -> int | None:
+def _post_once(url: str, origin: str) -> int | None:
     try:
         req = urllib.request.Request(
             url, data=_PROBE_BODY, method="POST",
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", "Origin": origin},
         )
         with urllib.request.urlopen(req, timeout=_REQUEST_TIMEOUT) as resp:
             return resp.status
@@ -156,11 +161,11 @@ def _post_once(url: str) -> int | None:
         return None
 
 
-def _post_full(url: str) -> tuple[int | None, dict, str]:
+def _post_full(url: str, origin: str) -> tuple[int | None, dict, str]:
     try:
         req = urllib.request.Request(
             url, data=_PROBE_BODY, method="POST",
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", "Origin": origin},
         )
         with urllib.request.urlopen(req, timeout=_REQUEST_TIMEOUT) as resp:
             body = resp.read().decode("utf-8", errors="replace")

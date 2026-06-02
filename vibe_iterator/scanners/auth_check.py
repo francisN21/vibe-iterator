@@ -302,16 +302,21 @@ class Scanner(BaseScanner):
     def _group3_login_security(
         self, session: Any, config: Any, findings: list[Finding], stack: str, network: Any
     ) -> None:
-        login_url = config.target.rstrip("/") + "/login"
+        target = config.target.rstrip("/")
+        backend = getattr(config, "backend_url", None) or target
+        backend = backend.rstrip("/")
+        # Origin must match the frontend URL — backend origin gates require it
+        origin = target
+        login_url = backend + "/api/auth/login"
 
         # 3a — Brute force protection: send 10 rapid failed login attempts
         blocked = False
         for i in range(10):
             try:
                 req = urllib.request.Request(
-                    config.target.rstrip("/") + "/api/auth/login",
+                    backend + "/api/auth/login",
                     data=json.dumps({"email": config.test_email, "password": "wrong_password_attempt"}).encode(),
-                    headers={"Content-Type": "application/json"},
+                    headers={"Content-Type": "application/json", "Origin": origin},
                     method="POST",
                 )
                 with urllib.request.urlopen(req, timeout=3) as resp:

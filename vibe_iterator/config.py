@@ -86,6 +86,9 @@ class Config:
     # Rate limit scanner
     rate_limit_deep_scan: bool = False
 
+    # Optional separate backend API URL (when frontend and backend run on different ports)
+    backend_url: str | None = None
+
     # History
     results_dir: Path = field(default_factory=lambda: Path.cwd() / "vibe-iterator-results")
 
@@ -216,6 +219,7 @@ def load_config(
     # Rate limit scanner                                                   #
     # ------------------------------------------------------------------ #
     rate_limit_deep_scan = bool(yaml_data.get("rate_limit_deep_scan", False))
+    backend_url = (os.getenv("VIBE_ITERATOR_BACKEND_URL") or "").rstrip("/") or None
 
     # ------------------------------------------------------------------ #
     # Pages                                                               #
@@ -295,5 +299,6 @@ def load_config(
         spider_max_pages=spider_max_pages,
         spider_max_depth=spider_max_depth,
         rate_limit_deep_scan=rate_limit_deep_scan,
+        backend_url=backend_url,
         results_dir=results_dir,
     )

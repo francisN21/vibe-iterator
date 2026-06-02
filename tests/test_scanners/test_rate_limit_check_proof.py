@@ -22,6 +22,7 @@ def _make_config(target: str, deep_scan: bool = False) -> MagicMock:
     cfg.target = target
     cfg.stack.backend = "custom"
     cfg.rate_limit_deep_scan = deep_scan
+    cfg.backend_url = None
     return cfg
 
 
