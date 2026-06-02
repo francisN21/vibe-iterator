@@ -11,6 +11,7 @@ from vibe_iterator.utils.supabase_helpers import find_jwts, is_service_role_key,
 _PII_EMAIL = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")
 _SUPABASE_SERVICE_HINT = re.compile(r"service_role")
 _SAFE_URL_FRAGMENTS = ["/static/", ".js", ".css", ".png", ".svg", ".ico", "/favicon"]
+_RESERVED_EMAIL_DOMAINS = {"example.com", "example.org", "example.net", "example.test", "example.invalid"}
 
 
 class Scanner(BaseScanner):
@@ -125,7 +126,7 @@ class Scanner(BaseScanner):
             if "/api/" in req.url or "supabase.co" in req.url:
                 emails = _PII_EMAIL.findall(body)
                 test_email = getattr(config, "test_email", "")
-                foreign = [e for e in emails if e != test_email and not e.endswith(".example.com")]
+                foreign = _unique_non_test_emails(emails, test_email)
                 if len(foreign) > 2:
                     desc = (
                         "An API response contains multiple user email addresses beyond the authenticated user's own. "
@@ -142,7 +143,8 @@ class Scanner(BaseScanner):
                             "leak_location": "network_response",
                             "url": req.url,
                             "leaked_value_excerpt": ", ".join(foreign[:5]),
-                            "context": f"{len(foreign)} emails found in {req.method} {req.url}",
+                            "context": f"{len(foreign)} unique non-test emails found in {req.method} {req.url}",
+                            "proof_quality": "multiple_unique_non_test_emails_in_api_response",
                             "response_excerpt": truncate(body, 300),
                         },
                         llm_prompt=self.build_llm_prompt(
@@ -211,3 +213,22 @@ class Scanner(BaseScanner):
                 ),
                 category=self.category, page=page,
             ))
+
+
+def _unique_non_test_emails(emails: list[str], test_email: str) -> list[str]:
+    """Return unique emails that look like real users outside test/example domains."""
+    test_email_normalized = test_email.lower()
+    unique: list[str] = []
+    seen: set[str] = set()
+
+    for email in emails:
+        normalized = email.lower()
+        if normalized in seen or normalized == test_email_normalized:
+            continue
+        _, _, domain = normalized.rpartition("@")
+        if domain in _RESERVED_EMAIL_DOMAINS:
+            continue
+        seen.add(normalized)
+        unique.append(email)
+
+    return unique

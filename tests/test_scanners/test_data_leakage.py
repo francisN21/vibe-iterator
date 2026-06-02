@@ -91,6 +91,7 @@ class TestDataLeakageFindsVulnerabilities:
         pii = [f for f in findings if "email" in f.title.lower()]
         assert len(pii) >= 1
         assert pii[0].severity == Severity.MEDIUM
+        assert pii[0].evidence["proof_quality"] == "multiple_unique_non_test_emails_in_api_response"
 
     def test_detects_jwt_in_console_log(self) -> None:
         entry = ConsoleEntry(
@@ -133,6 +134,28 @@ class TestDataLeakageNoFindings:
         scanner = Scanner()
         findings = scanner.run(MagicMock(), listeners, _make_config())
         assert findings == []
+
+    def test_no_finding_for_repeated_single_email(self) -> None:
+        body = '{"contacts": ["support@company.com", "support@company.com", "support@company.com"]}'
+        listeners = _make_listeners(requests=[
+            _make_request("r1", "http://localhost:3000/api/support", body=body)
+        ])
+        scanner = Scanner()
+        findings = scanner.run(MagicMock(), listeners, _make_config())
+        assert [f for f in findings if "email" in f.title.lower()] == []
+
+    def test_no_finding_for_reserved_example_domain_emails(self) -> None:
+        body = (
+            '{"examples": ['
+            '"alice@example.org", "bob@example.net", "carol@example.test", "dave@example.invalid"'
+            ']}'
+        )
+        listeners = _make_listeners(requests=[
+            _make_request("r1", "http://localhost:3000/api/docs", body=body)
+        ])
+        scanner = Scanner()
+        findings = scanner.run(MagicMock(), listeners, _make_config())
+        assert [f for f in findings if "email" in f.title.lower()] == []
 
 
 # --------------------------------------------------------------------------- #
