@@ -18,6 +18,14 @@ from vibe_iterator.scanners.request_targets import frontend_origin, rewrite_to_b
 _STATIC_EXTS = {".js", ".css", ".png", ".svg", ".ico", ".woff", ".woff2", ".jpg", ".gif", ".map"}
 _AUTH_INDICATORS = {"authorization", "x-api-key", "cookie"}
 _SENSITIVE_PATH_FRAGMENTS = ["/admin", "/api/admin", "/api/user", "/api/account", "/api/profile", "/api/delete", "/api/update"]
+_PROTECTED_PATH_FRAGMENTS = [
+    *_SENSITIVE_PATH_FRAGMENTS,
+    "/protected", "/private", "/api/me", "/api/session", "/api/settings", "/api/billing",
+]
+_SENSITIVE_BODY_TERMS = {
+    "secret", "token", "password", "email", "user_id", "owner_id", "account",
+    "billing", "subscription", "admin",
+}
 _RATE_LIMIT_HEADERS = {"x-ratelimit-limit", "x-rate-limit-limit", "ratelimit-limit", "retry-after"}
 _AUTH_PATHS = ["/auth", "/login", "/signin", "/token", "/api/auth", "/api/login"]
 _MAX_ENDPOINTS = 15
@@ -74,6 +82,20 @@ def _is_api_url(url: str, target: str, backend_url: str | None = None) -> bool:
     if any(parsed.path.startswith(p) for p in _SKIP_PATH_PREFIXES):
         return False
     return True
+
+
+def _unauth_access_proof_quality(req: Any, url: str) -> str | None:
+    """Return why a 200-without-auth replay is security-relevant."""
+    lowered_url = url.lower()
+    if any(frag in lowered_url for frag in _PROTECTED_PATH_FRAGMENTS):
+        return "protected_path_replayed_without_auth"
+
+    raw_body = getattr(req, "response_body", "")
+    body = raw_body.lower() if isinstance(raw_body, str) else ""
+    if body and any(term in body for term in _SENSITIVE_BODY_TERMS):
+        return "authenticated_response_body_contains_sensitive_terms"
+
+    return None
 
 
 class Scanner(BaseScanner):
@@ -277,6 +299,9 @@ class Scanner(BaseScanner):
             endpoint_key = f"{req.method}:{base_parsed.netloc}{base_parsed.path}"
             if endpoint_key in tested:
                 continue
+            proof_quality = _unauth_access_proof_quality(req, base_url)
+            if proof_quality is None:
+                continue
 
             if len(tested) >= _MAX_ENDPOINTS:
                 break
@@ -312,6 +337,7 @@ class Scanner(BaseScanner):
                         "test_performed": "replay_without_auth",
                         "request": {"method": req.method, "url": base_url, "headers": {}},
                         "response": {"status": status, "body_excerpt": "(response received)"},
+                        "proof_quality": proof_quality,
                         "expected_response": "401 Unauthorized or 403 Forbidden",
                         "actual_response": f"{status} OK — endpoint accessible without auth",
                     },

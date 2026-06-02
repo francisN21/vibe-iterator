@@ -59,11 +59,19 @@ def _run(
 # --------------------------------------------------------------------------- #
 
 def test_unauth_access_200_is_high() -> None:
-    req = _make_req(auth_header=True)
+    req = _make_req(url="https://example.com/api/protected", auth_header=True)
     findings = _run([req], fetch_result=(200, {"content-type": "application/json"}))
     unauth = [f for f in findings if "unauthenticated" in f.title.lower()]
     assert len(unauth) == 1
     assert unauth[0].severity == Severity.HIGH
+    assert unauth[0].evidence["proof_quality"] == "protected_path_replayed_without_auth"
+
+
+def test_public_endpoint_with_incidental_auth_header_is_not_unauth_access() -> None:
+    req = _make_req(url="https://example.com/api/products", auth_header=True)
+    findings = _run([req], fetch_result=(200, {"content-type": "application/json"}))
+    unauth = [f for f in findings if "unauthenticated" in f.title.lower()]
+    assert unauth == []
 
 
 def test_unauth_access_on_sensitive_path_is_critical() -> None:
@@ -72,6 +80,7 @@ def test_unauth_access_on_sensitive_path_is_critical() -> None:
     unauth = [f for f in findings if "unauthenticated" in f.title.lower()]
     assert len(unauth) == 1
     assert unauth[0].severity == Severity.CRITICAL
+    assert unauth[0].evidence["proof_quality"] == "protected_path_replayed_without_auth"
 
 
 def test_unauth_access_401_no_finding() -> None:
