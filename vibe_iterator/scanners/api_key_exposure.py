@@ -66,6 +66,7 @@ _SENSITIVE_HEADERS = {"x-api-key", "api-key", "x-auth-token", "x-access-token", 
 _SENSITIVE_PARAMS = {"api_key", "apikey", "key", "token", "access_token", "auth", "secret", "api_secret"}
 
 _TEXT_MIME_TYPES = {"text/", "application/json", "application/javascript", "application/xml"}
+_STRIPE_PUBLISHABLE_KEY = re.compile(r"\bpk_(?:live|test)_[A-Za-z0-9]{16,}\b")
 
 
 class Scanner(BaseScanner):
@@ -124,6 +125,8 @@ class Scanner(BaseScanner):
             for value in values:
                 if len(value) < 16:
                     continue
+                if _is_known_public_client_key(value):
+                    continue
                 key = f"url-param:{param}:{url}"
                 if key in seen:
                     continue
@@ -140,6 +143,7 @@ class Scanner(BaseScanner):
                     evidence={
                         "url": url,
                         "parameter": param,
+                        "proof_quality": "api_key_in_url_parameter",
                         "payload_type": "api_key_in_url",
                         "payload_used": f"{param}=<value>",
                         "injection_point": "query_string",
@@ -215,6 +219,10 @@ class Scanner(BaseScanner):
             m = pattern.search(text)
             if not m:
                 continue
+            if _is_known_public_client_key(m.group(0)) or any(
+                _is_known_public_client_key(group) for group in m.groups() if group
+            ):
+                continue
             dedup_key = f"{label}:{url}:{location}"
             if dedup_key in seen:
                 continue
@@ -248,6 +256,7 @@ class Scanner(BaseScanner):
                     "location": location,
                     "key_type": label,
                     "masked_value": masked,
+                    "proof_quality": _api_key_proof_quality(label),
                     "payload_type": "api_key_exposure",
                     "payload_used": "passive — pattern match",
                     "injection_point": location,
@@ -266,3 +275,14 @@ class Scanner(BaseScanner):
                 category=self.category,
                 page=url,
             ))
+
+
+def _is_known_public_client_key(value: str) -> bool:
+    """Return True for keys that are designed to be embedded in browser apps."""
+    return bool(_STRIPE_PUBLISHABLE_KEY.search(value))
+
+
+def _api_key_proof_quality(label: str) -> str:
+    if label.startswith("Hardcoded"):
+        return "generic_secret_assignment_pattern"
+    return "high_confidence_provider_key_pattern"

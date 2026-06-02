@@ -71,6 +71,7 @@ class TestRequestHeaders:
         assert any("Stripe live secret key" in f.title for f in findings)
         stripe = next(f for f in findings if "Stripe live secret key" in f.title)
         assert stripe.severity == Severity.CRITICAL
+        assert stripe.evidence["proof_quality"] == "high_confidence_provider_key_pattern"
 
     def test_openai_key_in_x_api_key_header(self) -> None:
         key = "sk-" + "a" * 48
@@ -95,6 +96,7 @@ class TestQueryParameters:
         assert any("query parameter" in f.title.lower() for f in findings)
         qp = next(f for f in findings if "query parameter" in f.title.lower())
         assert qp.severity == Severity.HIGH
+        assert qp.evidence["proof_quality"] == "api_key_in_url_parameter"
 
     def test_token_param_flagged(self) -> None:
         req = _make_req(url="http://localhost:3000/data?token=" + "y" * 32)
@@ -108,6 +110,11 @@ class TestQueryParameters:
 
     def test_irrelevant_param_ignored(self) -> None:
         req = _make_req(url="http://localhost:3000/data?page=2&limit=10")
+        findings = _run([req])
+        assert findings == []
+
+    def test_stripe_publishable_key_query_param_ignored(self) -> None:
+        req = _make_req(url="http://localhost:3000/config?key=pk_live_abcdefghijklmnopqrstuvwxyz")
         findings = _run([req])
         assert findings == []
 
@@ -145,6 +152,19 @@ class TestResponseBodies:
 
     def test_empty_body_no_finding(self) -> None:
         req = _make_req(body="", mime="application/json")
+        findings = _run([req])
+        assert findings == []
+
+    def test_stripe_publishable_key_in_js_is_not_secret_exposure(self) -> None:
+        body = (
+            "const stripePublishable = 'pk_live_abcdefghijklmnopqrstuvwxyz';\n"
+            "const config = { api_key: 'pk_test_abcdefghijklmnopqrstuvwxyz' };"
+        )
+        req = _make_req(
+            url="http://localhost:3000/app.js",
+            body=body,
+            mime="application/javascript",
+        )
         findings = _run([req])
         assert findings == []
 
@@ -191,6 +211,16 @@ class TestBrowserStorage:
             local_storage={"theme": "dark", "user": "alice"},
             session_storage={},
             cookies=[{"name": "session", "value": "sess_abc123", "domain": "localhost"}],
+        )
+        findings = _run(snapshots=[snapshot])
+        assert findings == []
+
+    def test_stripe_publishable_key_in_storage_is_not_secret_exposure(self) -> None:
+        snapshot = StorageSnapshot(
+            url="http://localhost:3000/",
+            local_storage={"stripePublishable": "pk_live_abcdefghijklmnopqrstuvwxyz"},
+            session_storage={"api_key": "pk_test_abcdefghijklmnopqrstuvwxyz"},
+            cookies=[],
         )
         findings = _run(snapshots=[snapshot])
         assert findings == []
