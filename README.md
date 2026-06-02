@@ -87,19 +87,27 @@ It then gives you a **copy-paste prompt** you can feed right back to your AI cod
 
 ## Quick Start
 
-> **Note:** Vibe Iterator is pre-release. Install from source while PyPI publishing is pending.
-
 ```bash
 # Clone and install
 git clone https://github.com/francisN21/vibe-iterator.git
 cd vibe-iterator
 pip install -e .
 
-# Create your config
+# Configure
 cp .env.example .env
-# Edit .env with your test account credentials and target URL
+```
 
-# Launch the dashboard
+Open `.env` and set three things:
+
+```bash
+VIBE_ITERATOR_TEST_EMAIL=test@yourapp.com     # a dedicated test account
+VIBE_ITERATOR_TEST_PASSWORD=your-test-password
+VIBE_ITERATOR_TARGET=http://localhost:3000    # your app's frontend URL
+```
+
+Then launch:
+
+```bash
 vibe-iterator
 ```
 
@@ -109,6 +117,13 @@ Your browser opens to `http://localhost:3001` — select a scan stage, hit **STA
 
 ```bash
 vibe-iterator scan --stage pre-deploy
+```
+
+**Separate frontend and backend?** If your API runs on a different port or domain than your frontend, add one more line:
+
+```bash
+VIBE_ITERATOR_BACKEND_URL=http://localhost:4000   # scanners probe this directly
+# VIBE_ITERATOR_TARGET stays as your frontend URL — Selenium still browses there
 ```
 
 ---
@@ -254,20 +269,36 @@ This lets you insert a security gate at specific milestones (post-firebase-merge
 ### `.env`
 
 ```bash
-# Required
-VIBE_ITERATOR_TEST_EMAIL=test@example.com
-VIBE_ITERATOR_TEST_PASSWORD=testpassword123
-VIBE_ITERATOR_TARGET=http://localhost:3000
+# ── Required ─────────────────────────────────────────────────────
+VIBE_ITERATOR_TEST_EMAIL=test@yourapp.com     # dedicated test account
+VIBE_ITERATOR_TEST_PASSWORD=your-test-password
+VIBE_ITERATOR_TARGET=http://localhost:3000    # frontend URL — Selenium browses here
 
-# Optional
-VIBE_ITERATOR_PORT=3001
+# ── Split-origin apps (frontend + backend on different ports/domains) ──
+# Leave blank if your frontend and API share the same origin.
+VIBE_ITERATOR_BACKEND_URL=http://localhost:4000   # scanners probe this directly
+
+# ── Optional: Supabase (deeper RLS/bucket/tier scanning) ────────
 VIBE_ITERATOR_SUPABASE_URL=https://xxx.supabase.co
 VIBE_ITERATOR_SUPABASE_ANON_KEY=eyJ...
 
-# Optional: second account for cross-user testing (IDOR, RLS)
-VIBE_ITERATOR_TEST_EMAIL_2=test2@example.com
-VIBE_ITERATOR_TEST_PASSWORD_2=testpassword456
+# ── Optional: second account (IDOR, cross-user RLS checks) ──────
+VIBE_ITERATOR_TEST_EMAIL_2=test2@yourapp.com
+VIBE_ITERATOR_TEST_PASSWORD_2=your-second-test-password
+
+# ── Advanced ─────────────────────────────────────────────────────
+VIBE_ITERATOR_PORT=3001                       # dashboard port (default: 3001)
 ```
+
+**How `VIBE_ITERATOR_BACKEND_URL` works:**
+
+| App setup | What to set |
+|---|---|
+| Next.js full-stack (one server) | Only `TARGET` — leave `BACKEND_URL` blank |
+| Next.js frontend + Express/FastAPI backend | `TARGET` = frontend, `BACKEND_URL` = backend API |
+| Production (Vercel + separate API domain) | `TARGET` = `https://www.yourapp.com`, `BACKEND_URL` = `https://api.yourapp.com` |
+
+When `BACKEND_URL` is set, Vibe Iterator uses `TARGET` as the `Origin` header in API probes — so your backend's origin gate passes without disabling it.
 
 ### `vibe-iterator.config.yaml`
 
@@ -405,7 +436,7 @@ See `docs/ADDING_SCANNERS.md` for the full guide.
 
 ## Status
 
-> **v0.1.0 — All 5 phases complete.**
+> **v0.1.0 — All phases complete. 488 tests passing.**
 
 | Phase | What                                                                                                   | Status  |
 | ----- | ------------------------------------------------------------------------------------------------------ | ------- |
@@ -414,6 +445,7 @@ See `docs/ADDING_SCANNERS.md` for the full guide.
 | 3     | Live hacker-themed dashboard (FastAPI + WebSocket + GUI)                                               | ✅ Done |
 | 4     | Exportable HTML reports + extended scanners (XSS, CORS, API exposure)                                  | ✅ Done |
 | 5     | Polish, finding deep-dive, CLI flags, PyPI packaging                                                   | ✅ Done |
+| 6     | False positive hardening, split-origin support, proof quality gates, CI/CD integration                 | ✅ Done |
 
 ---
 
