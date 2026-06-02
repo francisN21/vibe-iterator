@@ -67,6 +67,9 @@ _SENSITIVE_PARAMS = {"api_key", "apikey", "key", "token", "access_token", "auth"
 
 _TEXT_MIME_TYPES = {"text/", "application/json", "application/javascript", "application/xml"}
 _STRIPE_PUBLISHABLE_KEY = re.compile(r"\bpk_(?:live|test)_[A-Za-z0-9]{16,}\b")
+_KNOWN_PLACEHOLDER_SECRETS = {
+    "AKIAIOSFODNN7EXAMPLE",
+}
 
 
 class Scanner(BaseScanner):
@@ -125,7 +128,7 @@ class Scanner(BaseScanner):
             for value in values:
                 if len(value) < 16:
                     continue
-                if _is_known_public_client_key(value):
+                if _is_known_public_client_key(value) or _is_known_placeholder_secret(value):
                     continue
                 key = f"url-param:{param}:{url}"
                 if key in seen:
@@ -221,6 +224,8 @@ class Scanner(BaseScanner):
                 continue
             if _is_known_public_client_key(m.group(0)) or any(
                 _is_known_public_client_key(group) for group in m.groups() if group
+            ) or _is_known_placeholder_secret(m.group(0)) or any(
+                _is_known_placeholder_secret(group) for group in m.groups() if group
             ):
                 continue
             dedup_key = f"{label}:{url}:{location}"
@@ -280,6 +285,11 @@ class Scanner(BaseScanner):
 def _is_known_public_client_key(value: str) -> bool:
     """Return True for keys that are designed to be embedded in browser apps."""
     return bool(_STRIPE_PUBLISHABLE_KEY.search(value))
+
+
+def _is_known_placeholder_secret(value: str) -> bool:
+    """Return True for documented placeholder values that are not usable secrets."""
+    return any(placeholder in value for placeholder in _KNOWN_PLACEHOLDER_SECRETS)
 
 
 def _api_key_proof_quality(label: str) -> str:
