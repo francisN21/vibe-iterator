@@ -41,6 +41,7 @@ def test_accepted_oversized_upload_is_cleaned_up() -> None:
         )
 
     assert len(findings) == 1
+    assert findings[0].evidence["proof_quality"] == "oversized_storage_upload_accepted"
     cleanup.assert_called_once()
     assert cleanup.call_args.args[0].endswith("/storage/v1/object/avatars/vibe_test_0mb.bin")
 
@@ -64,6 +65,7 @@ def test_accepted_dangerous_file_type_is_reported_and_cleaned_up() -> None:
         )
 
     assert len(findings) == 1
+    assert findings[0].evidence["proof_quality"] == "dangerous_mime_storage_upload_accepted"
     assert findings[0].evidence["request"]["headers"]["Content-Type"] == "text/html"
     cleanup.assert_called_once()
 
@@ -105,3 +107,15 @@ def test_discover_buckets_deduplicates_and_delete_is_best_effort() -> None:
 
     with patch("urllib.request.urlopen", side_effect=RuntimeError("already gone")):
         _delete_test_object("https://x/storage/v1/object/avatars/a.png", "Bearer token", "anon")
+
+
+def test_discover_buckets_parses_supabase_operation_paths() -> None:
+    network = MagicMock()
+    network.get_requests.return_value = [
+        SimpleNamespace(url="https://x/storage/v1/object/public/avatars/a.png"),
+        SimpleNamespace(url="https://x/storage/v1/object/sign/documents/a.pdf"),
+        SimpleNamespace(url="https://x/storage/v1/object/list/invoices"),
+        SimpleNamespace(url="https://x/storage/v1/object/avatars/private.png"),
+    ]
+
+    assert _discover_buckets(network) == ["avatars", "documents", "invoices"]
