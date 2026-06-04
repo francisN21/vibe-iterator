@@ -242,8 +242,10 @@ def _rpc_reflects_tier(value: Any, tampered_value: str) -> bool:
     if value is None:
         return False
     if isinstance(value, str):
-        return tampered_value.lower() in value.lower()
+        return value.lower() == tampered_value.lower()
     if isinstance(value, dict):
+        if "data" in value or "error" in value:
+            return _rpc_reflects_tier(value.get("data"), tampered_value)
         return any(_rpc_reflects_tier(v, tampered_value) for v in value.values())
     if isinstance(value, (list, tuple)):
         return any(_rpc_reflects_tier(v, tampered_value) for v in value)

@@ -17,6 +17,7 @@ from vibe_iterator.scanners.sql_injection import Scanner as SqlScanner
 from vibe_iterator.scanners.sql_injection import _has_sql_error, _inject_postgrest_filter
 from vibe_iterator.scanners.tier_escalation import Scanner as TierScanner
 from vibe_iterator.scanners.tier_escalation import _network_reflects_tier
+from vibe_iterator.scanners.tier_escalation import _rpc_reflects_tier
 
 
 def _jwt(payload: dict) -> str:
@@ -425,3 +426,16 @@ def test_network_reflects_tier_ignores_unstructured_text_match() -> None:
     ]
 
     assert _network_reflects_tier(network, "plan", "premium") is None
+
+
+def test_rpc_reflects_tier_uses_rpc_data_only() -> None:
+    assert _rpc_reflects_tier({"data": {"tier": "premium"}, "error": None}, "premium") is True
+
+
+def test_rpc_reflects_tier_ignores_error_text_match() -> None:
+    rpc_result = {
+        "data": None,
+        "error": "Premium tier function is not available",
+    }
+
+    assert _rpc_reflects_tier(rpc_result, "premium") is False
