@@ -9,12 +9,15 @@ import urllib.request
 from typing import Any
 
 from vibe_iterator.scanners.base import BaseScanner, Finding, Severity
+from vibe_iterator.scanners.request_targets import add_frontend_origin, rewrite_to_backend_url
 from vibe_iterator.utils.supabase_helpers import truncate
 
 # Matches paths like /api/users/42 or /api/items/7 — captures the numeric segment
 _NUMERIC_ID_RE = re.compile(r"^(https?://[^/]+)(.*/)(\d+)(/.*)?$")
 
 _STATIC_EXTS = {".js", ".css", ".png", ".svg", ".ico", ".woff", ".jpg", ".gif", ".map"}
+_GENERIC_RESPONSE_KEYS = {"ok", "success", "status", "message", "error", "errors"}
+_ID_KEYS = {"id", "item_id", "user_id", "resource_id", "record_id", "profile_id", "account_id"}
 
 
 def _is_static(url: str) -> bool:
@@ -65,11 +68,12 @@ class Scanner(BaseScanner):
                 for k, v in orig_headers.items():
                     if k.lower() in ("authorization", "cookie", "x-api-key"):
                         auth_header[k] = v
+            auth_header = add_frontend_origin(auth_header, config)
 
             original_body = req.response_body or ""
 
             for probe_id in probe_ids:
-                probe_url = f"{base}{prefix}{probe_id}{suffix}"
+                probe_url = rewrite_to_backend_url(f"{base}{prefix}{probe_id}{suffix}", config)
                 resp_body, status = _fetch(probe_url, auth_header)
 
                 if status != 200 or not resp_body:
@@ -84,8 +88,11 @@ class Scanner(BaseScanner):
                     if not isinstance(data, dict) or not data:
                         continue
                 except (json.JSONDecodeError, ValueError):
-                    # Non-JSON 200 is still suspicious
-                    pass
+                    continue
+
+                proof_quality = _idor_proof_quality(data, probe_id)
+                if proof_quality is None:
+                    continue
 
                 desc = (
                     f"Accessing `{probe_url}` (ID={probe_id}) with the same auth credentials "
@@ -104,6 +111,7 @@ class Scanner(BaseScanner):
                         "probed_id": probe_id,
                         "request": {"method": "GET", "url": probe_url, "headers": auth_header},
                         "response": {"status": status, "body_excerpt": truncate(resp_body, 300)},
+                        "proof_quality": proof_quality,
                         "payload_used": str(probe_id),
                         "payload_type": "idor_id_enumeration",
                         "injection_point": "url_path:numeric_id",
@@ -152,3 +160,16 @@ def _fetch(url: str, headers: dict, timeout: int = 5) -> tuple[str, int | None]:
         return "", e.code
     except Exception:
         return "", None
+
+
+def _idor_proof_quality(data: dict, probe_id: int) -> str | None:
+    """Classify whether a JSON response is strong enough IDOR evidence."""
+    for key in _ID_KEYS:
+        if key in data and str(data[key]) == str(probe_id):
+            return f"response_{key}_matches_probed_id"
+
+    keys = {str(key).lower() for key in data}
+    if keys and keys.issubset(_GENERIC_RESPONSE_KEYS):
+        return None
+
+    return "resource_like_json_response_for_probed_id"

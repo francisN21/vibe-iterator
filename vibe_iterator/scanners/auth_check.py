@@ -11,9 +11,26 @@ import urllib.request
 from typing import Any
 
 from vibe_iterator.scanners.base import BaseScanner, Finding, Severity
+from vibe_iterator.scanners.request_targets import frontend_origin, rewrite_to_backend_url
 from vibe_iterator.utils.supabase_helpers import truncate
 
 _JWT_PATTERN = re.compile(r"eyJ[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+")
+_AUTH_BYPASS_PROTECTED_PATHS = [
+    "/admin", "/protected", "/private", "/api/admin", "/api/user", "/api/account",
+    "/api/profile", "/api/me", "/api/session", "/api/settings", "/api/billing",
+]
+_AUTH_BYPASS_SENSITIVE_BODY_TERMS = {
+    "secret", "token", "password", "email", "user_id", "owner_id", "account",
+    "billing", "subscription", "admin",
+}
+_AUTH_BYPASS_PROTECTED_ROUTE_PATHS = [
+    "/account", "/admin", "/app", "/billing", "/dashboard", "/me", "/portal",
+    "/private", "/profile", "/protected", "/settings", "/team", "/workspace",
+]
+_AUTH_BYPASS_SENSITIVE_PAGE_TERMS = {
+    "account", "admin", "billing", "dashboard", "email", "private", "profile",
+    "secret", "settings", "subscription", "team", "token", "user id", "workspace",
+}
 
 
 class Scanner(BaseScanner):
@@ -97,7 +114,9 @@ class Scanner(BaseScanner):
         if token:
             tampered = _make_alg_none_token(token)
             if tampered:
-                response_code = _replay_with_token(tampered, config.target)
+                replay_url = _auth_probe_url(config)
+                origin = frontend_origin(config)
+                response_code = _replay_with_token(tampered, replay_url, origin=origin)
                 if response_code not in (401, 403, None):
                     desc = (
                         "The server accepted a JWT with the algorithm set to `none`, which means the "
@@ -114,13 +133,13 @@ class Scanner(BaseScanner):
                             "evidence_type": "request_replay",
                             "observed_value": f"Server returned HTTP {response_code} for token with alg:none",
                             "expected_behavior": "Server must reject tokens with alg:none with 401 Unauthorized",
-                            "request": {"method": "GET", "url": config.target, "headers": {"Authorization": f"Bearer {truncate(tampered, 60)}..."}, "body": None},
+                            "request": {"method": "GET", "url": replay_url, "headers": {"Authorization": f"Bearer {truncate(tampered, 60)}..."}, "body": None},
                             "response": {"status": response_code},
                         },
                         llm_prompt=self.build_llm_prompt(
                             title="JWT algorithm confusion: `alg: none` accepted",
                             severity=Severity.CRITICAL, scanner=self.name,
-                            page=config.target, category=self.category, description=desc,
+                            page=replay_url, category=self.category, description=desc,
                             evidence_summary=f"Sent JWT with alg:none — server returned HTTP {response_code} (not 401).",
                             stack=stack,
                         ),
@@ -132,7 +151,7 @@ class Scanner(BaseScanner):
                             "if you're verifying JWTs yourself, use `jsonwebtoken` with explicit algorithm config.\n\n"
                             "**Verify the fix:** Re-run auth_check — alg:none token must return 401."
                         ),
-                        category=self.category, page=config.target,
+                        category=self.category, page=replay_url,
                     ))
 
             # 1c — JWT in URL (check network traffic)
@@ -197,7 +216,9 @@ class Scanner(BaseScanner):
             time.sleep(1)
 
             # Try to use the old token on an authenticated endpoint
-            code = _replay_with_token(token_before, config.target)
+            replay_url = _auth_probe_url(config)
+            origin = frontend_origin(config)
+            code = _replay_with_token(token_before, replay_url, origin=origin)
             if code not in (401, 403, None):
                 desc = (
                     "After signing out, the old session token was replayed against the server and received "
@@ -215,13 +236,13 @@ class Scanner(BaseScanner):
                         "evidence_type": "request_replay",
                         "observed_value": f"POST-logout token replay returned HTTP {code}",
                         "expected_behavior": "Server must return 401 for tokens issued before logout",
-                        "request": {"method": "GET", "url": config.target, "headers": {"Authorization": "Bearer [old-token]"}, "body": None},
+                        "request": {"method": "GET", "url": replay_url, "headers": {"Authorization": "Bearer [old-token]"}, "body": None},
                         "response": {"status": code},
                     },
                     llm_prompt=self.build_llm_prompt(
                         title="Logout does not invalidate session token server-side",
                         severity=Severity.HIGH, scanner=self.name,
-                        page=config.target, category=self.category, description=desc,
+                        page=replay_url, category=self.category, description=desc,
                         evidence_summary=f"Signed out, replayed old token — server returned {code} (not 401).",
                         stack=stack,
                     ),
@@ -232,7 +253,7 @@ class Scanner(BaseScanner):
                         "Short-lived tokens (15 min) with refresh token rotation reduce the window.\n\n"
                         "**Verify the fix:** Re-run auth_check — replayed token must return 401."
                     ),
-                    category=self.category, page=config.target,
+                    category=self.category, page=replay_url,
                 ))
         except Exception:
             pass
@@ -503,12 +524,14 @@ class Scanner(BaseScanner):
                 session.navigate(url)
                 time.sleep(0.8)
 
-                current = session.current_url()
-                page_source = session.driver.page_source.lower()
+                current = str(session.current_url())
+                page_source = str(session.driver.page_source).lower()
                 login_keywords = ["login", "sign in", "authenticate", "unauthorized", "401", "403"]
+                proof_quality = _auth_bypass_route_proof_quality(path, page_source)
 
                 if not any(kw in current.lower() for kw in ["login", "signin", "auth"]) and \
-                        not any(kw in page_source for kw in login_keywords):
+                        not any(kw in page_source for kw in login_keywords) and \
+                        proof_quality is not None:
                     desc = (
                         f"The page at `{path}` loaded successfully without authentication. "
                         "No redirect to login or 401/403 response was detected. "
@@ -524,6 +547,7 @@ class Scanner(BaseScanner):
                             "evidence_type": "response_analysis",
                             "observed_value": f"Navigated to {url} without auth — no redirect to login",
                             "expected_behavior": "Unauthenticated access should redirect to /login or return 401",
+                            "proof_quality": proof_quality,
                             "request": {"method": "GET", "url": url, "headers": {}, "body": None},
                             "response": {"status": 200, "body_excerpt": "Page loaded without auth redirect"},
                         },
@@ -559,10 +583,15 @@ class Scanner(BaseScanner):
         for req in api_calls[:3]:
             if not req.response_body or req.status_code in (401, 403):
                 continue
-            code = _replay_without_auth(req.url, req.method, req.post_data)
+            replay_url = rewrite_to_backend_url(req.url, config)
+            origin = frontend_origin(config)
+            proof_quality = _auth_bypass_api_proof_quality(req, replay_url)
+            if proof_quality is None:
+                continue
+            code = _replay_without_auth(replay_url, req.method, req.post_data, origin=origin)
             if code not in (401, 403, None):
                 desc = (
-                    f"The API endpoint `{req.method} {req.url}` returned HTTP {code} when called "
+                    f"The API endpoint `{req.method} {replay_url}` returned HTTP {code} when called "
                     "without an Authorization header. "
                     "This endpoint may be accessible to unauthenticated users, "
                     "potentially exposing sensitive data or functionality."
@@ -575,10 +604,11 @@ class Scanner(BaseScanner):
                         "check_group": "Auth Bypass Vectors",
                         "check_name": "API endpoint auth",
                         "evidence_type": "request_replay",
-                        "observed_value": f"{req.method} {req.url} returned {code} without auth header",
+                        "observed_value": f"{req.method} {replay_url} returned {code} without auth header",
                         "expected_behavior": "Must return 401 Unauthorized when no valid auth header is present",
-                        "request": {"method": req.method, "url": req.url, "headers": {}, "body": req.post_data},
+                        "request": {"method": req.method, "url": replay_url, "headers": {}, "body": req.post_data},
                         "response": {"status": code},
+                        "proof_quality": proof_quality,
                         "network_events": [],
                     },
                     llm_prompt=self.build_llm_prompt(
@@ -678,11 +708,53 @@ def _make_alg_none_token(token: str) -> str | None:
         return None
 
 
-def _replay_with_token(token: str, target: str) -> int | None:
+def _auth_probe_url(config: Any) -> str:
+    backend_url = getattr(config, "backend_url", None)
+    if isinstance(backend_url, str) and backend_url:
+        return backend_url.rstrip("/")
+    return config.target.rstrip("/")
+
+
+def _auth_bypass_api_proof_quality(req: Any, replay_url: str) -> str | None:
+    """Return why an unauthenticated API replay is auth-bypass evidence."""
+    lowered_url = replay_url.lower()
+    if any(fragment in lowered_url for fragment in _AUTH_BYPASS_PROTECTED_PATHS):
+        return "protected_api_path_replayed_without_auth"
+
+    raw_body = getattr(req, "response_body", "")
+    body = raw_body.lower() if isinstance(raw_body, str) else ""
+    if body and any(term in body for term in _AUTH_BYPASS_SENSITIVE_BODY_TERMS):
+        return "authenticated_api_response_body_contains_sensitive_terms"
+
+    return None
+
+
+def _auth_bypass_route_proof_quality(path: str, page_source: str) -> str | None:
+    """Return why a loaded unauthenticated route is auth-bypass evidence."""
+    lowered_path = path.lower()
+    if any(_path_has_route_segment(lowered_path, fragment) for fragment in _AUTH_BYPASS_PROTECTED_ROUTE_PATHS):
+        return "protected_route_path_loaded_without_auth"
+
+    if page_source and any(term in page_source for term in _AUTH_BYPASS_SENSITIVE_PAGE_TERMS):
+        return "unauthenticated_page_contains_sensitive_terms"
+
+    return None
+
+
+def _path_has_route_segment(path: str, fragment: str) -> bool:
+    normalized_path = path.rstrip("/") or "/"
+    normalized_fragment = fragment.rstrip("/") or "/"
+    return normalized_path == normalized_fragment or normalized_path.startswith(normalized_fragment + "/")
+
+
+def _replay_with_token(token: str, target: str, origin: str | None = None) -> int | None:
     """Replay a GET request to the target with the given Bearer token."""
     try:
+        headers = {"Authorization": f"Bearer {token}"}
+        if origin:
+            headers["Origin"] = origin
         req = urllib.request.Request(
-            target, headers={"Authorization": f"Bearer {token}"}
+            target, headers=headers
         )
         with urllib.request.urlopen(req, timeout=5) as resp:
             return resp.status
@@ -692,12 +764,15 @@ def _replay_with_token(token: str, target: str) -> int | None:
         return None
 
 
-def _replay_without_auth(url: str, method: str, body: str | None) -> int | None:
+def _replay_without_auth(url: str, method: str, body: str | None, origin: str | None = None) -> int | None:
     """Replay an API request without Authorization header."""
     try:
         data = body.encode() if body else None
+        headers = {"Content-Type": "application/json"}
+        if origin:
+            headers["Origin"] = origin
         req = urllib.request.Request(url, data=data, method=method,
-                                     headers={"Content-Type": "application/json"})
+                                     headers=headers)
         with urllib.request.urlopen(req, timeout=5) as resp:
             return resp.status
     except urllib.error.HTTPError as e:

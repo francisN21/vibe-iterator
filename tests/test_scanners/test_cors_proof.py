@@ -60,6 +60,7 @@ def test_reflected_origin_detected(vuln_app) -> None:
     reflected = [f for f in findings if "reflected" in f.title.lower()]
     assert len(reflected) >= 1
     assert reflected[0].severity == Severity.HIGH
+    assert reflected[0].evidence["proof_quality"] == "reflected_origin_allows_credentials"
 
 
 # --------------------------------------------------------------------------- #
@@ -71,6 +72,7 @@ def test_preflight_reflected_origin_with_credentials(vuln_app) -> None:
     preflight = [f for f in findings if "preflight" in f.title.lower()]
     assert len(preflight) >= 1
     assert preflight[0].severity == Severity.HIGH
+    assert preflight[0].evidence["proof_quality"] == "preflight_reflected_origin_allows_credentials"
 
 
 # --------------------------------------------------------------------------- #

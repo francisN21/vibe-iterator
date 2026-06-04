@@ -102,6 +102,7 @@ class Scanner(BaseScanner):
                         "response": {"status": status, "body_excerpt": truncate(body, 200)},
                         "expected_response": "413 Payload Too Large or 400 Bad Request",
                         "actual_response": f"{status} — upload accepted",
+                        "proof_quality": "oversized_storage_upload_accepted",
                         "second_account_used": False,
                     },
                     llm_prompt=self.build_llm_prompt(
@@ -179,6 +180,7 @@ class Scanner(BaseScanner):
                         "response": {"status": status, "body_excerpt": truncate(body, 200)},
                         "expected_response": "400 Bad Request — file type not allowed",
                         "actual_response": f"{status} — upload accepted",
+                        "proof_quality": "dangerous_mime_storage_upload_accepted",
                         "second_account_used": False,
                     },
                     llm_prompt=self.build_llm_prompt(
@@ -203,18 +205,36 @@ class Scanner(BaseScanner):
 
 def _discover_buckets(network: Any) -> list[str]:
     """Extract Supabase storage bucket names from captured network requests."""
-    import re
     buckets: list[str] = []
     seen: set[str] = set()
-    pattern = re.compile(r"/storage/v1/object/([^/?]+)")
     for req in network.get_requests():
-        m = pattern.search(req.url)
-        if m:
-            bucket = m.group(1)
-            if bucket not in seen:
-                seen.add(bucket)
-                buckets.append(bucket)
+        bucket = _bucket_from_storage_url(req.url)
+        if bucket and bucket not in seen:
+            seen.add(bucket)
+            buckets.append(bucket)
     return buckets
+
+
+def _bucket_from_storage_url(url: str) -> str | None:
+    """Return the bucket segment from common Supabase Storage object URLs."""
+    from urllib.parse import urlparse
+
+    parts = [part for part in urlparse(url).path.split("/") if part]
+    try:
+        object_index = parts.index("object")
+    except ValueError:
+        return None
+
+    bucket_index = object_index + 1
+    if len(parts) <= bucket_index:
+        return None
+
+    if parts[bucket_index] in {"public", "sign", "list"}:
+        bucket_index += 1
+
+    if len(parts) <= bucket_index:
+        return None
+    return parts[bucket_index]
 
 
 def _delete_test_object(url: str, auth_header: str, anon_key: str) -> None:

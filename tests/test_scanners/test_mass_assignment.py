@@ -18,9 +18,10 @@ def vuln_app():
         yield app
 
 
-def _make_config(target: str = "http://localhost:9999") -> MagicMock:
+def _make_config(target: str = "http://localhost:9999", backend_url: str | None = None) -> MagicMock:
     cfg = MagicMock()
     cfg.target = target
+    cfg.backend_url = backend_url
     cfg.stack.backend = "custom"
     cfg.supabase_anon_key = ""
     return cfg
@@ -66,6 +67,23 @@ def test_mass_assignment_role_detected(vuln_app) -> None:
     assert "role" in ma[0].title.lower() or "is_admin" in ma[0].title.lower() or "admin" in ma[0].title.lower()
 
 
+def test_mass_assignment_finding_records_response_field_path(vuln_app) -> None:
+    req = _make_post_req(
+        url=vuln_app.base_url + "/api/profile",
+        body={"id": 42, "name": "alice"},
+    )
+    findings = _run(vuln_app, [req])
+
+    role_findings = [
+        f for f in findings
+        if f.evidence.get("injected_field") == "role"
+    ]
+
+    assert role_findings
+    assert role_findings[0].evidence["proof_quality"] == "resource_write_response_contains_injected_privileged_field"
+    assert role_findings[0].evidence["response_field_path"] == "role"
+
+
 def test_mass_assignment_credits_critical(vuln_app) -> None:
     # credits/balance fields → CRITICAL severity (financial impact)
     req = _make_post_req(
@@ -76,6 +94,39 @@ def test_mass_assignment_credits_critical(vuln_app) -> None:
     critical = [f for f in findings if f.severity == Severity.CRITICAL]
     # fixture echoes credits=99999 back → CRITICAL finding expected
     assert len(critical) >= 1
+
+
+def test_plain_json_echo_is_not_reported_as_mass_assignment(monkeypatch: pytest.MonkeyPatch) -> None:
+    scanner = Scanner()
+    config = _make_config()
+    req = _make_post_req("http://localhost:9999/api/echo", {"name": "alice"})
+    net = _make_network([req])
+
+    def fake_request(url, method, data, headers, timeout=6):
+        return data.decode("utf-8"), 200, 0.01
+
+    monkeypatch.setattr("vibe_iterator.scanners.mass_assignment._make_request", fake_request)
+
+    findings = scanner.run(session=None, listeners={"network": net}, config=config)
+
+    assert findings == []
+
+
+def test_preview_echo_with_injected_field_is_not_reported(monkeypatch: pytest.MonkeyPatch) -> None:
+    scanner = Scanner()
+    config = _make_config()
+    req = _make_post_req("http://localhost:9999/api/profile/preview", {"name": "alice"})
+    net = _make_network([req])
+
+    def fake_request(url, method, data, headers, timeout=6):
+        body = json.loads(data.decode("utf-8"))
+        return json.dumps({"dry_run": True, "preview": True, **body}), 200, 0.01
+
+    monkeypatch.setattr("vibe_iterator.scanners.mass_assignment._make_request", fake_request)
+
+    findings = scanner.run(session=None, listeners={"network": net}, config=config)
+
+    assert findings == []
 
 
 # ---------------------------------------------------------------------------
@@ -100,6 +151,28 @@ def test_no_finding_when_get_only() -> None:
     net = _make_network([req])
     findings = scanner.run(session=None, listeners={"network": net}, config=config)
     assert findings == []
+
+
+def test_backend_url_routes_mass_assignment_probe_with_frontend_origin(monkeypatch: pytest.MonkeyPatch) -> None:
+    scanner = Scanner()
+    config = _make_config("http://localhost:3000", backend_url="http://localhost:4001")
+    req = _make_post_req("http://localhost:3000/api/profile", {"id": 42, "name": "alice"})
+    net = _make_network([req])
+    calls: list[tuple[str, str, dict]] = []
+
+    def fake_request(url, method, data, headers, timeout=6):
+        calls.append((url, method, headers))
+        return "", 403, 0.01
+
+    monkeypatch.setattr("vibe_iterator.scanners.mass_assignment._make_request", fake_request)
+
+    findings = scanner.run(session=None, listeners={"network": net}, config=config)
+
+    assert findings == []
+    assert calls
+    assert all(url == "http://localhost:4001/api/profile" for url, _, _ in calls)
+    assert all(method == "POST" for _, method, _ in calls)
+    assert all(headers["Origin"] == "http://localhost:3000" for _, _, headers in calls)
 
 
 # ---------------------------------------------------------------------------

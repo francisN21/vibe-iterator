@@ -71,6 +71,7 @@ class TestRequestHeaders:
         assert any("Stripe live secret key" in f.title for f in findings)
         stripe = next(f for f in findings if "Stripe live secret key" in f.title)
         assert stripe.severity == Severity.CRITICAL
+        assert stripe.evidence["proof_quality"] == "high_confidence_provider_key_pattern"
 
     def test_openai_key_in_x_api_key_header(self) -> None:
         key = "sk-" + "a" * 48
@@ -95,6 +96,12 @@ class TestQueryParameters:
         assert any("query parameter" in f.title.lower() for f in findings)
         qp = next(f for f in findings if "query parameter" in f.title.lower())
         assert qp.severity == Severity.HIGH
+        assert qp.evidence["proof_quality"] == "api_key_in_url_parameter"
+
+    def test_known_placeholder_secret_query_param_ignored(self) -> None:
+        req = _make_req(url="http://localhost:3000/docs?api_key=AKIAIOSFODNN7EXAMPLE")
+        findings = _run([req])
+        assert findings == []
 
     def test_token_param_flagged(self) -> None:
         req = _make_req(url="http://localhost:3000/data?token=" + "y" * 32)
@@ -111,6 +118,11 @@ class TestQueryParameters:
         findings = _run([req])
         assert findings == []
 
+    def test_stripe_publishable_key_query_param_ignored(self) -> None:
+        req = _make_req(url="http://localhost:3000/config?key=pk_live_abcdefghijklmnopqrstuvwxyz")
+        findings = _run([req])
+        assert findings == []
+
 
 # ---------------------------------------------------------------------------
 # Group 2 — Response bodies
@@ -118,12 +130,18 @@ class TestQueryParameters:
 
 class TestResponseBodies:
     def test_aws_key_in_json_response(self) -> None:
-        body = '{"key": "AKIAIOSFODNN7EXAMPLE", "region": "us-east-1"}'
+        body = '{"key": "AKIAQ7W6H2P9Z8X4C3B1", "region": "us-east-1"}'
         req = _make_req(body=body, mime="application/json")
         findings = _run([req])
         assert any("AWS access key ID" in f.title for f in findings)
         aws = next(f for f in findings if "AWS access key ID" in f.title)
         assert aws.severity == Severity.CRITICAL
+
+    def test_known_aws_example_key_is_not_secret_exposure(self) -> None:
+        body = '{"docs": "Use AKIAIOSFODNN7EXAMPLE as a placeholder in examples"}'
+        req = _make_req(body=body, mime="application/json")
+        findings = _run([req])
+        assert findings == []
 
     def test_github_pat_in_response_body(self) -> None:
         token = "ghp_" + "a" * 36
@@ -145,6 +163,19 @@ class TestResponseBodies:
 
     def test_empty_body_no_finding(self) -> None:
         req = _make_req(body="", mime="application/json")
+        findings = _run([req])
+        assert findings == []
+
+    def test_stripe_publishable_key_in_js_is_not_secret_exposure(self) -> None:
+        body = (
+            "const stripePublishable = 'pk_live_abcdefghijklmnopqrstuvwxyz';\n"
+            "const config = { api_key: 'pk_test_abcdefghijklmnopqrstuvwxyz' };"
+        )
+        req = _make_req(
+            url="http://localhost:3000/app.js",
+            body=body,
+            mime="application/javascript",
+        )
         findings = _run([req])
         assert findings == []
 
@@ -195,6 +226,16 @@ class TestBrowserStorage:
         findings = _run(snapshots=[snapshot])
         assert findings == []
 
+    def test_stripe_publishable_key_in_storage_is_not_secret_exposure(self) -> None:
+        snapshot = StorageSnapshot(
+            url="http://localhost:3000/",
+            local_storage={"stripePublishable": "pk_live_abcdefghijklmnopqrstuvwxyz"},
+            session_storage={"api_key": "pk_test_abcdefghijklmnopqrstuvwxyz"},
+            cookies=[],
+        )
+        findings = _run(snapshots=[snapshot])
+        assert findings == []
+
 
 # ---------------------------------------------------------------------------
 # Deduplication
@@ -202,7 +243,7 @@ class TestBrowserStorage:
 
 class TestDeduplication:
     def test_same_key_in_two_requests_deduped(self) -> None:
-        body = '{"token": "AKIAIOSFODNN7EXAMPLE"}'
+        body = '{"token": "AKIAQ7W6H2P9Z8X4C3B1"}'
         req1 = _make_req(url="http://localhost:3000/a", body=body, mime="application/json")
         req2 = _make_req(url="http://localhost:3000/a", body=body, mime="application/json")
         findings = _run([req1, req2])
@@ -210,7 +251,7 @@ class TestDeduplication:
         assert len(aws) == 1
 
     def test_same_key_different_urls_both_reported(self) -> None:
-        body = '{"key": "AKIAIOSFODNN7EXAMPLE"}'
+        body = '{"key": "AKIAQ7W6H2P9Z8X4C3B1"}'
         req1 = _make_req(url="http://localhost:3000/a", body=body, mime="application/json")
         req2 = _make_req(url="http://localhost:3000/b", body=body, mime="application/json")
         findings = _run([req1, req2])

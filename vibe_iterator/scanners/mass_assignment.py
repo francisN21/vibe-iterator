@@ -9,6 +9,7 @@ import urllib.request
 from typing import Any
 
 from vibe_iterator.scanners.base import BaseScanner, Finding, Severity
+from vibe_iterator.scanners.request_targets import add_frontend_origin, rewrite_to_backend_url
 from vibe_iterator.utils.supabase_helpers import truncate
 
 # (field_name, value, is_financial)
@@ -76,8 +77,9 @@ class Scanner(BaseScanner):
                     continue
 
                 injected_body = {**original_body, field_name: field_value}
+                probe_url = rewrite_to_backend_url(req.url, config)
                 resp_body, status, _ = _make_request(
-                    req.url, req.method,
+                    probe_url, req.method,
                     json.dumps(injected_body).encode(),
                     token,
                 )
@@ -93,17 +95,22 @@ class Scanner(BaseScanner):
                 if not isinstance(resp_data, dict):
                     continue
 
-                if field_name not in resp_data:
+                if _is_non_persistent_echo_response(resp_data, injected_body):
                     continue
 
-                returned_val = resp_data[field_name]
-                if str(returned_val).lower() != str(field_value).lower():
+                field_match = _find_matching_field(resp_data, field_name, field_value)
+                if field_match is None:
+                    continue
+
+                response_field_path, returned_val = field_match
+                if not _has_resource_write_proof(resp_data, status):
                     continue
 
                 sev = Severity.CRITICAL if is_financial else Severity.HIGH
                 desc = (
-                    f"The endpoint `{req.method} {req.url}` accepted and echoed back "
-                    f"the injected field `{field_name}={field_value}`. "
+                    f"The endpoint `{req.method} {probe_url}` accepted the injected field "
+                    f"`{field_name}={field_value}` and returned it from `{response_field_path}` "
+                    "in a resource write response. "
                     "The server does not filter unexpected fields from the request body. "
                     "An attacker can escalate privileges or manipulate protected attributes "
                     "(such as account role or pricing) by adding extra fields to legitimate API requests."
@@ -116,13 +123,15 @@ class Scanner(BaseScanner):
                     evidence={
                         "request": {
                             "method": req.method,
-                            "url": req.url,
+                            "url": probe_url,
                             "body": truncate(json.dumps(injected_body), 300),
                         },
                         "response": {"status": status, "body_excerpt": truncate(resp_body, 300)},
                         "injected_field": field_name,
                         "injected_value": str(field_value),
                         "returned_value": str(returned_val),
+                        "response_field_path": response_field_path,
+                        "proof_quality": "resource_write_response_contains_injected_privileged_field",
                         "payload_used": json.dumps({field_name: field_value}),
                         "payload_type": "mass_assignment",
                         "injection_point": f"json_body:{field_name}",
@@ -132,13 +141,13 @@ class Scanner(BaseScanner):
                         title=f"Mass assignment: server accepted `{field_name}`",
                         severity=sev,
                         scanner=self.name,
-                        page=req.url,
+                        page=probe_url,
                         category=self.category,
                         description=desc,
                         evidence_summary=(
-                            f"{req.method} {req.url}\n"
+                            f"{req.method} {probe_url}\n"
                             f"Injected: {field_name}={field_value}\n"
-                            f"Response echoed: {field_name}={returned_val}"
+                            f"Resource response returned {response_field_path}={returned_val}"
                         ),
                         stack=stack,
                     ),
@@ -153,7 +162,7 @@ class Scanner(BaseScanner):
                         "**Verify the fix:** Re-run mass_assignment scanner — injected field must not appear in response."
                     ),
                     category=self.category,
-                    page=req.url,
+                    page=probe_url,
                 ))
 
         return findings
@@ -185,4 +194,61 @@ def _get_auth_headers(config: Any) -> dict:
     if anon_key:
         headers["apikey"] = anon_key
         headers["Authorization"] = f"Bearer {anon_key}"
-    return headers
+    return add_frontend_origin(headers, config)
+
+
+def _is_non_persistent_echo_response(resp_data: dict, injected_body: dict) -> bool:
+    """Return True when a response looks like validation, preview, or request echo."""
+    if resp_data == injected_body:
+        return True
+
+    echo_markers = {
+        "dry_run", "dryRun", "preview", "validate_only", "validateOnly",
+        "validation_only", "validationOnly", "would_update", "wouldUpdate",
+        "echo", "received", "request", "payload",
+    }
+    return any(marker in resp_data for marker in echo_markers)
+
+
+def _find_matching_field(data: Any, field_name: str, field_value: Any, path: str = "") -> tuple[str, Any] | None:
+    if isinstance(data, dict):
+        for key, value in data.items():
+            child_path = f"{path}.{key}" if path else str(key)
+            if key == field_name and _values_match(value, field_value):
+                return child_path, value
+            nested = _find_matching_field(value, field_name, field_value, child_path)
+            if nested is not None:
+                return nested
+    elif isinstance(data, list):
+        for index, value in enumerate(data):
+            nested = _find_matching_field(value, field_name, field_value, f"{path}[{index}]")
+            if nested is not None:
+                return nested
+    return None
+
+
+def _values_match(actual: Any, expected: Any) -> bool:
+    return str(actual).lower() == str(expected).lower()
+
+
+def _has_resource_write_proof(resp_data: dict, status: int | None) -> bool:
+    if status == 201:
+        return True
+
+    resource_markers = {
+        "id", "uuid", "_id", "created_at", "createdAt", "updated_at", "updatedAt",
+        "inserted_at", "insertedAt",
+    }
+    return _contains_any_key(resp_data, resource_markers)
+
+
+def _contains_any_key(data: Any, keys: set[str]) -> bool:
+    if isinstance(data, dict):
+        for key, value in data.items():
+            if key in keys:
+                return True
+            if _contains_any_key(value, keys):
+                return True
+    elif isinstance(data, list):
+        return any(_contains_any_key(value, keys) for value in data)
+    return False

@@ -9,6 +9,7 @@ import urllib.request
 from typing import Any
 
 from vibe_iterator.scanners.base import BaseScanner, Finding, Severity
+from vibe_iterator.scanners.request_targets import frontend_origin, rewrite_to_backend_url
 
 # Marker injected into URL params to detect reflection in response body
 _REFLECT_MARKER = "vibi7x3reflect"
@@ -18,6 +19,9 @@ _REFLECT_PAYLOADS = [
     f"javascript:{_REFLECT_MARKER}",  # JS proto
 ]
 _MAX_REFLECT_ENDPOINTS = 8
+_STATIC_EXTS = {".js", ".css", ".woff", ".woff2", ".png", ".jpg", ".svg", ".ico", ".map", ".gif"}
+_SKIP_PATH_PREFIXES = ("/_next/", "/__next/")
+_EMBED_PATH_RE = re.compile(r"/[0-9a-f]{12,}(?:/|$)", re.I)
 
 # Patterns for dangerous DOM sinks in inline scripts
 _DOM_SINK_PATTERNS: list[tuple[str, re.Pattern]] = [
@@ -91,7 +95,7 @@ class Scanner(BaseScanner):
         self._check_response_headers(network, target, stack, findings)
         self._check_csp_headers(network, target, stack, findings)
         self._check_dom_sinks(session, config, stack, findings)
-        self._check_reflected_xss(network, target, stack, findings)
+        self._check_reflected_xss(network, config, target, stack, findings)
         return findings
 
     # ------------------------------------------------------------------ #
@@ -103,22 +107,10 @@ class Scanner(BaseScanner):
     ) -> None:
         seen_fps: set[str] = set()
 
-        _SKIP_EXTS = {".js", ".css", ".woff", ".woff2", ".png", ".jpg", ".svg", ".ico", ".map", ".gif"}
-        # Path segments of 12+ hex chars → third-party embed IDs (Intercom, HubSpot, etc.)
-        _embed_re = re.compile(r"/[0-9a-f]{12,}(?:/|$)", re.I)
         for req in network.get_requests():
             if req.response_headers is None:
                 continue
-            if not req.url.startswith(target):
-                continue
-            parsed_path = urllib.parse.urlparse(req.url).path
-            # Skip Next.js CDN-served internal routes and static assets.
-            if "/_next/" in req.url or "/__next/" in req.url:
-                continue
-            if any(parsed_path.endswith(ext) for ext in _SKIP_EXTS):
-                continue
-            # Skip third-party embed paths — these aren't controlled by next.config.ts headers.
-            if _embed_re.search(parsed_path):
+            if not _is_same_origin_document_candidate(req, target):
                 continue
             lowered = {k.lower(): v for k, v in req.response_headers.items()}
 
@@ -175,12 +167,14 @@ class Scanner(BaseScanner):
     ) -> None:
         seen_fps: set[str] = set()
         csp_seen = False
+        candidate_seen = False
 
         for req in network.get_requests():
             if req.response_headers is None:
                 continue
-            if not req.url.startswith(target):
+            if not _is_same_origin_document_candidate(req, target):
                 continue
+            candidate_seen = True
             lowered = {k.lower(): v for k, v in req.response_headers.items()}
             csp = lowered.get("content-security-policy", "")
 
@@ -226,7 +220,7 @@ class Scanner(BaseScanner):
                             category=self.category, page=req.url,
                         ))
 
-        if not csp_seen:
+        if candidate_seen and not csp_seen:
             fp = self.make_fingerprint(self.name, "Content Security Policy not set", target)
             if fp not in seen_fps:
                 seen_fps.add(fp)
@@ -331,14 +325,17 @@ class Scanner(BaseScanner):
     # ------------------------------------------------------------------ #
 
     def _check_reflected_xss(
-        self, network: Any, target: str, stack: str, findings: list[Finding],
+        self, network: Any, config: Any, target: str, stack: str, findings: list[Finding],
     ) -> None:
         seen_fps: set[str] = set()
         tested: set[str] = set()
         ctx = ssl._create_unverified_context()
+        backend_url = getattr(config, "backend_url", None)
+        backend_url = backend_url if isinstance(backend_url, str) and backend_url else None
+        origin = frontend_origin(config)
 
         for req in network.get_requests():
-            if not req.url.startswith(target):
+            if not _is_reflect_probe_candidate(req.url, target, backend_url):
                 continue
             parsed = urllib.parse.urlparse(req.url)
             if not parsed.query:
@@ -357,11 +354,15 @@ class Scanner(BaseScanner):
                     test_params[param_name] = [payload]
                     new_query = urllib.parse.urlencode(test_params, doseq=True)
                     test_url = urllib.parse.urlunparse(parsed._replace(query=new_query))
+                    probe_url = rewrite_to_backend_url(test_url, config)
 
                     try:
+                        headers = {"User-Agent": "vibe-iterator/xss-reflect"}
+                        if origin:
+                            headers["Origin"] = origin
                         http_req = urllib.request.Request(
-                            test_url,
-                            headers={"User-Agent": "vibe-iterator/xss-reflect"},
+                            probe_url,
+                            headers=headers,
                         )
                         with urllib.request.urlopen(http_req, timeout=4, context=ctx) as resp:
                             body = resp.read(8192).decode("utf-8", errors="replace")
@@ -374,7 +375,7 @@ class Scanner(BaseScanner):
                     if _REFLECT_MARKER not in body:
                         continue
 
-                    fp = self.make_fingerprint(self.name, "Reflected XSS marker in response", test_url)
+                    fp = self.make_fingerprint(self.name, "Reflected XSS marker in response", probe_url)
                     if fp in seen_fps:
                         continue
                     seen_fps.add(fp)
@@ -394,7 +395,7 @@ class Scanner(BaseScanner):
                             "test_performed": "reflected_marker_injection",
                             "injection_point": f"query_param:{param_name}",
                             "payload_used": payload,
-                            "request": {"method": "GET", "url": test_url},
+                            "request": {"method": "GET", "url": probe_url},
                             "response": {
                                 "status": "200",
                                 "body_excerpt": _excerpt(body, _REFLECT_MARKER),
@@ -407,7 +408,7 @@ class Scanner(BaseScanner):
                             severity=Severity.HIGH, scanner=self.name, page=req.url,
                             category=self.category, description=desc,
                             evidence_summary=(
-                                f"URL: {test_url}\n"
+                                f"URL: {probe_url}\n"
                                 f"Param: {param_name}\n"
                                 f"Payload: {payload}\n"
                                 f"Marker found in HTML response body."
@@ -436,3 +437,36 @@ def _excerpt(body: str, marker: str, context: int = 80) -> str:
     start = max(0, idx - context)
     end = min(len(body), idx + len(marker) + context)
     return body[start:end]
+
+
+def _is_same_origin_document_candidate(req: Any, target: str) -> bool:
+    if not req.url.startswith(target):
+        return False
+
+    parsed_path = urllib.parse.urlparse(req.url).path
+    if any(parsed_path.startswith(prefix) for prefix in _SKIP_PATH_PREFIXES):
+        return False
+    if any(parsed_path.endswith(ext) for ext in _STATIC_EXTS):
+        return False
+    if _EMBED_PATH_RE.search(parsed_path):
+        return False
+
+    response_headers = getattr(req, "response_headers", None) or {}
+    lowered = {k.lower(): v for k, v in response_headers.items()}
+    content_type = str(lowered.get("content-type", "")).lower()
+    response_mime_type = getattr(req, "response_mime_type", "")
+    mime_type = response_mime_type.lower() if isinstance(response_mime_type, str) else ""
+
+    allowed_types = ("text/html", "application/json", "text/plain")
+    if content_type and not any(allowed in content_type for allowed in allowed_types):
+        return False
+    if mime_type and not any(allowed in mime_type for allowed in allowed_types):
+        return False
+
+    return True
+
+
+def _is_reflect_probe_candidate(url: str, target: str, backend_url: str | None = None) -> bool:
+    if url.startswith(target):
+        return True
+    return bool(backend_url and url.startswith(backend_url))

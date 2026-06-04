@@ -11,9 +11,10 @@ from vibe_iterator.scanners.cors_check import Scanner
 # Helpers                                                                      #
 # --------------------------------------------------------------------------- #
 
-def _make_config(target: str = "https://example.com") -> MagicMock:
+def _make_config(target: str = "https://example.com", backend_url: str | None = None) -> MagicMock:
     cfg = MagicMock()
     cfg.target = target
+    cfg.backend_url = backend_url
     cfg.stack.backend = "supabase"
     return cfg
 
@@ -59,13 +60,28 @@ def test_wildcard_with_credentials_is_critical() -> None:
     assert len(findings) == 1
     assert findings[0].severity == Severity.CRITICAL
     assert "credentials" in findings[0].title.lower()
+    assert findings[0].evidence["proof_quality"] == "wildcard_origin_allows_credentials"
 
 
 # --------------------------------------------------------------------------- #
 # Reflected origin — HIGH                                                       #
 # --------------------------------------------------------------------------- #
 
-def test_reflected_origin_is_high() -> None:
+def test_reflected_origin_with_credentials_is_high() -> None:
+    findings = _run_scanner({
+        "https://evil-attacker.com": {
+            "access-control-allow-origin": "https://evil-attacker.com",
+            "access-control-allow-credentials": "true",
+        },
+        "null": {},
+    })
+    assert len(findings) == 1
+    assert findings[0].severity == Severity.HIGH
+    assert "reflected" in findings[0].title.lower()
+    assert findings[0].evidence["proof_quality"] == "reflected_origin_allows_credentials"
+
+
+def test_reflected_origin_without_credentials_is_medium() -> None:
     findings = _run_scanner({
         "https://evil-attacker.com": {
             "access-control-allow-origin": "https://evil-attacker.com",
@@ -73,8 +89,9 @@ def test_reflected_origin_is_high() -> None:
         "null": {},
     })
     assert len(findings) == 1
-    assert findings[0].severity == Severity.HIGH
+    assert findings[0].severity == Severity.MEDIUM
     assert "reflected" in findings[0].title.lower()
+    assert findings[0].evidence["proof_quality"] == "reflected_origin_without_credentials"
 
 
 # --------------------------------------------------------------------------- #
@@ -91,6 +108,8 @@ def test_wildcard_no_credentials_is_low() -> None:
     severities = {f.severity for f in findings}
     assert Severity.LOW in severities
     assert Severity.CRITICAL not in severities
+    wildcard = next(f for f in findings if f.severity == Severity.LOW)
+    assert wildcard.evidence["proof_quality"] == "wildcard_origin_without_credentials"
 
 
 # --------------------------------------------------------------------------- #
@@ -105,6 +124,7 @@ def test_null_origin_accepted_is_medium() -> None:
     assert len(findings) == 1
     assert findings[0].severity == Severity.MEDIUM
     assert "null" in findings[0].title.lower()
+    assert findings[0].evidence["proof_quality"] == "null_origin_accepted"
 
 
 # --------------------------------------------------------------------------- #
@@ -157,3 +177,41 @@ def test_duplicate_findings_are_deduped() -> None:
     # Same URL + same issue should produce exactly one finding
     reflected = [f for f in findings if "reflected" in f.title.lower()]
     assert len(reflected) == 1
+
+
+def test_backend_url_routes_frontend_proxy_endpoint_for_cors_probe() -> None:
+    scanner = Scanner()
+    config = _make_config("https://app.example.com", backend_url="https://api.example.com")
+    listeners = {"network": _make_network(["https://app.example.com/api/data"])}
+    probed_urls: list[str] = []
+
+    def fake_fetch(url, origin, timeout=5):
+        probed_urls.append(url)
+        return {}
+
+    with patch("vibe_iterator.scanners.cors_check._fetch_with_origin", side_effect=fake_fetch), \
+         patch("vibe_iterator.scanners.cors_check._fetch_preflight", return_value={}):
+        findings = scanner.run(session=None, listeners=listeners, config=config)
+
+    assert findings == []
+    assert probed_urls
+    assert all(url == "https://api.example.com/api/data" for url in probed_urls)
+
+
+def test_backend_url_direct_api_origin_is_discovered_for_cors_probe() -> None:
+    scanner = Scanner()
+    config = _make_config("https://app.example.com", backend_url="https://api.example.com")
+    listeners = {"network": _make_network(["https://api.example.com/api/data"])}
+    probed_urls: list[str] = []
+
+    def fake_fetch(url, origin, timeout=5):
+        probed_urls.append(url)
+        return {}
+
+    with patch("vibe_iterator.scanners.cors_check._fetch_with_origin", side_effect=fake_fetch), \
+         patch("vibe_iterator.scanners.cors_check._fetch_preflight", return_value={}):
+        findings = scanner.run(session=None, listeners=listeners, config=config)
+
+    assert findings == []
+    assert probed_urls
+    assert all(url == "https://api.example.com/api/data" for url in probed_urls)

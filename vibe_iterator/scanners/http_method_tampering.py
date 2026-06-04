@@ -8,6 +8,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from vibe_iterator.scanners.base import BaseScanner, Finding, Severity
+from vibe_iterator.scanners.request_targets import frontend_origin, rewrite_to_backend_url
 from vibe_iterator.utils.supabase_helpers import truncate
 
 _STATIC_EXTS = {".js", ".css", ".png", ".svg", ".ico", ".woff", ".jpg", ".gif", ".map", ".woff2"}
@@ -17,13 +18,16 @@ _OVERRIDE_HEADERS = ["X-HTTP-Method-Override", "X-Method-Override", "X-HTTP-Meth
 _MAX_ENDPOINTS = 10
 
 
-def _is_api_endpoint(url: str, target: str) -> bool:
+def _is_api_endpoint(url: str, target: str, backend_url: str | None = None) -> bool:
     if any(url.endswith(ext) for ext in _STATIC_EXTS):
         return False
     if any(frag in url for frag in _SKIP_FRAGMENTS):
         return False
     parsed = urlparse(url)
-    return parsed.netloc == urlparse(target).netloc
+    allowed_netlocs = {urlparse(target).netloc}
+    if backend_url:
+        allowed_netlocs.add(urlparse(backend_url).netloc)
+    return parsed.netloc in allowed_netlocs
 
 
 class Scanner(BaseScanner):
@@ -40,34 +44,39 @@ class Scanner(BaseScanner):
         stack = config.stack.backend if hasattr(config, "stack") else "unknown"
         network = listeners["network"]
         target = config.target
+        origin = frontend_origin(config)
 
-        get_endpoints = _discover_get_endpoints(network, target)
+        get_endpoints = _discover_get_endpoints(network, target, getattr(config, "backend_url", None))
 
         seen_fps: set[str] = set()
         for url in get_endpoints[:_MAX_ENDPOINTS]:
+            probe_url = rewrite_to_backend_url(url, config)
             # Active preflight: skip HTML page routes. Next.js returns 200 for every
             # HTTP method on page routes (they just re-render HTML), producing false
             # positives. Check the actual GET response body rather than relying on
             # captured response headers, which vary in key casing across CDN layers.
-            preflight_status, preflight_body = _fetch(url, "GET")
+            preflight_status, preflight_body = _fetch(probe_url, "GET", origin=origin)
             if preflight_status is None:
                 continue
             if preflight_body and preflight_body.lstrip()[:9].lower().startswith("<!doctype"):
                 continue
-            self._test_dangerous_methods(url, stack, target, findings, seen_fps)
-            self._test_method_override(url, stack, target, findings, seen_fps)
+            self._test_dangerous_methods(probe_url, stack, target, findings, seen_fps, origin, preflight_body)
+            self._test_method_override(probe_url, stack, target, findings, seen_fps, origin, preflight_body)
 
         return findings
 
     def _test_dangerous_methods(
         self, url: str, stack: str, target: str,
-        findings: list[Finding], seen: set[str],
+        findings: list[Finding], seen: set[str], origin: str | None, get_body: str,
     ) -> None:
         for method in _DANGEROUS_METHODS:
-            status, body = _fetch(url, method)
+            status, body = _fetch(url, method, origin=origin)
             if status is None:
                 continue
             if status in (405, 501, 404, 403, 401):
+                continue
+            proof_quality = _method_response_proof_quality(get_body, body, status, method)
+            if proof_quality is None:
                 continue
 
             fp = self.make_fingerprint(self.name, f"{method} accepted on GET endpoint", url)
@@ -89,6 +98,7 @@ class Scanner(BaseScanner):
                 evidence={
                     "request": {"method": method, "url": url, "headers": {}},
                     "response": {"status": status, "body_excerpt": truncate(body, 200)},
+                    "proof_quality": proof_quality,
                     "payload_type": "method_tampering",
                     "payload_used": method,
                     "injection_point": "http_method",
@@ -114,13 +124,16 @@ class Scanner(BaseScanner):
 
     def _test_method_override(
         self, url: str, stack: str, target: str,
-        findings: list[Finding], seen: set[str],
+        findings: list[Finding], seen: set[str], origin: str | None, get_body: str,
     ) -> None:
         for override_header in _OVERRIDE_HEADERS:
-            status, body = _fetch_with_override(url, override_header, "DELETE")
+            status, body = _fetch_with_override(url, override_header, "DELETE", origin=origin)
             if status is None:
                 continue
             if status in (405, 501, 404, 403, 401):
+                continue
+            proof_quality = _method_response_proof_quality(get_body, body, status, "DELETE")
+            if proof_quality is None:
                 continue
 
             fp = self.make_fingerprint(self.name, f"Method override: {override_header}", url)
@@ -141,6 +154,7 @@ class Scanner(BaseScanner):
                 evidence={
                     "request": {"method": "POST", "url": url, "headers": {override_header: "DELETE"}},
                     "response": {"status": status, "body_excerpt": truncate(body, 200)},
+                    "proof_quality": proof_quality,
                     "payload_type": "method_override",
                     "payload_used": f"{override_header}: DELETE",
                     "injection_point": f"request_header:{override_header}",
@@ -164,13 +178,13 @@ class Scanner(BaseScanner):
             break  # one override finding per endpoint
 
 
-def _discover_get_endpoints(network: Any, target: str) -> list[str]:
+def _discover_get_endpoints(network: Any, target: str, backend_url: str | None = None) -> list[str]:
     seen: set[str] = set()
     result: list[str] = []
     for req in network.get_requests():
         if req.method != "GET":
             continue
-        if not _is_api_endpoint(req.url, target):
+        if not _is_api_endpoint(req.url, target, backend_url if isinstance(backend_url, str) else None):
             continue
         # Skip HTML page routes using CDP's normalised mimeType field.
         # The active preflight in run() is the authoritative filter; this is
@@ -185,11 +199,14 @@ def _discover_get_endpoints(network: Any, target: str) -> list[str]:
     return result
 
 
-def _fetch(url: str, method: str, timeout: int = 5) -> tuple[int | None, str]:
+def _fetch(url: str, method: str, origin: str | None = None, timeout: int = 5) -> tuple[int | None, str]:
     try:
+        headers = {"User-Agent": "vibe-iterator/method-check"}
+        if origin:
+            headers["Origin"] = origin
         req = urllib.request.Request(
             url, method=method,
-            headers={"User-Agent": "vibe-iterator/method-check"},
+            headers=headers,
         )
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.status, resp.read(2000).decode("utf-8", errors="replace")
@@ -199,16 +216,21 @@ def _fetch(url: str, method: str, timeout: int = 5) -> tuple[int | None, str]:
         return None, ""
 
 
-def _fetch_with_override(url: str, override_header: str, method: str, timeout: int = 5) -> tuple[int | None, str]:
+def _fetch_with_override(
+    url: str, override_header: str, method: str, origin: str | None = None, timeout: int = 5
+) -> tuple[int | None, str]:
     try:
+        headers = {
+            override_header: method,
+            "Content-Type": "application/json",
+            "User-Agent": "vibe-iterator/method-override-check",
+        }
+        if origin:
+            headers["Origin"] = origin
         req = urllib.request.Request(
             url, data=b"",
             method="POST",
-            headers={
-                override_header: method,
-                "Content-Type": "application/json",
-                "User-Agent": "vibe-iterator/method-override-check",
-            },
+            headers=headers,
         )
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.status, resp.read(2000).decode("utf-8", errors="replace")
@@ -216,3 +238,26 @@ def _fetch_with_override(url: str, override_header: str, method: str, timeout: i
         return e.code, ""
     except Exception:
         return None, ""
+
+
+def _method_response_proof_quality(
+    get_body: str, method_body: str, status: int, method: str
+) -> str | None:
+    """Classify whether an alternate method response proves method processing."""
+    if 200 <= status < 300 and status == 204:
+        return f"{method.lower()}_returned_no_content_success"
+
+    if _normalise_body(method_body) == _normalise_body(get_body):
+        return None
+
+    if 200 <= status < 300:
+        return "alternate_method_response_differs_from_get"
+
+    if 300 <= status < 400:
+        return "alternate_method_redirected_differently_from_get"
+
+    return None
+
+
+def _normalise_body(body: str) -> str:
+    return (body or "").strip()

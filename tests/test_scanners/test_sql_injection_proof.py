@@ -100,3 +100,63 @@ def test_no_sqli_finding_for_paramless_endpoint(vuln_app) -> None:
     findings = _run(vuln_app, [req])
     sqli = [f for f in findings if "sql injection" in f.title.lower()]
     assert sqli == []
+
+
+def test_expired_deadline_prevents_active_group_http_requests(monkeypatch: pytest.MonkeyPatch, vuln_app) -> None:
+    scanner = Scanner()
+    config = _make_config(vuln_app.base_url)
+    deadline = 0.0
+    rest_req = _make_req(
+        url=vuln_app.base_url + "/rest/v1/items?name=eq.test",
+        status=200,
+        body="[]",
+    )
+    query_req = _make_req(
+        url=vuln_app.base_url + "/api/search?q=test",
+        status=200,
+        body='{"results": []}',
+    )
+    network = _make_network([rest_req, query_req])
+    findings: list = []
+
+    def fail_request(*args, **kwargs):
+        raise AssertionError("expired SQLi deadline should prevent active HTTP probes")
+
+    monkeypatch.setattr("vibe_iterator.scanners.sql_injection._make_request", fail_request)
+
+    scanner._group2_postgrest_injection(network, config, findings, "custom", deadline)
+    scanner._group3_classic_injection(network, config, findings, "custom", deadline)
+    scanner._group4_blind_injection(network, config, findings, "custom", deadline)
+
+    assert findings == []
+
+
+def test_active_sqli_rewrites_frontend_api_request_to_backend_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    scanner = Scanner()
+    config = _make_config("http://localhost:3000")
+    config.backend_url = "http://localhost:4001"
+    req = _make_req(
+        url="http://localhost:3000/api/search?q=test",
+        status=200,
+        body='{"results": []}',
+    )
+    network = _make_network([req])
+    requested_urls: list[str] = []
+
+    def fake_request(url, method, data, headers, timeout=4):
+        requested_urls.append(url)
+        return "", 401, 0.01
+
+    monkeypatch.setattr("vibe_iterator.scanners.sql_injection._make_request", fake_request)
+
+    findings: list = []
+    scanner._group3_classic_injection(
+        network,
+        config,
+        findings,
+        "custom",
+        deadline=999999999.0,
+    )
+
+    assert requested_urls
+    assert all(url.startswith("http://localhost:4001/api/search?") for url in requested_urls)

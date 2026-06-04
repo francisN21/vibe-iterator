@@ -9,12 +9,12 @@ from vibe_iterator.scanners.rate_limit_check import Scanner
 from vibe_iterator.scanners.base import Severity
 
 
-def _make_config(deep_scan: bool = False) -> MagicMock:
+def _make_config(deep_scan: bool = False, backend_url: str | None = None) -> MagicMock:
     cfg = MagicMock()
     cfg.target = "http://localhost:3000"
     cfg.stack.backend = "custom"
     cfg.rate_limit_deep_scan = deep_scan
-    cfg.backend_url = None
+    cfg.backend_url = backend_url
     return cfg
 
 
@@ -265,3 +265,37 @@ def test_deep_scan_caps_at_20_endpoints():
         )
 
     assert len(probed_paths) == 20
+
+
+def test_backend_url_routes_probes_with_frontend_origin():
+    """When backend_url is configured, probes hit it while Origin remains target."""
+    scanner = Scanner()
+    config = _make_config(backend_url="http://localhost:4001")
+    network = _make_network()
+    active_calls: list[tuple[str, str]] = []
+    burst_calls: list[tuple[str, str]] = []
+
+    def _active_side(base, variants, origin):
+        active_calls.append((base, origin))
+        return "/api/auth/login"
+
+    def _full_side(url, origin):
+        burst_calls.append((url, origin))
+        return (429, {"retry-after": "60"}, '{"error": "rate limited"}')
+
+    with patch("vibe_iterator.scanners.rate_limit_check._find_active_path",
+               side_effect=_active_side), \
+         patch("vibe_iterator.scanners.rate_limit_check._post_full",
+               side_effect=_full_side):
+        findings = scanner.run(
+            session=None,
+            listeners={"network": network},
+            config=config,
+        )
+
+    assert findings == []
+    assert active_calls[0] == ("http://localhost:4001", "http://localhost:3000")
+    assert burst_calls[0] == (
+        "http://localhost:4001/api/auth/login",
+        "http://localhost:3000",
+    )

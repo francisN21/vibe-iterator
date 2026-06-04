@@ -16,6 +16,8 @@ from vibe_iterator.scanners.rls_bypass import _discover_tables, _extract_sub
 from vibe_iterator.scanners.sql_injection import Scanner as SqlScanner
 from vibe_iterator.scanners.sql_injection import _has_sql_error, _inject_postgrest_filter
 from vibe_iterator.scanners.tier_escalation import Scanner as TierScanner
+from vibe_iterator.scanners.tier_escalation import _network_reflects_tier
+from vibe_iterator.scanners.tier_escalation import _rpc_reflects_tier
 
 
 def _jwt(payload: dict) -> str:
@@ -177,7 +179,8 @@ def test_auth_password_bypass_and_oauth_checks_report_findings() -> None:
 
     titles = [f.title for f in findings]
     assert "Password field returned in API response" in titles
-    assert any("Protected route `/dashboard`" in title for title in titles)
+    route_finding = next(f for f in findings if "Protected route `/dashboard`" in f.title)
+    assert route_finding.evidence["proof_quality"] == "protected_route_path_loaded_without_auth"
     assert any("API endpoint accessible without authentication" in title for title in titles)
     assert "OAuth flow missing CSRF state parameter" in titles
 
@@ -337,13 +340,102 @@ def test_tier_escalation_reports_client_side_plan_trust_and_restores() -> None:
     )
     storage = MagicMock()
     storage.get_snapshots.return_value = [snapshot]
+    network = MagicMock()
+    network.get_requests.return_value = [
+        _request("http://localhost:3000/api/subscription", body='{"plan":"premium"}'),
+    ]
     session = MagicMock()
     session.evaluate.side_effect = ["free", None, "premium", None, None]
     session.navigate.return_value = None
 
-    findings = scanner.run(session, {"storage": storage}, _config())
+    findings = scanner.run(session, {"storage": storage, "network": network}, _config())
 
     assert len(findings) == 1
     assert findings[0].scanner == "tier_escalation"
     assert findings[0].evidence["storage_key"] == "plan"
+    assert findings[0].evidence["proof_quality"] == "structured_api_response_contains_tampered_tier"
+    assert findings[0].evidence["server_acceptance_evidence"]["json_path"] == "plan"
     assert session.evaluate.call_args_list[-1].args[0].find("setItem('plan'") != -1
+
+
+def test_tier_escalation_does_not_report_when_tampered_plan_only_persists_locally() -> None:
+    scanner = TierScanner()
+    snapshot = SimpleNamespace(
+        url="http://localhost:3000/dashboard",
+        local_storage={"plan": "free"},
+        session_storage={},
+    )
+    storage = MagicMock()
+    storage.get_snapshots.return_value = [snapshot]
+    network = MagicMock()
+    network.get_requests.return_value = []
+    session = MagicMock()
+    session.evaluate.side_effect = ["free", None, "premium", None, None]
+    session.navigate.return_value = None
+
+    findings = scanner.run(session, {"storage": storage, "network": network}, _config())
+
+    assert findings == []
+
+
+def test_tier_escalation_does_not_report_unrelated_textual_plan_match() -> None:
+    scanner = TierScanner()
+    snapshot = SimpleNamespace(
+        url="http://localhost:3000/dashboard",
+        local_storage={"plan": "free"},
+        session_storage={},
+    )
+    storage = MagicMock()
+    storage.get_snapshots.return_value = [snapshot]
+    network = MagicMock()
+    network.get_requests.return_value = [
+        _request(
+            "http://localhost:3000/api/subscription",
+            body='{"copy":"Premium plans are available in billing"}',
+        ),
+    ]
+    session = MagicMock()
+    session.evaluate.side_effect = ["free", None, "premium", None, None]
+    session.navigate.return_value = None
+
+    findings = scanner.run(session, {"storage": storage, "network": network}, _config())
+
+    assert findings == []
+
+
+def test_network_reflects_tier_returns_structured_json_path() -> None:
+    network = MagicMock()
+    network.get_requests.return_value = [
+        _request("http://localhost:3000/api/subscription", body='{"subscription":{"tier":"premium"}}'),
+    ]
+
+    proof = _network_reflects_tier(network, "plan", "premium")
+
+    assert proof == {
+        "url": "http://localhost:3000/api/subscription",
+        "status": 200,
+        "json_path": "subscription.tier",
+        "matched_value": "premium",
+    }
+
+
+def test_network_reflects_tier_ignores_unstructured_text_match() -> None:
+    network = MagicMock()
+    network.get_requests.return_value = [
+        _request("http://localhost:3000/api/subscription", body='{"copy":"Premium plans are available"}'),
+    ]
+
+    assert _network_reflects_tier(network, "plan", "premium") is None
+
+
+def test_rpc_reflects_tier_uses_rpc_data_only() -> None:
+    assert _rpc_reflects_tier({"data": {"tier": "premium"}, "error": None}, "premium") is True
+
+
+def test_rpc_reflects_tier_ignores_error_text_match() -> None:
+    rpc_result = {
+        "data": None,
+        "error": "Premium tier function is not available",
+    }
+
+    assert _rpc_reflects_tier(rpc_result, "premium") is False

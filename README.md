@@ -213,6 +213,32 @@ One click exports a self-contained HTML report file — same data, same aestheti
 
 ---
 
+## Scanner Hardening
+
+Phase 6 tightened the scanners around runtime proof instead of loose pattern matches. The goal is fewer false positives, clearer evidence, and findings that map directly to exploitable full-stack security issues.
+
+| Area | Latest hardening |
+| ---- | ---------------- |
+| Auth bypass | Protected route and API findings now require unauthenticated access proof, not generic page text or fallback responses. |
+| API exposure | Unauthenticated endpoint findings are gated on replay evidence and protected-resource signals. |
+| Client tampering | Role, admin, permission, plan, and tier findings require structured API JSON proof that the server accepted the tampered value. |
+| Tier escalation | Premium access findings require structured tier evidence from JSON fields such as `plan`, `tier`, or `subscription.tier`; Supabase RPC proof is parsed separately. |
+| Bucket limits | Supabase storage URLs are parsed across public, signed, and list routes, with upload proof labels separated from discovery-only evidence. |
+| Mass assignment | Findings require resource-write proof, record the accepted response field path, and suppress dry-run or preview echoes. |
+| Data leakage | Service-role JWTs, JWT URLs, console tokens, and bulk real-email leaks carry proof-quality labels, with repeated console token logs deduped. |
+| API key exposure | Known placeholders and public client keys are suppressed while real secret keys remain high-confidence findings. |
+| CORS | Wildcard, reflected, null-origin, preflight, and credentialed CORS cases now receive clearer severity and proof labels. |
+| Info disclosure | SPA fallback noise and unrelated route text are filtered out before reporting sensitive-path findings. |
+| IDOR, SQLi, XSS, method tampering | Proof quality metadata was added or tightened so reports distinguish runtime exploit evidence from weaker probes. |
+
+Current validation snapshot for this branch:
+
+- `python -m pytest`: 491 passed, 2 skipped
+- `python -m pytest --cov=vibe_iterator --cov-report=term-missing`: 81% coverage
+- Fresh wheel build/install smoke passed, including installed `vibe-iterator --help`
+
+---
+
 ## Scan Stages
 
 | Stage              | Scanners                                                                                                                                                 | When to Use                                  |
@@ -436,7 +462,7 @@ See `docs/ADDING_SCANNERS.md` for the full guide.
 
 ## Status
 
-> **v0.1.0 — All phases complete. 438 tests passing.**
+> **v0.1.0 — All phases complete. 491 tests passing, 2 skipped, 81% coverage.**
 
 | Phase | What                                                                                                   | Status  |
 | ----- | ------------------------------------------------------------------------------------------------------ | ------- |

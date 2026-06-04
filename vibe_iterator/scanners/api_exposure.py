@@ -13,10 +13,19 @@ from urllib.parse import urlparse
 _THIRD_PARTY_EMBED_RE = re.compile(r"/[0-9a-f]{12,}(?:/|$)", re.I)
 
 from vibe_iterator.scanners.base import BaseScanner, Finding, Severity
+from vibe_iterator.scanners.request_targets import frontend_origin, rewrite_to_backend_url
 
 _STATIC_EXTS = {".js", ".css", ".png", ".svg", ".ico", ".woff", ".woff2", ".jpg", ".gif", ".map"}
 _AUTH_INDICATORS = {"authorization", "x-api-key", "cookie"}
 _SENSITIVE_PATH_FRAGMENTS = ["/admin", "/api/admin", "/api/user", "/api/account", "/api/profile", "/api/delete", "/api/update"]
+_PROTECTED_PATH_FRAGMENTS = [
+    *_SENSITIVE_PATH_FRAGMENTS,
+    "/protected", "/private", "/api/me", "/api/session", "/api/settings", "/api/billing",
+]
+_SENSITIVE_BODY_TERMS = {
+    "secret", "token", "password", "email", "user_id", "owner_id", "account",
+    "billing", "subscription", "admin",
+}
 _RATE_LIMIT_HEADERS = {"x-ratelimit-limit", "x-rate-limit-limit", "ratelimit-limit", "retry-after"}
 _AUTH_PATHS = ["/auth", "/login", "/signin", "/token", "/api/auth", "/api/login"]
 _MAX_ENDPOINTS = 15
@@ -31,14 +40,17 @@ _SECURITY_HEADERS = {
 
 
 def _fetch_without_auth(
-    url: str, method: str = "GET", body: bytes | None = None, timeout: int = 5,
+    url: str, method: str = "GET", body: bytes | None = None, origin: str | None = None, timeout: int = 5,
 ) -> tuple[int, dict[str, str]] | None:
     """Make an HTTP request without auth headers; return (status, headers) or None."""
     try:
         ctx = ssl._create_unverified_context()
+        headers = {"Content-Type": "application/json", "User-Agent": "vibe-iterator/api-check"}
+        if origin:
+            headers["Origin"] = origin
         req = urllib.request.Request(
             url, data=body, method=method,
-            headers={"Content-Type": "application/json", "User-Agent": "vibe-iterator/api-check"},
+            headers=headers,
         )
         with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
             return resp.status, {k.lower(): v for k, v in resp.headers.items()}
@@ -56,17 +68,34 @@ def _has_auth_header(req: Any) -> bool:
 
 _SKIP_PATH_PREFIXES = ("/_next/", "/__next/")
 
-def _is_api_url(url: str, target: str) -> bool:
+def _is_api_url(url: str, target: str, backend_url: str | None = None) -> bool:
     if any(url.endswith(ext) for ext in _STATIC_EXTS):
         return False
     parsed = urlparse(url)
-    if parsed.netloc != urlparse(target).netloc:
+    allowed_netlocs = {urlparse(target).netloc}
+    if backend_url:
+        allowed_netlocs.add(urlparse(backend_url).netloc)
+    if parsed.netloc not in allowed_netlocs:
         return False
     # Skip Next.js internal routes (image optimisation, RSC, etc.) — these are
     # served by the CDN edge layer with different headers than the app sets.
     if any(parsed.path.startswith(p) for p in _SKIP_PATH_PREFIXES):
         return False
     return True
+
+
+def _unauth_access_proof_quality(req: Any, url: str) -> str | None:
+    """Return why a 200-without-auth replay is security-relevant."""
+    lowered_url = url.lower()
+    if any(frag in lowered_url for frag in _PROTECTED_PATH_FRAGMENTS):
+        return "protected_path_replayed_without_auth"
+
+    raw_body = getattr(req, "response_body", "")
+    body = raw_body.lower() if isinstance(raw_body, str) else ""
+    if body and any(term in body for term in _SENSITIVE_BODY_TERMS):
+        return "authenticated_response_body_contains_sensitive_terms"
+
+    return None
 
 
 class Scanner(BaseScanner):
@@ -83,13 +112,16 @@ class Scanner(BaseScanner):
         stack = config.stack.backend if hasattr(config, "stack") else "unknown"
         network = listeners["network"]
         target = config.target
+        backend_url = getattr(config, "backend_url", None)
+        backend_url = backend_url if isinstance(backend_url, str) and backend_url else None
+        origin = frontend_origin(config)
 
-        requests = [r for r in network.get_requests() if _is_api_url(r.url, target)]
+        requests = [r for r in network.get_requests() if _is_api_url(r.url, target, backend_url)]
 
         self._check_security_headers(requests, target, stack, findings)
-        self._check_unauth_access(requests, target, stack, findings)
+        self._check_unauth_access(requests, target, stack, findings, config, origin)
         self._check_rate_limiting(requests, target, stack, findings)
-        self._probe_rate_limiting(requests, target, stack, findings)
+        self._probe_rate_limiting(requests, target, stack, findings, config, origin)
         return findings
 
     # ------------------------------------------------------------------ #
@@ -172,7 +204,7 @@ class Scanner(BaseScanner):
     # ------------------------------------------------------------------ #
 
     def _probe_rate_limiting(
-        self, requests: list, target: str, stack: str, findings: list[Finding],
+        self, requests: list, target: str, stack: str, findings: list[Finding], config: Any, origin: str | None,
     ) -> None:
         seen_fps: set[str] = set()
         probed: set[str] = set()
@@ -189,7 +221,7 @@ class Scanner(BaseScanner):
             if req.response_mime_type and "text/html" in req.response_mime_type:
                 continue
 
-            base_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+            base_url = rewrite_to_backend_url(f"{parsed.scheme}://{parsed.netloc}{parsed.path}", config)
             if base_url in probed:
                 continue
             probed.add(base_url)
@@ -197,7 +229,7 @@ class Scanner(BaseScanner):
             # Send _RATE_LIMIT_PROBE_COUNT rapid requests; check if any return 429
             got_429 = False
             for _ in range(_RATE_LIMIT_PROBE_COUNT):
-                result = _fetch_without_auth(base_url, method="POST", timeout=3)
+                result = _fetch_without_auth(base_url, method="POST", origin=origin, timeout=3)
                 if result and result[0] == 429:
                     got_429 = True
                     break
@@ -252,7 +284,7 @@ class Scanner(BaseScanner):
     # ------------------------------------------------------------------ #
 
     def _check_unauth_access(
-        self, requests: list, target: str, stack: str, findings: list[Finding],
+        self, requests: list, target: str, stack: str, findings: list[Finding], config: Any, origin: str | None,
     ) -> None:
         seen_fps: set[str] = set()
         tested: set[str] = set()
@@ -262,16 +294,20 @@ class Scanner(BaseScanner):
                 continue
 
             parsed = urlparse(req.url)
-            endpoint_key = f"{req.method}:{parsed.netloc}{parsed.path}"
+            base_url = rewrite_to_backend_url(f"{parsed.scheme}://{parsed.netloc}{parsed.path}", config)
+            base_parsed = urlparse(base_url)
+            endpoint_key = f"{req.method}:{base_parsed.netloc}{base_parsed.path}"
             if endpoint_key in tested:
                 continue
+            proof_quality = _unauth_access_proof_quality(req, base_url)
+            if proof_quality is None:
+                continue
 
-            base_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
             if len(tested) >= _MAX_ENDPOINTS:
                 break
             tested.add(endpoint_key)
 
-            result = _fetch_without_auth(base_url, method=req.method)
+            result = _fetch_without_auth(base_url, method=req.method, origin=origin)
             if result is None:
                 continue
             status, resp_headers = result
@@ -294,18 +330,19 @@ class Scanner(BaseScanner):
                 )
                 findings.append(self.new_finding(
                     scanner=self.name, severity=sev,
-                    title=f"Unauthenticated access: {req.method} {parsed.path}",
+                    title=f"Unauthenticated access: {req.method} {base_parsed.path}",
                     description=desc,
                     evidence={
                         "endpoint": base_url,
                         "test_performed": "replay_without_auth",
                         "request": {"method": req.method, "url": base_url, "headers": {}},
                         "response": {"status": status, "body_excerpt": "(response received)"},
+                        "proof_quality": proof_quality,
                         "expected_response": "401 Unauthorized or 403 Forbidden",
                         "actual_response": f"{status} OK — endpoint accessible without auth",
                     },
                     llm_prompt=self.build_llm_prompt(
-                        title=f"Unauthenticated access: {req.method} {parsed.path}",
+                        title=f"Unauthenticated access: {req.method} {base_parsed.path}",
                         severity=sev, scanner=self.name, page=base_url,
                         category=self.category, description=desc,
                         evidence_summary=(
@@ -316,7 +353,7 @@ class Scanner(BaseScanner):
                         stack=stack,
                     ),
                     remediation=(
-                        f"**What to fix:** `{req.method} {parsed.path}` does not require authentication.\n\n"
+                        f"**What to fix:** `{req.method} {base_parsed.path}` does not require authentication.\n\n"
                         "**How to fix:** Add authentication middleware to this endpoint. "
                         "For Supabase/Next.js: verify `session` on the server side before returning data. "
                         "For Express: add a `requireAuth` middleware that checks the JWT before the route handler.\n\n"
