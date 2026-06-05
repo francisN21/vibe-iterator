@@ -81,6 +81,28 @@ class BaseScanner:
 
 ---
 
+## Proof Quality Vocabulary
+
+Many hardened scanners include `evidence["proof_quality"]` to distinguish strong runtime proof from weaker discovery signals. New scanners should include this field whenever they report exploitable behavior, or document why it does not apply.
+
+Common values include:
+
+| Value | Meaning |
+| ----- | ------- |
+| `protected_api_path_replayed_without_auth` | A protected API request was replayed without auth and still returned protected data. |
+| `protected_route_path_loaded_without_auth` | A protected route loaded after auth was removed and showed protected-page signals. |
+| `structured_api_response_contains_tampered_tier` | A structured JSON API response accepted a tampered tier/plan value. |
+| `structured_api_response_contains_tampered_authorization_value` | A structured JSON API response accepted a tampered role/admin/permission value. |
+| `resource_write_response_contains_injected_privileged_field` | A write endpoint accepted and returned an injected privileged field. |
+| `oversized_storage_upload_accepted` | Storage accepted a probe upload that should have exceeded size limits. |
+| `dangerous_mime_storage_upload_accepted` | Storage accepted a blocked MIME type. |
+| `reflected_origin_allows_credentials` | CORS reflected an untrusted origin while credentials were allowed. |
+| `wildcard_origin_without_credentials` | CORS allowed wildcard origin without credentials. |
+| `api_documentation_response` | A sensitive documentation endpoint returned API schema content. |
+| `env_file_key_value_response` | A sensitive path returned environment-style key/value secrets. |
+
+---
+
 ## Shared Utilities (`utils/supabase_helpers.py`)
 
 Not a scanner — a module of helper functions used by `rls_bypass`, `tier_escalation`, and `bucket_limits`. Do not add Supabase-specific logic directly into scanners; put it here so it can be reused and tested independently.

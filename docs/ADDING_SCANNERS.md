@@ -104,6 +104,20 @@ findings.append(
 
 **Severity levels:** `Severity.CRITICAL`, `Severity.HIGH`, `Severity.MEDIUM`, `Severity.LOW`, `Severity.INFO`
 
+### Proof Quality Evidence
+
+If a scanner reports exploitable runtime behavior, include `proof_quality` in the finding evidence. Use a stable snake_case value that describes the proof, not the vulnerability class. Example:
+
+```python
+evidence={
+    "proof_quality": "structured_api_response_contains_tampered_authorization_value",
+    "request": {"method": "PATCH", "url": url},
+    "response": {"status": 200, "json_path": "role", "matched_value": "admin"},
+}
+```
+
+If `proof_quality` does not apply, explain why in the scanner tests or scanner docs.
+
 ---
 
 ## 3. Implement `run()`

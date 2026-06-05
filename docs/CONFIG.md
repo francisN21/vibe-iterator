@@ -38,6 +38,8 @@ VIBE_ITERATOR_TEST_PASSWORD_2=testpassword456
 | `VIBE_ITERATOR_TEST_PASSWORD_2` | No | Second test account password |
 | `VIBE_ITERATOR_BACKEND_URL` | No | Backend API URL when frontend and backend run on different ports — scanners probe this directly while Selenium crawls `TARGET` |
 
+When `VIBE_ITERATOR_BACKEND_URL` is set, runtime API probes target that backend directly and send an `Origin` header derived from `VIBE_ITERATOR_TARGET`.
+
 ---
 
 ## `vibe-iterator.config.yaml` (scan scope)
