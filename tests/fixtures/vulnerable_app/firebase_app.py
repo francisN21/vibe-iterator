@@ -33,6 +33,33 @@ class FirebaseHandler(BaseHTTPRequestHandler):
         path = p.path
         qs = urllib.parse.parse_qs(p.query)
 
+        if path == "/":
+            self._html(200, """<!doctype html><title>Firebase Fixture</title>
+            <script>
+            fetch('/users.json');
+            fetch('/v0/b/proj.appspot.com/o');
+            fetch('/helloFunction', {method:'POST', body:'{}'});
+            </script>""")
+            return
+
+        if path == "/login":
+            self._html(200, """<!doctype html><title>Login</title>
+            <form action="/dashboard" method="get">
+              <input type="email" name="email" autocomplete="email">
+              <input type="password" name="password" autocomplete="current-password">
+              <button type="submit">Sign in</button>
+            </form>""")
+            return
+
+        if path == "/dashboard":
+            self._html(200, """<!doctype html><title>Dashboard</title>
+            <script>
+            fetch('/users.json');
+            fetch('/v0/b/proj.appspot.com/o');
+            fetch('/helloFunction', {method:'POST', body:'{}'});
+            </script>""")
+            return
+
         # RTDB: secured path -> 401
         if path.startswith("/secured/") or path == "/secured.json":
             self._json(401, {"error": "Permission denied"})
@@ -238,6 +265,14 @@ class FirebaseHandler(BaseHTTPRequestHandler):
         data = json.dumps(body).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _html(self, status: int, body: str) -> None:
+        data = body.encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)

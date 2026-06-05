@@ -289,6 +289,12 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
     fetch('/api/user');
     fetch('/api/login');
     fetch('/api/protected', {headers: {'Authorization': 'Bearer fake-jwt'}});
+    fetch('/api/search?q=%27');
+    fetch('/api/profile', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({display_name: 'Alice'})
+    });
   </script>
 </body>
 </html>"""

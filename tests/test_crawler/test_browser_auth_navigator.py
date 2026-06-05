@@ -54,6 +54,7 @@ def test_launch_uses_dynamic_debug_port_and_preserves_web_security(monkeypatch) 
 
     options = chrome.call_args.kwargs["options"]
     assert "--remote-debugging-port=0" in options.arguments
+    assert any(arg.startswith("--user-data-dir=") for arg in options.arguments)
     assert "--disable-web-security" not in options.arguments
     assert session.driver is driver
     driver.execute_cdp_cmd.assert_any_call("Network.enable", {})

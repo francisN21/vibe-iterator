@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
+import tempfile
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -23,6 +25,7 @@ class BrowserSession:
     """
 
     driver: webdriver.Chrome
+    _profile_dir: str | None = field(default=None, repr=False)
     _cdp_listeners: list[tuple[str, Any]] = field(default_factory=list, repr=False)
 
     def execute_cdp(self, cmd: str, params: dict | None = None) -> Any:
@@ -54,6 +57,8 @@ class BrowserSession:
             self.driver.quit()
         except Exception:
             pass  # Already closed — ignore
+        if self._profile_dir:
+            shutil.rmtree(self._profile_dir, ignore_errors=True)
 
 
 def launch(*, headless: bool = False) -> BrowserSession:
@@ -92,15 +97,23 @@ def launch(*, headless: bool = False) -> BrowserSession:
     # supported polling-based alternative that works across all Selenium 4.x.
     options.set_capability("goog:loggingPrefs", {"performance": "ALL", "browser": "ALL"})
 
-    # Keep a clean profile per run to avoid cross-scan state leakage
+    # Keep a clean profile per run to avoid cross-scan state leakage and
+    # default-profile locks after interrupted local runs.
+    profile_dir = tempfile.mkdtemp(prefix="vibe-iterator-chrome-")
+    options.add_argument(f"--user-data-dir={profile_dir}")
     options.add_argument("--incognito")
+    options.add_argument("--disable-gpu")
 
     service = Service()  # Selenium Manager resolves the binary path
-    driver = webdriver.Chrome(service=service, options=options)
+    try:
+        driver = webdriver.Chrome(service=service, options=options)
+    except Exception:
+        shutil.rmtree(profile_dir, ignore_errors=True)
+        raise
 
     # Enable CDP Network and Console domains so listeners can attach
     driver.execute_cdp_cmd("Network.enable", {})
     driver.execute_cdp_cmd("Console.enable", {})
 
     logger.info("Chrome launched — CDP connected")
-    return BrowserSession(driver=driver)
+    return BrowserSession(driver=driver, _profile_dir=profile_dir)
