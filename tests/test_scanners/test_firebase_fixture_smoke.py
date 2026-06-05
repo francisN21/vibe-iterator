@@ -42,6 +42,17 @@ def test_firebase_fixture_denies_secured_firestore_and_rtdb() -> None:
         assert fs_err.value.code == 403
 
 
+def test_firebase_fixture_denies_secured_rtdb_delete() -> None:
+    import urllib.error
+    import urllib.request
+
+    with FirebaseVulnerableApp() as app:
+        req = urllib.request.Request(f"{app.base_url}/secured.json", method="DELETE")
+        with pytest.raises(urllib.error.HTTPError) as err:
+            urllib.request.urlopen(req, timeout=3)
+        assert err.value.code == 401
+
+
 def test_firebase_fixture_accepts_probe_prefixed_storage_upload() -> None:
     import urllib.request
 

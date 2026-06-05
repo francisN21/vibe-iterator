@@ -192,6 +192,10 @@ class FirebaseHandler(BaseHTTPRequestHandler):
         self.server._store.pop(path, None)
 
         if path.endswith(".json"):
+            rtdb_path = path[:-5]
+            if rtdb_path.startswith("/secured") or rtdb_path == "/secured":
+                self._json(401, {"error": "Permission denied"})
+                return
             self._json(200, {})
             return
 
