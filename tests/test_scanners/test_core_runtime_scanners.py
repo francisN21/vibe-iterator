@@ -419,10 +419,35 @@ def test_network_reflects_tier_returns_structured_json_path() -> None:
     }
 
 
+def test_network_reflects_tier_accepts_nested_subscription_path() -> None:
+    network = MagicMock()
+    network.get_requests.return_value = [
+        _request("http://localhost:3000/api/tier/structured", body='{"subscription":{"tier":"premium"}}'),
+    ]
+
+    proof = _network_reflects_tier(network, "plan", "premium")
+
+    assert proof == {
+        "url": "http://localhost:3000/api/tier/structured",
+        "status": 200,
+        "json_path": "subscription.tier",
+        "matched_value": "premium",
+    }
+
+
 def test_network_reflects_tier_ignores_unstructured_text_match() -> None:
     network = MagicMock()
     network.get_requests.return_value = [
         _request("http://localhost:3000/api/subscription", body='{"copy":"Premium plans are available"}'),
+    ]
+
+    assert _network_reflects_tier(network, "plan", "premium") is None
+
+
+def test_network_reflects_tier_ignores_rpc_error_text() -> None:
+    network = MagicMock()
+    network.get_requests.return_value = [
+        _request("http://localhost:3000/api/tier/rpc-error", body='{"data":null,"error":"Premium tier function unavailable"}'),
     ]
 
     assert _network_reflects_tier(network, "plan", "premium") is None

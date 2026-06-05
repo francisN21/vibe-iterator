@@ -229,7 +229,7 @@ def _bucket_from_storage_url(url: str) -> str | None:
     if len(parts) <= bucket_index:
         return None
 
-    if parts[bucket_index] in {"public", "sign", "list"}:
+    if parts[bucket_index] in {"public", "sign", "list", "preview", "dry-run", "denied"}:
         bucket_index += 1
 
     if len(parts) <= bucket_index:

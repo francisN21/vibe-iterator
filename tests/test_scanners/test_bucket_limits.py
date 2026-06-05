@@ -119,3 +119,14 @@ def test_discover_buckets_parses_supabase_operation_paths() -> None:
     ]
 
     assert _discover_buckets(network) == ["avatars", "documents", "invoices"]
+
+
+def test_discover_buckets_ignores_preview_and_dry_run_paths() -> None:
+    network = MagicMock()
+    network.get_requests.return_value = [
+        SimpleNamespace(url="https://x/storage/v1/object/preview/avatars/file.png"),
+        SimpleNamespace(url="https://x/storage/v1/object/dry-run/avatars/file.png"),
+        SimpleNamespace(url="https://x/storage/v1/object/public/avatars/file.png"),
+    ]
+
+    assert _discover_buckets(network) == ["avatars"]
