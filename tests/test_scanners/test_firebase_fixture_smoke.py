@@ -42,6 +42,26 @@ def test_firebase_fixture_denies_secured_firestore_and_rtdb() -> None:
         assert fs_err.value.code == 403
 
 
+def test_firebase_fixture_secured_firestore_denial_body_is_firebase_shaped() -> None:
+    import json
+    import urllib.error
+    import urllib.request
+
+    with FirebaseVulnerableApp() as app:
+        url = f"{app.base_url}/v1/projects/proj/databases/(default)/documents/secured/doc1"
+        with pytest.raises(urllib.error.HTTPError) as err:
+            urllib.request.urlopen(url, timeout=3)
+        body = json.loads(err.value.read().decode())
+        assert err.value.code == 403
+        assert body == {
+            "error": {
+                "code": 403,
+                "message": "Permission denied",
+                "status": "PERMISSION_DENIED",
+            }
+        }
+
+
 def test_firebase_fixture_denies_secured_rtdb_delete() -> None:
     import urllib.error
     import urllib.request
@@ -51,6 +71,29 @@ def test_firebase_fixture_denies_secured_rtdb_delete() -> None:
         with pytest.raises(urllib.error.HTTPError) as err:
             urllib.request.urlopen(req, timeout=3)
         assert err.value.code == 401
+
+
+def test_firebase_fixture_denies_secured_storage_upload_and_delete() -> None:
+    import urllib.error
+    import urllib.request
+
+    with FirebaseVulnerableApp() as app:
+        upload = urllib.request.Request(
+            f"{app.base_url}/v0/b/proj.appspot.com/o?name=secured/file.txt",
+            data=b"probe",
+            method="POST",
+        )
+        with pytest.raises(urllib.error.HTTPError) as upload_err:
+            urllib.request.urlopen(upload, timeout=3)
+        assert upload_err.value.code == 403
+
+        delete = urllib.request.Request(
+            f"{app.base_url}/v0/b/proj.appspot.com/o/secured%2Ffile.txt",
+            method="DELETE",
+        )
+        with pytest.raises(urllib.error.HTTPError) as delete_err:
+            urllib.request.urlopen(delete, timeout=3)
+        assert delete_err.value.code == 403
 
 
 def test_firebase_fixture_accepts_probe_prefixed_storage_upload() -> None:

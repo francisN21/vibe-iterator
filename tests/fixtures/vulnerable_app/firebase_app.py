@@ -80,7 +80,7 @@ class FirebaseHandler(BaseHTTPRequestHandler):
             doc_path = parts[1] if len(parts) > 1 else ""
             # secured collection
             if doc_path.startswith("secured/"):
-                self._json(403, {"error": "PERMISSION_DENIED"})
+                self._permission_denied()
                 return
             self._json(200, {"fields": {
                 "name": {"stringValue": "alice"},
@@ -128,6 +128,9 @@ class FirebaseHandler(BaseHTTPRequestHandler):
         # Storage: upload
         if "/v0/b/" in path and path.endswith("/o"):
             name = urllib.parse.parse_qs(p.query).get("name", [""])[0]
+            if name.startswith("secured/"):
+                self._permission_denied()
+                return
             if name:
                 self.server._store[name] = raw
             self._json(200, {"name": name, "bucket": "proj.appspot.com"})
@@ -178,7 +181,7 @@ class FirebaseHandler(BaseHTTPRequestHandler):
         if "/databases/(default)/documents/" in path:
             doc_path = path.split("/documents/", 1)[1]
             if doc_path.startswith("secured/"):
-                self._json(403, {"error": {"status": "PERMISSION_DENIED"}})
+                self._permission_denied()
                 return
             self.server._store[path] = raw.decode()
             self._json(200, {"name": path, "fields": {}})
@@ -202,12 +205,18 @@ class FirebaseHandler(BaseHTTPRequestHandler):
         if "/databases/(default)/documents/" in path:
             doc_path = path.split("/documents/", 1)[1]
             if doc_path.startswith("secured/"):
-                self._json(403, {"error": {"status": "PERMISSION_DENIED"}})
+                self._permission_denied()
                 return
             self._json(200, {"name": path, "fields": {}})
             return
 
         if "/v0/b/" in path:
+            file_path = ""
+            if "/o/" in path:
+                file_path = urllib.parse.unquote(path.split("/o/", 1)[1])
+            if file_path.startswith("secured/"):
+                self._permission_denied()
+                return
             self._json(200, {})
             return
 
@@ -232,6 +241,15 @@ class FirebaseHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
+
+    def _permission_denied(self, status: int = 403) -> None:
+        self._json(status, {
+            "error": {
+                "code": status,
+                "message": "Permission denied",
+                "status": "PERMISSION_DENIED",
+            }
+        })
 
 
 class FirebaseVulnerableApp:
