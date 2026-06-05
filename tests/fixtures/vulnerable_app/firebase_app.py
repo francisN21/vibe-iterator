@@ -7,6 +7,10 @@ Routes simulate an open Firebase project (no Security Rules enforced):
   - Storage:    GET/POST/DELETE /v0/b/{bucket}/o[/{enc_path}]
   - Auth:       POST /v1/accounts:signUp, POST /v1/accounts:createAuthUri
   - Functions:  POST/GET/OPTIONS /{fn_name}  (any path not matched above)
+  - Negative controls: secured Firestore/RTDB/Storage routes return denied responses
+  - Positive probe controls: probe-prefixed writes/uploads return shaped success responses
+  - Auth controls: anonymous signup enabled and disabled paths are modeled separately
+  - Functions controls: unauthenticated execution and reflected credentialed CORS are separate
 """
 from __future__ import annotations
 
@@ -98,6 +102,9 @@ class FirebaseHandler(BaseHTTPRequestHandler):
 
         # Auth: anonymous sign-up (signUp with no email = anonymous)
         if path.endswith("accounts:signUp"):
+            if body.get("disableAnonymous") is True:
+                self._json(400, {"error": {"message": "ADMIN_ONLY_OPERATION"}})
+                return
             if not body.get("email"):
                 self._json(200, {
                     "kind": "identitytoolkit#SignupNewUserResponse",
@@ -169,6 +176,10 @@ class FirebaseHandler(BaseHTTPRequestHandler):
         raw = self.rfile.read(length) if length else b""
 
         if "/databases/(default)/documents/" in path:
+            doc_path = path.split("/documents/", 1)[1]
+            if doc_path.startswith("secured/"):
+                self._json(403, {"error": {"status": "PERMISSION_DENIED"}})
+                return
             self.server._store[path] = raw.decode()
             self._json(200, {"name": path, "fields": {}})
             return
@@ -185,7 +196,11 @@ class FirebaseHandler(BaseHTTPRequestHandler):
             return
 
         if "/databases/(default)/documents/" in path:
-            self._json(200, {})
+            doc_path = path.split("/documents/", 1)[1]
+            if doc_path.startswith("secured/"):
+                self._json(403, {"error": {"status": "PERMISSION_DENIED"}})
+                return
+            self._json(200, {"name": path, "fields": {}})
             return
 
         if "/v0/b/" in path:
