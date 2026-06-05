@@ -190,6 +190,15 @@ def test_detect_firebase_config_from_firebasedatabase_app_url() -> None:
     assert result["databaseURL"] == "https://myproject-default-rtdb.firebasedatabase.app"
 
 
+def test_detect_firebase_config_from_regional_firebasedatabase_app_url() -> None:
+    req = MagicMock()
+    req.url = "https://myproject-default-rtdb.europe-west1.firebasedatabase.app/users.json"
+    result = detect_firebase_config([req])
+    assert result is not None
+    assert result["projectId"] == "myproject"
+    assert result["databaseURL"] == "https://myproject-default-rtdb.europe-west1.firebasedatabase.app"
+
+
 def test_detect_firebase_config_combines_identity_storage_and_auth_domain() -> None:
     events = [
         MagicMock(url="https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=api-key-123"),

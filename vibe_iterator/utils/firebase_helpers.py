@@ -93,7 +93,7 @@ def extract_firebase_config(session: Any) -> dict:
 
 
 _RTDB_HOST_RE = re.compile(
-    r"https://([a-z0-9-]+?)(?:-default-rtdb)?\.(firebaseio\.com|firebasedatabase\.app)"
+    r"https://([a-z0-9-]+?)(?:-default-rtdb)?(?:\.([a-z0-9-]+))?\.(firebaseio\.com|firebasedatabase\.app)"
 )
 _API_KEY_RE = re.compile(r"[?&]key=([A-Za-z0-9_\-]+)")
 _BUCKET_RE = re.compile(r"https://firebasestorage\.googleapis\.com/v0/b/([^/]+)/")
@@ -106,10 +106,12 @@ def detect_firebase_config(network_events: list[Any]) -> dict | None:
         m = _RTDB_HOST_RE.search(url)
         if m:
             project_id = m.group(1)
-            domain = m.group(2)
+            region = m.group(2)
+            domain = m.group(3)
             cfg.setdefault("projectId", project_id)
             if domain == "firebasedatabase.app":
-                cfg.setdefault("databaseURL", f"https://{project_id}-default-rtdb.firebasedatabase.app")
+                region_label = f".{region}" if region else ""
+                cfg.setdefault("databaseURL", f"https://{project_id}-default-rtdb{region_label}.firebasedatabase.app")
             else:
                 cfg.setdefault("databaseURL", f"https://{project_id}-default-rtdb.firebaseio.com")
         if "identitytoolkit.googleapis.com" in url:
