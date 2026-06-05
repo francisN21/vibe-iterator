@@ -121,12 +121,23 @@ def test_discover_buckets_parses_supabase_operation_paths() -> None:
     assert _discover_buckets(network) == ["avatars", "documents", "invoices"]
 
 
-def test_discover_buckets_ignores_preview_and_dry_run_paths() -> None:
+def test_discover_buckets_ignores_fixture_only_negative_control_paths() -> None:
     network = MagicMock()
     network.get_requests.return_value = [
         SimpleNamespace(url="https://x/storage/v1/object/preview/avatars/file.png"),
         SimpleNamespace(url="https://x/storage/v1/object/dry-run/avatars/file.png"),
-        SimpleNamespace(url="https://x/storage/v1/object/public/avatars/file.png"),
+        SimpleNamespace(url="https://x/storage/v1/object/denied/avatars/file.png"),
     ]
 
-    assert _discover_buckets(network) == ["avatars"]
+    assert _discover_buckets(network) == []
+
+
+def test_discover_buckets_does_not_skip_real_bucket_names_that_match_fixture_controls() -> None:
+    network = MagicMock()
+    network.get_requests.return_value = [
+        SimpleNamespace(url="https://x/storage/v1/object/preview/file.png"),
+        SimpleNamespace(url="https://x/storage/v1/object/dry-run/file.png"),
+        SimpleNamespace(url="https://x/storage/v1/object/denied/file.png"),
+    ]
+
+    assert _discover_buckets(network) == ["preview", "dry-run", "denied"]
