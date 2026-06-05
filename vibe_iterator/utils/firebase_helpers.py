@@ -92,7 +92,9 @@ def extract_firebase_config(session: Any) -> dict:
         return {}
 
 
-_RTDB_HOST_RE = re.compile(r"https://([a-z0-9-]+?)(?:-default-rtdb)?\.firebaseio\.com")
+_RTDB_HOST_RE = re.compile(
+    r"https://([a-z0-9-]+?)(?:-default-rtdb)?\.(firebaseio\.com|firebasedatabase\.app)"
+)
 _API_KEY_RE = re.compile(r"[?&]key=([A-Za-z0-9_\-]+)")
 _BUCKET_RE = re.compile(r"https://firebasestorage\.googleapis\.com/v0/b/([^/]+)/")
 
@@ -103,8 +105,13 @@ def detect_firebase_config(network_events: list[Any]) -> dict | None:
         url = getattr(event, "url", "") or ""
         m = _RTDB_HOST_RE.search(url)
         if m:
-            cfg.setdefault("projectId", m.group(1))
-            cfg.setdefault("databaseURL", f"https://{m.group(1)}-default-rtdb.firebaseio.com")
+            project_id = m.group(1)
+            domain = m.group(2)
+            cfg.setdefault("projectId", project_id)
+            if domain == "firebasedatabase.app":
+                cfg.setdefault("databaseURL", f"https://{project_id}-default-rtdb.firebasedatabase.app")
+            else:
+                cfg.setdefault("databaseURL", f"https://{project_id}-default-rtdb.firebaseio.com")
         if "identitytoolkit.googleapis.com" in url:
             km = _API_KEY_RE.search(url)
             if km:
@@ -242,36 +249,48 @@ def build_storage_upload_snippet(path: str, content_bytes: bytes) -> str:
 # Firestore REST typed-value conversion                                        #
 # --------------------------------------------------------------------------- #
 
+def _to_firestore_value(value: Any) -> dict:
+    if isinstance(value, bool):
+        return {"booleanValue": value}
+    if isinstance(value, int):
+        return {"integerValue": str(value)}
+    if isinstance(value, float):
+        return {"doubleValue": value}
+    if value is None:
+        return {"nullValue": None}
+    if isinstance(value, dict):
+        return {"mapValue": {"fields": {k: _to_firestore_value(v) for k, v in value.items()}}}
+    if isinstance(value, list):
+        return {"arrayValue": {"values": [_to_firestore_value(v) for v in value]}}
+    return {"stringValue": str(value)}
+
+
 def _to_firestore_fields(data: dict) -> dict:
-    fields = {}
-    for k, v in data.items():
-        if isinstance(v, bool):
-            fields[k] = {"booleanValue": v}
-        elif isinstance(v, int):
-            fields[k] = {"integerValue": str(v)}
-        elif isinstance(v, float):
-            fields[k] = {"doubleValue": v}
-        elif v is None:
-            fields[k] = {"nullValue": None}
-        else:
-            fields[k] = {"stringValue": str(v)}
-    return {"fields": fields}
+    return {"fields": {k: _to_firestore_value(v) for k, v in data.items()}}
+
+
+def _from_firestore_value(value: dict) -> Any:
+    if "stringValue" in value:
+        return value["stringValue"]
+    if "integerValue" in value:
+        return int(value["integerValue"])
+    if "doubleValue" in value:
+        return value["doubleValue"]
+    if "booleanValue" in value:
+        return value["booleanValue"]
+    if "nullValue" in value:
+        return None
+    if "mapValue" in value:
+        return _from_firestore_fields(value["mapValue"])
+    if "arrayValue" in value:
+        return [_from_firestore_value(v) for v in value.get("arrayValue", {}).get("values", [])]
+    if "timestampValue" in value:
+        return value["timestampValue"]
+    return None
 
 
 def _from_firestore_fields(doc: dict) -> dict:
-    out = {}
-    for k, v in (doc.get("fields") or {}).items():
-        if "stringValue" in v:
-            out[k] = v["stringValue"]
-        elif "integerValue" in v:
-            out[k] = int(v["integerValue"])
-        elif "doubleValue" in v:
-            out[k] = v["doubleValue"]
-        elif "booleanValue" in v:
-            out[k] = v["booleanValue"]
-        else:
-            out[k] = None
-    return out
+    return {k: _from_firestore_value(v) for k, v in (doc.get("fields") or {}).items()}
 
 
 # --------------------------------------------------------------------------- #
