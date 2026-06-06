@@ -23,8 +23,8 @@ _RISK_KEYWORDS = {
     "upload": ("upload", "uploads"),
     "webhook": ("webhook", "webhooks"),
     "admin": ("admin",),
-    "redirect": ("redirect", "return_url", "next_url", "callback_url"),
-    "file": ("file", "filename", "path", "download"),
+    "redirect": ("redirect", "return", "next", "callback"),
+    "file": ("file", "files", "filename", "path", "download"),
     "ssrf": ("url", "uri", "endpoint", "host", "callback", "webhook"),
 }
 
@@ -360,16 +360,23 @@ def _extract_parameters(req: Any) -> list[ApiParameter]:
 
 
 def _risk_tags(path: str, method: str, parameters: list[ApiParameter]) -> list[str]:
-    terms = [path.lower(), *(parameter.name.lower() for parameter in parameters)]
+    tokens = _risk_tokens(path, [parameter.name for parameter in parameters])
     tags = []
     if method in _STATE_METHODS:
         tags.append("state_changing")
 
     for tag, keywords in _RISK_KEYWORDS.items():
-        if any(keyword in term for keyword in keywords for term in terms):
+        if any(keyword in tokens for keyword in keywords):
             tags.append(tag)
 
     return _unique_sorted(tags)
+
+
+def _risk_tokens(path: str, parameter_names: list[str]) -> set[str]:
+    tokens = set()
+    for value in [path, *parameter_names]:
+        tokens.update(token for token in re.split(r"[^A-Za-z0-9]+", value.lower()) if token)
+    return tokens
 
 
 def _inventory_summary(endpoints: list[ApiEndpoint]) -> dict[str, int]:

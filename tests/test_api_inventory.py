@@ -280,6 +280,20 @@ def test_build_inventory_tags_risk_categories() -> None:
     assert {"graphql", "admin", "webhook", "upload", "redirect", "file", "ssrf"} <= tags
 
 
+def test_build_inventory_file_risk_tag_is_token_aware() -> None:
+    net = MagicMock()
+    net.get_requests.return_value = [
+        _req("https://example.com/api/profile"),
+        _req("https://example.com/api/files/download?path=avatar.png"),
+    ]
+
+    inv = build_inventory_from_network(net, "https://example.com", "auto", "safe")
+
+    by_path = {endpoint.path: endpoint for endpoint in inv.endpoints}
+    assert "file" not in by_path["/api/profile"].risk_tags
+    assert "file" in by_path["/api/files/download"].risk_tags
+
+
 def test_build_inventory_includes_api_requests_from_different_origin() -> None:
     net = MagicMock()
     net.get_requests.return_value = [
