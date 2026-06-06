@@ -191,6 +191,35 @@ class VulnerableHandler(BaseHTTPRequestHandler):
                 submitted = {}
             self._respond_json(200, {"updated": True, "profile": submitted})
 
+        elif path == "/graphql":
+            try:
+                submitted = json.loads(body_bytes.decode("utf-8"))
+            except Exception:
+                submitted = {}
+            query = str(submitted.get("query", ""))
+            if "__schema" in query:
+                self._respond_json(200, {
+                    "data": {
+                        "__schema": {
+                            "queryType": {"name": "Query"},
+                            "types": [{"name": "Query"}, {"name": "User"}, {"name": "Node"}],
+                        }
+                    }
+                })
+            elif "viewer" in query or "me" in query or "currentUser" in query:
+                self._respond_json(200, {
+                    "data": {
+                        "viewer": {"id": "user-42", "email": "victim@example.com", "role": "admin"}
+                    }
+                })
+            elif query.count("node") >= 5:
+                self._respond_json(200, {
+                    "data": {"node": {"node": {"node": {"node": {"node": {"id": "leaf"}}}}}},
+                    "extensions": {"depth": 5},
+                })
+            else:
+                self._respond_json(200, {"data": {"ok": True}})
+
         elif path == "/api/auth/login":
             # No rate limiting — always 401 (triggers Finding A)
             self._respond_json(401, {"error": "invalid credentials"})

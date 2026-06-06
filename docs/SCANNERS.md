@@ -104,6 +104,9 @@ Common values include:
 | `passwd_file_disclosed_via_traversal` | A traversal payload returned `/etc/passwd`-style account records. |
 | `ssrf_callback_received` | A scanner-controlled callback URL received a server-side request from the target app. |
 | `cross_site_state_change_accepted` | A cookie-authenticated unsafe request accepted a cross-site Origin without valid CSRF proof. |
+| `unauthenticated_graphql_introspection` | A GraphQL endpoint returned `__schema` data without authentication. |
+| `unauthenticated_graphql_sensitive_data` | A GraphQL endpoint returned sensitive user data without authentication. |
+| `graphql_depth_query_accepted` | A GraphQL endpoint accepted a bounded nested query without depth or complexity rejection. |
 
 ---
 
@@ -149,6 +152,7 @@ Not a scanner — a module of helper functions used by `rls_bypass`, `tier_escal
 | `path_traversal_check` | Access Control | pre-deploy | `['any']` | `False` | 8 |
 | `ssrf_check` | API Security | pre-deploy | `['any']` | `False` | 8 |
 | `csrf_check` | API Security | pre-deploy | `['any']` | `False` | 8 |
+| `graphql_check` | API Security | pre-deploy | `['any']` | `False` | 8 |
 
 *`xss_check` is intentionally excluded from `post-deploy` — see `xss_check` Stage Coverage Note section.
 
@@ -355,6 +359,13 @@ The scanner uses a layered approach:
 - **What it does:** Tests cookie-authenticated state-changing requests for missing CSRF defenses.
 - **Checks:** Replays captured `POST`, `PUT`, `PATCH`, and `DELETE` requests with session cookies preserved, CSRF/XSRF headers stripped, and `Origin`/`Referer` set to an attacker-controlled site.
 - **How:** Reports only when the cross-site probe returns a successful mutation signal such as `updated: true`, `created: true`, or `deleted: true`; rejected probes and preview/dry-run echoes are suppressed.
+
+### `graphql_check.py`
+- **Category:** API Security
+- **Stages:** pre-deploy
+- **What it does:** Tests discovered GraphQL endpoints for public introspection, unauthenticated sensitive data, and missing depth/complexity controls.
+- **Checks:** Sends unauthenticated introspection, unauthenticated `viewer`/`me`/`currentUser` data probes, and a bounded nested depth query.
+- **How:** Reports separate findings only when JSON proof is present: `__schema` returned, sensitive fields such as email/role/token returned without auth, or a nested depth-5 response is accepted without GraphQL errors.
 
 ---
 

@@ -211,6 +211,7 @@ One click exports a self-contained HTML report file — same data, same aestheti
 | API exposure               | Protected endpoints accessible without auth                             |
 | SSRF                       | URL-like parameters trigger server-side callback fetches                 |
 | CSRF                       | Cookie-auth state changes accept cross-site requests without valid proof |
+| GraphQL                    | Public introspection, unauth data queries, or missing depth guards       |
 | Mass assignment            | API accepts fields it shouldn't (role escalation via extra JSON fields) |
 | Missing security headers   | No CSP, no `X-Frame-Options`, no `Strict-Transport-Security`            |
 
@@ -237,6 +238,7 @@ Phase 6 tightened the scanners around runtime proof instead of loose pattern mat
 | Path traversal | File-like query parameters are probed with traversal payloads and only reported when sensitive file signatures are returned. |
 | SSRF | URL-like parameters are probed with a scanner-controlled local callback and only reported when the callback receives a server-side request. |
 | CSRF | Cookie-authenticated unsafe requests are replayed with CSRF headers stripped and cross-site Origin/Referer, then require mutation success evidence before reporting. |
+| GraphQL | Introspection, unauthenticated sensitive data, and bounded depth probes produce separate findings only when JSON proof is present. |
 
 Current validation snapshot for this branch:
 
@@ -371,6 +373,7 @@ stages:
         path_traversal_check,
         ssrf_check,
         csrf_check,
+        graphql_check,
         firebase_firestore,
         firebase_rtdb,
         firebase_storage,

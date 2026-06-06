@@ -85,3 +85,37 @@ def test_vulnerable_app_models_csrf_state_change() -> None:
     assert resp.status == 200
     assert '"updated": true' in body
     assert "Mallory" in body
+
+
+def test_vulnerable_app_models_graphql_exposures() -> None:
+    with VulnerableApp() as app:
+        introspection = urllib.request.Request(
+            app.base_url + "/graphql",
+            data=b'{"query":"query { __schema { queryType { name } types { name } } }"}',
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(introspection, timeout=5) as resp:
+            introspection_body = resp.read().decode("utf-8")
+
+        unauth_data = urllib.request.Request(
+            app.base_url + "/graphql",
+            data=b'{"query":"query { viewer { id email role } }"}',
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(unauth_data, timeout=5) as resp:
+            unauth_body = resp.read().decode("utf-8")
+
+        deep = urllib.request.Request(
+            app.base_url + "/graphql",
+            data=b'{"query":"query { node { node { node { node { node { id } } } } } }"}',
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(deep, timeout=5) as resp:
+            deep_body = resp.read().decode("utf-8")
+
+    assert "__schema" in introspection_body
+    assert "victim@example.com" in unauth_body
+    assert '"depth": 5' in deep_body

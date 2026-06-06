@@ -146,6 +146,12 @@ _SCANNER_META: dict[str, dict] = {
         "category": "API Security", "est_seconds": 25,
         "description": "Replays cookie-authenticated unsafe requests with cross-site Origin after stripping CSRF headers.",
     },
+    "graphql_check": {
+        "label": "GraphQL",
+        "requires_stack": ["any"], "requires_second_account": False,
+        "category": "API Security", "est_seconds": 30,
+        "description": "Probes GraphQL endpoints for public introspection, unauthenticated sensitive data, and missing depth guards.",
+    },
     "firebase_firestore": {
         "label": "Firestore Rules",
         "requires_stack": ["firebase"], "requires_second_account": False,
