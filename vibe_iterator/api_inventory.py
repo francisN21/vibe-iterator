@@ -3,11 +3,30 @@
 from __future__ import annotations
 
 import ipaddress
+import json
+import re
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlparse
 
 _MODES = {"auto", "safe", "aggressive", "off"}
+_ID_SEGMENT_RE = re.compile(
+    r"^(?:\d+|[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}|[0-9a-fA-F]{16,})$"
+)
+_API_PREFIXES = ("/api/", "/v1/", "/v2/", "/v3/", "/graphql", "/rest/", "/rpc/")
+_AUTH_HEADER_NAMES = {"authorization", "cookie", "x-api-key"}
+_STATE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+_SENSITIVE_PARAM_NAMES = {"role", "admin", "isadmin", "permissions", "tenant_id", "org_id", "user_id"}
+_RISK_KEYWORDS = {
+    "graphql": ("graphql",),
+    "upload": ("upload", "uploads"),
+    "webhook": ("webhook", "webhooks"),
+    "admin": ("admin",),
+    "redirect": ("redirect", "return_url", "next_url", "callback_url"),
+    "file": ("file", "filename", "path", "download"),
+    "ssrf": ("url", "uri", "endpoint", "host", "callback", "webhook"),
+}
 
 
 @dataclass
@@ -81,6 +100,119 @@ def resolve_mode(target: str, config: ApiIntelligenceConfig) -> str:
         pass
 
     return "safe"
+
+
+def build_inventory_from_network(
+    network: Any,
+    target: str,
+    mode: str,
+    resolved_mode: str,
+) -> ApiInventory:
+    endpoints_by_key: dict[tuple[str, str], ApiEndpoint] = {}
+
+    get_requests = getattr(network, "get_requests", None)
+    requests = get_requests() if callable(get_requests) else []
+    for req in requests:
+        endpoint = endpoint_from_request(req, target)
+        if endpoint is None:
+            continue
+
+        key = (endpoint.method, endpoint.normalized_path)
+        if key in endpoints_by_key:
+            endpoints_by_key[key] = merge_endpoints(endpoints_by_key[key], endpoint)
+        else:
+            endpoints_by_key[key] = endpoint
+
+    endpoints = sorted(endpoints_by_key.values(), key=lambda endpoint: (endpoint.normalized_path, endpoint.method))
+    return ApiInventory(
+        generated_at=datetime.now(UTC).isoformat(),
+        mode=mode,
+        resolved_mode=resolved_mode,
+        target=target,
+        endpoints=endpoints,
+        summary=_inventory_summary(endpoints),
+        warnings=aggressive_warnings(resolved_mode),
+    )
+
+
+def aggressive_warnings(resolved_mode: str) -> list[str]:
+    if resolved_mode == "aggressive":
+        return ["Aggressive API intelligence may send additional probing requests."]
+    return []
+
+
+def endpoint_from_request(req: Any, target: str) -> ApiEndpoint | None:
+    url = getattr(req, "url", "")
+    if not isinstance(url, str):
+        return None
+
+    parsed = urlparse(url)
+    path = parsed.path or "/"
+    if _origin_for_target(url) != _origin_for_target(target) or not _is_api_path(path):
+        return None
+
+    method = getattr(req, "method", "GET")
+    method = method.upper() if isinstance(method, str) else "GET"
+    headers = _dict_attr(req, "headers")
+    response_headers = _dict_attr(req, "response_headers")
+    parameters = _extract_parameters(req)
+
+    status_codes = []
+    status_code = getattr(req, "status_code", None)
+    if isinstance(status_code, int):
+        status_codes.append(status_code)
+
+    content_types = []
+    response_content_type = _content_type(response_headers)
+    if response_content_type:
+        content_types.append(response_content_type)
+
+    request_content_types = []
+    request_content_type = _content_type(headers)
+    if request_content_type:
+        request_content_types.append(request_content_type)
+
+    auth_observed = any(name.lower() in _AUTH_HEADER_NAMES for name in headers)
+    risk_tags = _risk_tags(path, method, parameters)
+
+    return ApiEndpoint(
+        method=method,
+        url=url,
+        origin=_origin_for_target(url),
+        path=path,
+        normalized_path=_normalize_path(path),
+        status_codes=status_codes,
+        content_types=content_types,
+        request_content_types=request_content_types,
+        auth_observed=auth_observed,
+        response_auth_required_hint=bool(status_codes and status_codes[0] in {401, 403}),
+        parameters=parameters,
+        sources=[f"network:{url}"],
+        risk_tags=risk_tags,
+        confidence="confirmed",
+    )
+
+
+def merge_endpoints(existing: ApiEndpoint, incoming: ApiEndpoint) -> ApiEndpoint:
+    parameters = _merge_parameters(existing.parameters, incoming.parameters)
+    risk_tags = _unique_sorted([*existing.risk_tags, *incoming.risk_tags])
+
+    return ApiEndpoint(
+        method=existing.method,
+        url=existing.url,
+        origin=existing.origin,
+        path=existing.path,
+        normalized_path=existing.normalized_path,
+        status_codes=_unique_sorted_int([*existing.status_codes, *incoming.status_codes]),
+        content_types=_unique_preserve([*existing.content_types, *incoming.content_types]),
+        request_content_types=_unique_preserve([*existing.request_content_types, *incoming.request_content_types]),
+        auth_observed=existing.auth_observed or incoming.auth_observed,
+        response_auth_required_hint=existing.response_auth_required_hint or incoming.response_auth_required_hint,
+        parameters=parameters,
+        sources=_unique_preserve([*existing.sources, *incoming.sources]),
+        risk_tags=risk_tags,
+        confidence=existing.confidence,
+    )
 
 
 def parameter_to_dict(parameter: ApiParameter) -> dict[str, Any]:
@@ -177,6 +309,167 @@ def inventory_from_dict(data: dict[str, Any] | None) -> ApiInventory | None:
         summary={str(key): int(value) for key, value in data.get("summary", {}).items()},
         warnings=_string_list(data.get("warnings", [])),
     )
+
+
+def _origin_for_target(target: str) -> str:
+    parsed = urlparse(target)
+    if not parsed.scheme or not parsed.netloc:
+        return ""
+    return f"{parsed.scheme}://{parsed.netloc}".lower()
+
+
+def _normalize_path(path: str) -> str:
+    normalized_segments = []
+    for segment in path.split("/"):
+        normalized_segments.append("{id}" if _ID_SEGMENT_RE.match(segment) else segment)
+    return "/".join(normalized_segments)
+
+
+def _is_api_path(path: str) -> bool:
+    normalized = path.lower()
+    return any(normalized == prefix.rstrip("/") or normalized.startswith(prefix) for prefix in _API_PREFIXES)
+
+
+def _extract_parameters(req: Any) -> list[ApiParameter]:
+    url = getattr(req, "url", "")
+    parsed = urlparse(url if isinstance(url, str) else "")
+    parameters: dict[tuple[str, str], ApiParameter] = {}
+
+    for name, value in parse_qsl(parsed.query, keep_blank_values=True):
+        _add_parameter(parameters, name, "query", value)
+
+    headers = _dict_attr(req, "headers")
+    post_data = getattr(req, "post_data", None)
+    if not isinstance(post_data, str) or not post_data:
+        return sorted(parameters.values(), key=lambda parameter: (parameter.location, parameter.name))
+
+    content_type = _content_type(headers)
+    if content_type == "application/json":
+        try:
+            body = json.loads(post_data)
+        except json.JSONDecodeError:
+            body = None
+        if isinstance(body, dict):
+            for name, value in body.items():
+                _add_parameter(parameters, str(name), "body", _observed_value(value))
+    elif content_type == "application/x-www-form-urlencoded":
+        for name, value in parse_qsl(post_data, keep_blank_values=True):
+            _add_parameter(parameters, name, "body", value)
+
+    return sorted(parameters.values(), key=lambda parameter: (parameter.location, parameter.name))
+
+
+def _risk_tags(path: str, method: str, parameters: list[ApiParameter]) -> list[str]:
+    terms = [path.lower(), *(parameter.name.lower() for parameter in parameters)]
+    tags = []
+    if method in _STATE_METHODS:
+        tags.append("state_changing")
+
+    for tag, keywords in _RISK_KEYWORDS.items():
+        if any(keyword in term for keyword in keywords for term in terms):
+            tags.append(tag)
+
+    return _unique_sorted(tags)
+
+
+def _inventory_summary(endpoints: list[ApiEndpoint]) -> dict[str, int]:
+    return {
+        "endpoints": len(endpoints),
+        "auth_observed": sum(1 for endpoint in endpoints if endpoint.auth_observed),
+        "hidden_parameters": sum(
+            1
+            for endpoint in endpoints
+            for parameter in endpoint.parameters
+            if parameter.source not in {"observed", ""}
+        ),
+        "state_changing": sum(1 for endpoint in endpoints if "state_changing" in endpoint.risk_tags),
+    }
+
+
+def _merge_parameters(existing: list[ApiParameter], incoming: list[ApiParameter]) -> list[ApiParameter]:
+    merged: dict[tuple[str, str], ApiParameter] = {(parameter.location, parameter.name): parameter for parameter in existing}
+    for parameter in incoming:
+        key = (parameter.location, parameter.name)
+        if key not in merged:
+            merged[key] = parameter
+            continue
+
+        current = merged[key]
+        merged[key] = ApiParameter(
+            name=current.name,
+            location=current.location,
+            observed_values=_unique_preserve([*current.observed_values, *parameter.observed_values]),
+            source=current.source,
+            confidence=current.confidence,
+            sensitive_hint=current.sensitive_hint or parameter.sensitive_hint,
+        )
+
+    return sorted(merged.values(), key=lambda parameter: (parameter.location, parameter.name))
+
+
+def _add_parameter(parameters: dict[tuple[str, str], ApiParameter], name: str, location: str, value: str) -> None:
+    key = (location, name)
+    sensitive_hint = name.lower() in _SENSITIVE_PARAM_NAMES
+    if key in parameters:
+        current = parameters[key]
+        parameters[key] = ApiParameter(
+            name=current.name,
+            location=current.location,
+            observed_values=_unique_preserve([*current.observed_values, value]),
+            source=current.source,
+            confidence=current.confidence,
+            sensitive_hint=current.sensitive_hint or sensitive_hint,
+        )
+        return
+
+    parameters[key] = ApiParameter(
+        name=name,
+        location=location,
+        observed_values=[value] if value else [],
+        source="observed",
+        confidence="confirmed",
+        sensitive_hint=sensitive_hint,
+    )
+
+
+def _dict_attr(value: Any, attr_name: str) -> dict[str, Any]:
+    attr = getattr(value, attr_name, {})
+    return attr if isinstance(attr, dict) else {}
+
+
+def _content_type(headers: dict[str, Any]) -> str:
+    for name, value in headers.items():
+        if name.lower() == "content-type" and isinstance(value, str):
+            return value.split(";", 1)[0].strip().lower()
+    return ""
+
+
+def _observed_value(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    if value is None:
+        return ""
+    if isinstance(value, bool | int | float):
+        return str(value)
+    return json.dumps(value, sort_keys=True)
+
+
+def _unique_preserve(values: list[str]) -> list[str]:
+    seen = set()
+    unique = []
+    for value in values:
+        if value not in seen:
+            seen.add(value)
+            unique.append(value)
+    return unique
+
+
+def _unique_sorted(values: list[str]) -> list[str]:
+    return sorted(set(values))
+
+
+def _unique_sorted_int(values: list[int]) -> list[int]:
+    return sorted(set(values))
 
 
 def _string_list(value: Any) -> list[str]:
