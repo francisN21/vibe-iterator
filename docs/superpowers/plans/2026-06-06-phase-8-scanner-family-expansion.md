@@ -8,6 +8,8 @@
 
 **Tech Stack:** Python 3.11, pytest, FastAPI route metadata, Selenium/CDP listener inputs, local `ThreadingHTTPServer` vulnerable fixtures.
 
+**Status:** Implemented on `codex/firebase-stage-config-alignment`. Final verification snapshot: `python -m pytest -q` reports 613 passed, 4 skipped; `python -m pytest --cov=vibe_iterator --cov-report=term-missing` reports 613 passed, 4 skipped, 84% total coverage; scanner exposure matrix reports 30 registered scanners, 30 preset-visible scanners, and no missing mappings/metadata.
+
 ---
 
 ### Task 1: Open Redirect Scanner
@@ -139,8 +141,8 @@
 **Files:**
 - Modify: `README.md`, `docs/SCANNERS.md`, `docs/CONFIG.md`, `MEMORY.md` or baton-pass notes if present.
 
-- [ ] Run `python -m pytest -q`.
-- [ ] Run `python -m pytest --cov=vibe_iterator --cov-report=term-missing`.
-- [ ] Run scanner exposure matrix script.
-- [ ] Refresh graphify after code changes.
-- [ ] Commit final docs/coverage alignment.
+- [x] Run `python -m pytest -q`.
+- [x] Run `python -m pytest --cov=vibe_iterator --cov-report=term-missing`.
+- [x] Run scanner exposure matrix script.
+- [x] Refresh graphify after code changes.
+- [x] Commit final docs/coverage alignment.

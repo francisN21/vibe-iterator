@@ -1,109 +1,60 @@
-# Vibe Iterator Handoff Memory
+# Vibe Iterator Memory
 
-Last updated: 2026-05-31
+## Current Branch
 
-## Current State
+- Branch: `codex/firebase-stage-config-alignment`
+- Phase 8 scanner-family expansion is implemented across all named exploit families.
+- Do not commit local generated/untracked artifacts unless explicitly requested:
+  - `docs/results.md`
+  - `graphify-out/`
+  - `vibe-iterator.discovered.yaml`
 
-The repo is now in a much stronger Phase 6-ready state. The latest local Phase 6 pass focused on making the proof harness real, keeping verification fast, and making test results independent of this machine's local `.env`.
+## Phase 8 Scanner Families Added
 
-Current verification baseline:
+- `open_redirect_check`: proves external 3xx `Location` header on redirect-like params.
+- `path_traversal_check`: proves `.env` or `/etc/passwd`-style disclosure from file/path params.
+- `ssrf_check`: proves server-side URL fetches with a local callback listener.
+- `csrf_check`: proves cookie-auth unsafe methods accept cross-site Origin/Referer after CSRF headers are stripped.
+- `graphql_check`: proves unauth introspection, unauth sensitive data, and bounded depth query acceptance.
+- `webhook_check`: proves missing or invalid webhook signatures still process events.
+- `websocket_check`: proves unauthenticated or untrusted-Origin WebSocket handshakes return `101`.
+- `unsafe_payload_check`: proves harmless SSTI evaluation or unsafe parser/deserialization error signatures.
+- `file_upload_check`: proves dangerous extension, MIME, SVG/HTML polyglot, or EICAR test-string uploads are accepted/stored.
 
-- `.\.venv\Scripts\python.exe -m pytest`
-  - `417 passed, 2 skipped`
-  - runtime: about 32 seconds
-- `.\.venv\Scripts\python.exe -m pytest --cov=vibe_iterator --cov-report=term-missing`
-  - `417 passed, 2 skipped`
-  - total coverage: `80%`
-- Opt-in real browser smoke:
-  - `$env:VIBE_ITERATOR_RUN_E2E_SMOKE="1"; .\.venv\Scripts\python.exe -m pytest -q tests\e2e`
-  - `2 passed`
-- Packaging verified:
-  - `py -m pip wheel . --no-deps -w tests\.tmp-wheelhouse`
-  - fresh venv install from the wheel passed
-  - installed CLI works: `vibe-iterator, version 0.1.0`
+All Phase 8 scanners are registered in:
 
-Known untracked local files historically seen in this workspace:
+- `vibe_iterator/engine/runner.py`
+- `vibe_iterator/config.py`
+- `vibe_iterator/server/routes.py`
+- `tests/test_phase8_scanner_registration.py`
+- `docs/SCANNERS.md`
+- `docs/CONFIG.md`
+- `README.md`
 
-- `.claude/`
-- `AGENTS.md`
-- `icon.svg`
-- `logo.svg`
+## Verification Snapshot
 
-Do not assume these should be committed without checking with Francisco.
+- `python -m pytest -q`: 613 passed, 4 skipped
+- `python -m pytest --cov=vibe_iterator --cov-report=term-missing`: 613 passed, 4 skipped, 84% total coverage
+- Scanner exposure matrix: 30 registered, 30 preset-visible, no missing valid-name/server-meta/module-map entries
+- New scanner line coverage:
+  - `path_traversal_check`: 91%
+  - `ssrf_check`: 95%
+  - `csrf_check`: 90%
+  - `graphql_check`: 92%
+  - `webhook_check`: 94%
+  - `websocket_check`: 91%
+  - `unsafe_payload_check`: 95%
+  - `file_upload_check`: 95%
 
-## New Phase 6 Work Introduced
+## Recent Commit Trail
 
-Exploit proof harness:
+- `5ab936c feat: add unsafe payload scanner`
+- `67e3e0e feat: add generic file upload scanner`
 
-- The generic vulnerable fixture app now includes a `/login` form so the real scan runner can authenticate.
-- The fixture dashboard now emits API traffic to:
-  - `/api/user`
-  - `/api/login`
-  - `/api/protected` with an `Authorization` header
-- Added fixture smoke coverage for the login/dashboard scan-target behavior.
-- Added an opt-in Selenium/CDP e2e scan runner test against the vulnerable fixture:
-  - `tests/e2e/test_real_browser_smoke.py`
-  - verifies real Chrome launch, CDP network capture, `ScanRunner`, scanner execution, and actual findings for unauthenticated API access, reflected CORS, and sensitive path exposure.
+Earlier Phase 8 commits on this branch include open redirect, path traversal, SSRF, CSRF, GraphQL, webhook, and WebSocket scanner slices.
 
-Runtime/test reliability:
+## Sensible Next Checks
 
-- `info_disclosure` no longer serially waits through every sensitive path when a local target is down.
-- It now performs a fast local TCP reachability check and aborts after repeated network-level probe failures.
-- Scanner proof test runtime dropped from about 9.5 minutes to about 22 seconds.
-- Firebase Auth and Storage scanners now use a shared `is_closed_local_url()` helper to skip REST calls to closed local fixture endpoints.
-- Closed local Firebase endpoint checks are cached briefly to avoid repeated socket waits inside one run.
-- `ScanRunner` now detaches listeners before quitting Chrome, avoiding Selenium teardown retry noise.
-- Config tests now pass an explicit empty env file where required, preventing a developer's real `.env` from leaking into test expectations.
-
-## Remaining Before A Very Robust Phase 6+
-
-The product is now Phase 6-ready to continue, but the next high-leverage items are:
-
-1. Dashboard CSP hardening:
-   - remove remaining inline scripts/styles/handlers where practical
-   - remove `script-src 'unsafe-inline'` from dashboard CSP
-   - add route/header tests for the stricter CSP
-
-2. Deeper exploit proofs:
-   - XSS: prove reflected or DOM execution, not only dangerous sinks and reflected marker checks
-   - SQL injection: add JSON body and time-based vulnerable fixture proof cases
-   - Auth: add live proof for logout invalidation, brute-force/rate-limit behavior, and bypass vectors
-
-3. Firebase proof polish:
-   - Firestore and Functions negative tests are still the slowest scanner cases, though acceptable
-   - consider applying the shared closed-local helper there where the target URL is local
-
-4. Release workflow:
-   - add CI matrix for Windows/Linux and Python 3.11+
-   - separate normal tests from opt-in Selenium smoke tests
-   - add packaging verification job that builds, installs, checks CLI, and confirms package data
-
-## Commands Claude Should Run First
-
-```powershell
-git status --short
-git log -5 --oneline
-.\.venv\Scripts\python.exe -m pytest
-.\.venv\Scripts\python.exe -m pytest --cov=vibe_iterator --cov-report=term-missing
-```
-
-Optional real browser smoke:
-
-```powershell
-$env:VIBE_ITERATOR_RUN_E2E_SMOKE="1"
-.\.venv\Scripts\python.exe -m pytest -q tests\e2e
-Remove-Item Env:\VIBE_ITERATOR_RUN_E2E_SMOKE
-```
-
-Packaging verification:
-
-```powershell
-Remove-Item -LiteralPath tests\.tmp-wheelhouse -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -LiteralPath tests\.tmp-install-venv -Recurse -Force -ErrorAction SilentlyContinue
-py -m pip wheel . --no-deps -w tests\.tmp-wheelhouse
-py -m venv tests\.tmp-install-venv
-tests\.tmp-install-venv\Scripts\python.exe -m pip install tests\.tmp-wheelhouse\vibe_iterator-0.1.0-py3-none-any.whl
-tests\.tmp-install-venv\Scripts\vibe-iterator.exe --version
-Remove-Item -LiteralPath tests\.tmp-wheelhouse -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -LiteralPath tests\.tmp-install-venv -Recurse -Force -ErrorAction SilentlyContinue
-```
+- Run against the user's live DetermiNext stack with `VIBE_ITERATOR_TARGET=http://localhost:3000` and `VIBE_ITERATOR_BACKEND_URL=http://localhost:4000` after confirming the backend is actually listening.
+- Consider a small live-app smoke config that runs only the newest Phase 8 scanners first.
+- If preparing to merge, run one final full suite and coverage command after any docs-only cleanup.

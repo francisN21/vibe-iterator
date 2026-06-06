@@ -250,8 +250,9 @@ Phase 6 tightened the scanners around runtime proof instead of loose pattern mat
 
 Current validation snapshot for this branch:
 
-- `python -m pytest`: 491 passed, 2 skipped
-- `python -m pytest --cov=vibe_iterator --cov-report=term-missing`: 81% coverage
+- `python -m pytest -q`: 613 passed, 4 skipped
+- `python -m pytest --cov=vibe_iterator --cov-report=term-missing`: 613 passed, 4 skipped, 84% coverage
+- Scanner exposure matrix: 30 registered scanners, 30 preset-visible scanners, no missing config/server metadata/module mappings
 - Fresh wheel build/install smoke passed, including installed `vibe-iterator --help`
 
 ---
