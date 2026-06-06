@@ -230,6 +230,7 @@ Phase 6 tightened the scanners around runtime proof instead of loose pattern mat
 | CORS | Wildcard, reflected, null-origin, preflight, and credentialed CORS cases now receive clearer severity and proof labels. |
 | Info disclosure | SPA fallback noise and unrelated route text are filtered out before reporting sensitive-path findings. |
 | IDOR, SQLi, XSS, method tampering | Proof quality metadata was added or tightened so reports distinguish runtime exploit evidence from weaker probes. |
+| Open redirect | Redirect-like query parameters are probed for actual external `Location` headers before reporting. |
 
 Current validation snapshot for this branch:
 
@@ -360,6 +361,7 @@ stages:
         idor_check,
         http_method_tampering,
         rate_limit_check,
+        open_redirect_check,
         firebase_firestore,
         firebase_rtdb,
         firebase_storage,
@@ -381,6 +383,7 @@ stages:
         idor_check,
         http_method_tampering,
         rate_limit_check,
+        open_redirect_check,
         firebase_firestore,
         firebase_rtdb,
         firebase_storage,

@@ -122,6 +122,12 @@ _SCANNER_META: dict[str, dict] = {
         "category": "Misconfiguration", "est_seconds": 15,
         "description": "Sends DELETE/PUT/PATCH to endpoints expecting GET/POST — checks if method overrides bypass access controls.",
     },
+    "open_redirect_check": {
+        "label": "Open Redirect",
+        "requires_stack": ["any"], "requires_second_account": False,
+        "category": "Misconfiguration", "est_seconds": 15,
+        "description": "Probes redirect parameters for external Location headers that can send users to attacker-controlled sites.",
+    },
     "firebase_firestore": {
         "label": "Firestore Rules",
         "requires_stack": ["firebase"], "requires_second_account": False,

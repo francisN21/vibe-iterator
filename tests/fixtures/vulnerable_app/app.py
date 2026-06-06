@@ -11,6 +11,7 @@ Vulnerabilities baked in (all deliberate, local-only):
   - /swagger.json   — exposed API docs (info disclosure)
   - /.env           — exposed env file (info disclosure)
   - /api/resource   — GET-only resource but accepts DELETE (method tampering)
+  - /api/redirect   — redirects to attacker-controlled absolute URLs (open redirect)
   - /login          — permissive test login form for e2e scan runner
   - /               — page with innerHTML DOM sink + no security headers
   - /pricing, /application, /api/protected-401 — negative controls for auth bypass
@@ -77,6 +78,11 @@ class VulnerableHandler(BaseHTTPRequestHandler):
             self._respond_json(200, {"id": int(item_id), "owner_id": 1, "data": "sensitive-value"})
         elif path == "/api/resource":
             self._respond_json(200, {"resource": "data"})
+        elif path == "/api/redirect":
+            target = query.get("next", ["/"])[0]
+            self.send_response(302)
+            self.send_header("Location", target)
+            self.end_headers()
         elif path == "/swagger.json":
             # Info disclosure: exposed API docs
             self._respond_json(200, {

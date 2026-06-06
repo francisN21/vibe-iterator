@@ -141,6 +141,7 @@ Not a scanner — a module of helper functions used by `rls_bypass`, `tier_escal
 | `info_disclosure` | Misconfiguration | pre-deploy, post-deploy | `['any']` | `False` | 7a |
 | `idor_check` | Access Control | pre-deploy, post-deploy | `['any']` | `False` | 7a |
 | `http_method_tampering` | Misconfiguration | pre-deploy, post-deploy | `['any']` | `False` | 7a |
+| `open_redirect_check` | Misconfiguration | pre-deploy | `['any']` | `False` | 8 |
 
 *`xss_check` is intentionally excluded from `post-deploy` — see `xss_check` Stage Coverage Note section.
 
@@ -319,6 +320,13 @@ The scanner uses a layered approach:
 - **What it does:** Discovers and tests API endpoints for authentication and authorization gaps
 - **Checks:** Unauthenticated access to protected endpoints, mass assignment (sending extra fields the API shouldn't accept), rate limiting on sensitive endpoints (auth, AI, email), HTTP verb tampering, response header security (`X-Frame-Options`, `Strict-Transport-Security`, `X-Content-Type-Options`)
 - **How:** Captures API endpoints from network traffic, replays without auth, tests with extra fields, checks response headers
+
+### `open_redirect_check.py`
+- **Category:** Misconfiguration
+- **Stages:** pre-deploy
+- **What it does:** Tests redirect parameters such as `next`, `redirect_url`, `return_to`, and `continue` for attacker-controlled external redirects.
+- **Checks:** Replaces redirect-like query parameters with a harmless external proof URL and confirms whether the response returns a 3xx `Location` header to an untrusted origin.
+- **How:** Uses captured network requests to find same-app URLs with redirect-like parameters, rewrites probes to `backend_url` when configured, sends a no-follow GET request, and reports only when the actual `Location` header points outside the target/backend origins.
 
 ---
 
