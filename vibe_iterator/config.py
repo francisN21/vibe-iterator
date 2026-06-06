@@ -9,6 +9,8 @@ from pathlib import Path
 import yaml
 from dotenv import load_dotenv
 
+from vibe_iterator.api_inventory import ApiIntelligenceConfig
+
 # Default stage → scanner mapping (mirrors vibe-iterator.config.yaml)
 _FIREBASE_SCANNERS: list[str] = [
     "firebase_firestore",
@@ -115,6 +117,9 @@ class Config:
 
     # Rate limit scanner
     rate_limit_deep_scan: bool = False
+
+    # API intelligence scanner foundation
+    api_intelligence: ApiIntelligenceConfig = field(default_factory=ApiIntelligenceConfig)
 
     # Optional separate backend API URL (when frontend and backend run on different ports)
     backend_url: str | None = None
@@ -252,6 +257,27 @@ def load_config(
     backend_url = (os.getenv("VIBE_ITERATOR_BACKEND_URL") or "").rstrip("/") or None
 
     # ------------------------------------------------------------------ #
+    # API intelligence                                                     #
+    # ------------------------------------------------------------------ #
+    api_intelligence_raw = yaml_data.get("api_intelligence", {}) or {}
+    wordlists_raw = api_intelligence_raw.get("wordlists", {}) or {}
+    try:
+        api_intelligence = ApiIntelligenceConfig(
+            mode=api_intelligence_raw.get("mode", "auto"),
+            max_route_candidates=int(api_intelligence_raw.get("max_route_candidates", 200)),
+            max_methods_per_route=int(api_intelligence_raw.get("max_methods_per_route", 6)),
+            max_hidden_params_per_endpoint=int(
+                api_intelligence_raw.get("max_hidden_params_per_endpoint", 20)
+            ),
+            request_timeout_seconds=int(api_intelligence_raw.get("request_timeout_seconds", 3)),
+            total_timeout_seconds=int(api_intelligence_raw.get("total_timeout_seconds", 45)),
+            route_wordlist=wordlists_raw.get("routes", "builtin"),
+            param_wordlist=wordlists_raw.get("params", "builtin"),
+        )
+    except ValueError as exc:
+        raise ConfigError(str(exc)) from exc
+
+    # ------------------------------------------------------------------ #
     # Pages                                                               #
     # ------------------------------------------------------------------ #
     pages_raw = yaml_data.get("pages", _DEFAULT_PAGES)
@@ -329,6 +355,7 @@ def load_config(
         spider_max_pages=spider_max_pages,
         spider_max_depth=spider_max_depth,
         rate_limit_deep_scan=rate_limit_deep_scan,
+        api_intelligence=api_intelligence,
         backend_url=backend_url,
         results_dir=results_dir,
     )

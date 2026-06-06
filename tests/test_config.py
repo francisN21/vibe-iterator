@@ -299,3 +299,47 @@ def test_rate_limit_check_not_in_dev_stage(tmp_path):
     env.write_text("VIBE_ITERATOR_TEST_EMAIL=t@e.com\nVIBE_ITERATOR_TEST_PASSWORD=pw\nVIBE_ITERATOR_TARGET=http://localhost:3000\n")
     cfg = load_config(env_path=str(env))
     assert "rate_limit_check" not in cfg.scanners_for_stage("dev")
+
+
+# --------------------------------------------------------------------------- #
+# API intelligence config                                                       #
+# --------------------------------------------------------------------------- #
+
+def test_api_intelligence_defaults(tmp_path, monkeypatch):
+    cfg_path = tmp_path / "vibe-iterator.config.yaml"
+    cfg_path.write_text("target: http://localhost:3000\npages: ['/']\n", encoding="utf-8")
+    monkeypatch.setenv("VIBE_ITERATOR_TEST_EMAIL", "a@example.com")
+    monkeypatch.setenv("VIBE_ITERATOR_TEST_PASSWORD", "pw")
+    cfg = load_config(yaml_path=cfg_path)
+    assert cfg.api_intelligence.mode == "auto"
+    assert cfg.api_intelligence.max_route_candidates == 200
+
+
+def test_api_intelligence_yaml_overrides(tmp_path, monkeypatch):
+    cfg_path = tmp_path / "vibe-iterator.config.yaml"
+    cfg_path.write_text(
+        """
+target: http://localhost:3000
+pages: ['/']
+api_intelligence:
+  mode: safe
+  max_route_candidates: 25
+  max_methods_per_route: 4
+  max_hidden_params_per_endpoint: 7
+  request_timeout_seconds: 2
+  total_timeout_seconds: 11
+  wordlists:
+    routes: builtin
+    params: builtin
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("VIBE_ITERATOR_TEST_EMAIL", "a@example.com")
+    monkeypatch.setenv("VIBE_ITERATOR_TEST_PASSWORD", "pw")
+    cfg = load_config(yaml_path=cfg_path)
+    assert cfg.api_intelligence.mode == "safe"
+    assert cfg.api_intelligence.max_route_candidates == 25
+    assert cfg.api_intelligence.max_methods_per_route == 4
+    assert cfg.api_intelligence.max_hidden_params_per_endpoint == 7
+    assert cfg.api_intelligence.request_timeout_seconds == 2
+    assert cfg.api_intelligence.total_timeout_seconds == 11
