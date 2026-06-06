@@ -69,3 +69,14 @@ def test_webhook_scanner_registered_and_exposed() -> None:
     assert name in _DEFAULT_STAGES["all"]
     assert name not in _DEFAULT_STAGES["post-deploy"]
     assert _SCANNER_META[name]["label"] == "Webhooks"
+
+
+def test_websocket_scanner_registered_and_exposed() -> None:
+    name = "websocket_check"
+
+    assert _SCANNER_MODULE_MAP[name] == "vibe_iterator.scanners.websocket_check"
+    assert name in _VALID_SCANNER_NAMES
+    assert name in _DEFAULT_STAGES["pre-deploy"]
+    assert name in _DEFAULT_STAGES["all"]
+    assert name not in _DEFAULT_STAGES["post-deploy"]
+    assert _SCANNER_META[name]["label"] == "WebSockets"

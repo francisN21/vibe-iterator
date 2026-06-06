@@ -109,6 +109,8 @@ Common values include:
 | `graphql_depth_query_accepted` | A GraphQL endpoint accepted a bounded nested query without depth or complexity rejection. |
 | `unsigned_webhook_accepted` | A webhook endpoint processed a delivery after signature headers were removed. |
 | `invalid_webhook_signature_accepted` | A webhook endpoint processed a delivery with an intentionally invalid signature. |
+| `unauthenticated_websocket_accepted` | A WebSocket endpoint accepted an upgrade after auth headers were removed. |
+| `untrusted_origin_websocket_accepted` | A WebSocket endpoint accepted an upgrade from an attacker-controlled Origin. |
 
 ---
 
@@ -156,6 +158,7 @@ Not a scanner — a module of helper functions used by `rls_bypass`, `tier_escal
 | `csrf_check` | API Security | pre-deploy | `['any']` | `False` | 8 |
 | `graphql_check` | API Security | pre-deploy | `['any']` | `False` | 8 |
 | `webhook_check` | API Security | pre-deploy | `['any']` | `False` | 8 |
+| `websocket_check` | API Security | pre-deploy | `['any']` | `False` | 8 |
 
 *`xss_check` is intentionally excluded from `post-deploy` — see `xss_check` Stage Coverage Note section.
 
@@ -376,6 +379,13 @@ The scanner uses a layered approach:
 - **What it does:** Tests webhook endpoints for missing or invalid signature verification.
 - **Checks:** Replays captured webhook deliveries after removing provider signature headers; if missing signatures are rejected, sends an intentionally invalid signature.
 - **How:** Reports only when the endpoint returns a successful processing signal such as `received: true`, `processed: true`, or `accepted: true`; rejected probes and preview/dry-run responses are suppressed.
+
+### `websocket_check.py`
+- **Category:** API Security
+- **Stages:** pre-deploy
+- **What it does:** Tests WebSocket endpoints for missing handshake authentication and weak Origin enforcement.
+- **Checks:** Sends raw RFC6455 upgrade handshakes after removing auth headers, then repeats with an attacker-controlled Origin.
+- **How:** Reports only when the server returns `101 Switching Protocols`; rejected handshakes and unreachable sockets are suppressed.
 
 ---
 

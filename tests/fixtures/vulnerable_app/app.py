@@ -26,6 +26,8 @@ Vulnerabilities baked in (all deliberate, local-only):
 from __future__ import annotations
 
 import json
+import base64
+import hashlib
 import re
 import threading
 import urllib.parse
@@ -42,7 +44,17 @@ class VulnerableHandler(BaseHTTPRequestHandler):
         path = parsed.path
         query = urllib.parse.parse_qs(parsed.query)
 
-        if path == "/api/data":
+        if path == "/socket" and self.headers.get("Upgrade", "").lower() == "websocket":
+            key = self.headers.get("Sec-WebSocket-Key", "")
+            accept = base64.b64encode(
+                hashlib.sha1((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode("ascii")).digest()
+            ).decode("ascii")
+            self.send_response(101, "Switching Protocols")
+            self.send_header("Upgrade", "websocket")
+            self.send_header("Connection", "Upgrade")
+            self.send_header("Sec-WebSocket-Accept", accept)
+            self.end_headers()
+        elif path == "/api/data":
             self._respond_json(
                 200,
                 {"items": [{"id": 1, "value": "secret"}]},

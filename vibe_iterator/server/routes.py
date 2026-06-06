@@ -158,6 +158,12 @@ _SCANNER_META: dict[str, dict] = {
         "category": "API Security", "est_seconds": 25,
         "description": "Replays webhook deliveries without valid signatures and reports only when events are processed.",
     },
+    "websocket_check": {
+        "label": "WebSockets",
+        "requires_stack": ["any"], "requires_second_account": False,
+        "category": "API Security", "est_seconds": 25,
+        "description": "Probes WebSocket upgrades for missing auth and untrusted Origin acceptance.",
+    },
     "firebase_firestore": {
         "label": "Firestore Rules",
         "requires_stack": ["firebase"], "requires_second_account": False,

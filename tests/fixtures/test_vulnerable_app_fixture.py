@@ -5,6 +5,7 @@ from __future__ import annotations
 import urllib.error
 import urllib.parse
 import urllib.request
+import socket
 
 from tests.fixtures.vulnerable_app.app import VulnerableApp
 
@@ -135,3 +136,24 @@ def test_vulnerable_app_models_unsigned_webhook_acceptance() -> None:
     assert resp.status == 200
     assert '"received": true' in body
     assert "invoice.paid" in body
+
+
+def test_vulnerable_app_models_websocket_unauthenticated_origin_acceptance() -> None:
+    with VulnerableApp() as app:
+        parsed = urllib.parse.urlparse(app.base_url)
+        request = (
+            "GET /socket HTTP/1.1\r\n"
+            f"Host: {parsed.netloc}\r\n"
+            "Upgrade: websocket\r\n"
+            "Connection: Upgrade\r\n"
+            "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+            "Sec-WebSocket-Version: 13\r\n"
+            "Origin: https://evil.example\r\n"
+            "\r\n"
+        ).encode("ascii")
+        with socket.create_connection((parsed.hostname, parsed.port), timeout=5) as sock:
+            sock.sendall(request)
+            response = sock.recv(1024).decode("iso-8859-1")
+
+    assert "101 Switching Protocols" in response
+    assert "Sec-WebSocket-Accept" in response
