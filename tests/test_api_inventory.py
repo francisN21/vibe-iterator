@@ -278,3 +278,55 @@ def test_build_inventory_tags_risk_categories() -> None:
     tags = {tag for endpoint in inv.endpoints for tag in endpoint.risk_tags}
 
     assert {"graphql", "admin", "webhook", "upload", "redirect", "file", "ssrf"} <= tags
+
+
+def test_build_inventory_includes_api_requests_from_different_origin() -> None:
+    net = MagicMock()
+    net.get_requests.return_value = [
+        _req("https://api.example.com/api/users/123"),
+        _req("https://project.supabase.co/rest/v1/items"),
+    ]
+
+    inv = build_inventory_from_network(net, "https://example.com", "auto", "safe")
+
+    assert inv.target == "https://example.com"
+    assert [(endpoint.origin, endpoint.path) for endpoint in inv.endpoints] == [
+        ("https://api.example.com", "/api/users/123"),
+        ("https://project.supabase.co", "/rest/v1/items"),
+    ]
+
+
+def test_build_inventory_extracts_json_body_without_content_type() -> None:
+    net = MagicMock()
+    net.get_requests.return_value = [
+        _req(
+            "https://example.com/api/profile",
+            method="POST",
+            headers={},
+            post_data='{"display_name": "Ada", "org_id": "o1"}',
+        )
+    ]
+
+    inv = build_inventory_from_network(net, "https://example.com", "auto", "safe")
+
+    params = {(p.location, p.name) for p in inv.endpoints[0].parameters}
+    assert ("body", "display_name") in params
+    assert ("body", "org_id") in params
+
+
+def test_build_inventory_extracts_json_body_from_problem_json_content_type() -> None:
+    net = MagicMock()
+    net.get_requests.return_value = [
+        _req(
+            "https://example.com/api/errors",
+            method="POST",
+            headers={"Content-Type": "application/problem+json"},
+            post_data='{"type": "validation", "detail": "bad input"}',
+        )
+    ]
+
+    inv = build_inventory_from_network(net, "https://example.com", "auto", "safe")
+
+    params = {(p.location, p.name) for p in inv.endpoints[0].parameters}
+    assert ("body", "type") in params
+    assert ("body", "detail") in params

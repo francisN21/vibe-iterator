@@ -148,7 +148,7 @@ def endpoint_from_request(req: Any, target: str) -> ApiEndpoint | None:
 
     parsed = urlparse(url)
     path = parsed.path or "/"
-    if _origin_for_target(url) != _origin_for_target(target) or not _is_api_path(path):
+    if not _is_api_path(path):
         return None
 
     method = getattr(req, "method", "GET")
@@ -344,7 +344,7 @@ def _extract_parameters(req: Any) -> list[ApiParameter]:
         return sorted(parameters.values(), key=lambda parameter: (parameter.location, parameter.name))
 
     content_type = _content_type(headers)
-    if content_type == "application/json":
+    if _is_json_body(content_type, post_data):
         try:
             body = json.loads(post_data)
         except json.JSONDecodeError:
@@ -442,6 +442,15 @@ def _content_type(headers: dict[str, Any]) -> str:
         if name.lower() == "content-type" and isinstance(value, str):
             return value.split(";", 1)[0].strip().lower()
     return ""
+
+
+def _is_json_body(content_type: str, post_data: str) -> bool:
+    stripped = post_data.lstrip()
+    return (
+        content_type == "application/json"
+        or content_type.endswith("+json")
+        or (not content_type and stripped.startswith("{"))
+    )
 
 
 def _observed_value(value: Any) -> str:
