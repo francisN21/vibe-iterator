@@ -103,6 +103,7 @@ Common values include:
 | `env_file_disclosed_via_traversal` | A traversal payload returned environment-style key/value secrets. |
 | `passwd_file_disclosed_via_traversal` | A traversal payload returned `/etc/passwd`-style account records. |
 | `ssrf_callback_received` | A scanner-controlled callback URL received a server-side request from the target app. |
+| `cross_site_state_change_accepted` | A cookie-authenticated unsafe request accepted a cross-site Origin without valid CSRF proof. |
 
 ---
 
@@ -147,6 +148,7 @@ Not a scanner — a module of helper functions used by `rls_bypass`, `tier_escal
 | `open_redirect_check` | Misconfiguration | pre-deploy | `['any']` | `False` | 8 |
 | `path_traversal_check` | Access Control | pre-deploy | `['any']` | `False` | 8 |
 | `ssrf_check` | API Security | pre-deploy | `['any']` | `False` | 8 |
+| `csrf_check` | API Security | pre-deploy | `['any']` | `False` | 8 |
 
 *`xss_check` is intentionally excluded from `post-deploy` — see `xss_check` Stage Coverage Note section.
 
@@ -346,6 +348,13 @@ The scanner uses a layered approach:
 - **What it does:** Tests URL-like parameters such as `url`, `target`, `callback_url`, `webhook_url`, `image_url`, and `feed_url` for server-side request forgery.
 - **Checks:** Starts a local callback listener with a unique proof URL, injects that URL into discovered parameters, and reports only if the callback server receives a request from the target application.
 - **How:** Sends no-follow probes so open redirects cannot fake the proof, rewrites probes to `backend_url` when configured, sends frontend `Origin` headers, and records callback path/header evidence.
+
+### `csrf_check.py`
+- **Category:** API Security
+- **Stages:** pre-deploy
+- **What it does:** Tests cookie-authenticated state-changing requests for missing CSRF defenses.
+- **Checks:** Replays captured `POST`, `PUT`, `PATCH`, and `DELETE` requests with session cookies preserved, CSRF/XSRF headers stripped, and `Origin`/`Referer` set to an attacker-controlled site.
+- **How:** Reports only when the cross-site probe returns a successful mutation signal such as `updated: true`, `created: true`, or `deleted: true`; rejected probes and preview/dry-run echoes are suppressed.
 
 ---
 

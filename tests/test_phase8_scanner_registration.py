@@ -36,3 +36,14 @@ def test_ssrf_scanner_registered_and_exposed() -> None:
     assert name in _DEFAULT_STAGES["all"]
     assert name not in _DEFAULT_STAGES["post-deploy"]
     assert _SCANNER_META[name]["label"] == "SSRF"
+
+
+def test_csrf_scanner_registered_and_exposed() -> None:
+    name = "csrf_check"
+
+    assert _SCANNER_MODULE_MAP[name] == "vibe_iterator.scanners.csrf_check"
+    assert name in _VALID_SCANNER_NAMES
+    assert name in _DEFAULT_STAGES["pre-deploy"]
+    assert name in _DEFAULT_STAGES["all"]
+    assert name not in _DEFAULT_STAGES["post-deploy"]
+    assert _SCANNER_META[name]["label"] == "CSRF"

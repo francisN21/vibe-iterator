@@ -184,6 +184,13 @@ class VulnerableHandler(BaseHTTPRequestHandler):
                 submitted = {}
             self._respond_json(201, {"id": 42, **submitted})
 
+        elif path == "/api/csrf-profile":
+            try:
+                submitted = json.loads(body_bytes.decode("utf-8"))
+            except Exception:
+                submitted = {}
+            self._respond_json(200, {"updated": True, "profile": submitted})
+
         elif path == "/api/auth/login":
             # No rate limiting — always 401 (triggers Finding A)
             self._respond_json(401, {"error": "invalid credentials"})

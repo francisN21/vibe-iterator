@@ -65,3 +65,23 @@ def test_vulnerable_app_models_ssrf_fetch_proxy() -> None:
     assert resp.status == 200
     assert "fetched_body" in body
     assert "victim@example.com" in body
+
+
+def test_vulnerable_app_models_csrf_state_change() -> None:
+    with VulnerableApp() as app:
+        req = urllib.request.Request(
+            app.base_url + "/api/csrf-profile",
+            data=b'{"display_name":"Mallory"}',
+            headers={
+                "Content-Type": "application/json",
+                "Cookie": "session=fixture-session",
+                "Origin": "https://evil.example",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            body = resp.read().decode("utf-8")
+
+    assert resp.status == 200
+    assert '"updated": true' in body
+    assert "Mallory" in body

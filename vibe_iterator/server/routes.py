@@ -140,6 +140,12 @@ _SCANNER_META: dict[str, dict] = {
         "category": "API Security", "est_seconds": 25,
         "description": "Probes URL-like parameters with a local callback and reports only when the server fetches it.",
     },
+    "csrf_check": {
+        "label": "CSRF",
+        "requires_stack": ["any"], "requires_second_account": False,
+        "category": "API Security", "est_seconds": 25,
+        "description": "Replays cookie-authenticated unsafe requests with cross-site Origin after stripping CSRF headers.",
+    },
     "firebase_firestore": {
         "label": "Firestore Rules",
         "requires_stack": ["firebase"], "requires_second_account": False,
