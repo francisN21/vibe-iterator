@@ -41,3 +41,14 @@ def test_vulnerable_app_models_open_redirect() -> None:
 
     assert status == 302
     assert location == "https://evil.example/phish"
+
+
+def test_vulnerable_app_models_path_traversal_file_read() -> None:
+    with VulnerableApp() as app:
+        url = app.base_url + "/api/file?path=../../.env"
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            body = resp.read().decode("utf-8")
+
+    assert resp.status == 200
+    assert "DATABASE_URL=" in body
+    assert "SECRET_KEY=" in body

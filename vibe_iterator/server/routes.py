@@ -128,6 +128,12 @@ _SCANNER_META: dict[str, dict] = {
         "category": "Misconfiguration", "est_seconds": 15,
         "description": "Probes redirect parameters for external Location headers that can send users to attacker-controlled sites.",
     },
+    "path_traversal_check": {
+        "label": "Path Traversal",
+        "requires_stack": ["any"], "requires_second_account": False,
+        "category": "Access Control", "est_seconds": 20,
+        "description": "Probes file/path parameters for traversal payloads that disclose local configuration or system files.",
+    },
     "firebase_firestore": {
         "label": "Firestore Rules",
         "requires_stack": ["firebase"], "requires_second_account": False,

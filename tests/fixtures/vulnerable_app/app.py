@@ -12,6 +12,7 @@ Vulnerabilities baked in (all deliberate, local-only):
   - /.env           — exposed env file (info disclosure)
   - /api/resource   — GET-only resource but accepts DELETE (method tampering)
   - /api/redirect   — redirects to attacker-controlled absolute URLs (open redirect)
+  - /api/file       — reads path parameter and exposes local-file signatures (path traversal)
   - /login          — permissive test login form for e2e scan runner
   - /               — page with innerHTML DOM sink + no security headers
   - /pricing, /application, /api/protected-401 — negative controls for auth bypass
@@ -83,6 +84,24 @@ class VulnerableHandler(BaseHTTPRequestHandler):
             self.send_response(302)
             self.send_header("Location", target)
             self.end_headers()
+        elif path == "/api/file":
+            requested = query.get("path", [""])[0]
+            if ".." in requested and ".env" in requested:
+                data = b"DATABASE_URL=postgresql://admin:s3cr3t@localhost/db\nSECRET_KEY=super-secret-key-12345\n"
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+            elif ".." in requested and "passwd" in requested:
+                data = b"root:x:0:0:root:/root:/bin/bash\n"
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+            else:
+                self._respond_json(200, {"file": requested or "default.txt", "public": True})
         elif path == "/swagger.json":
             # Info disclosure: exposed API docs
             self._respond_json(200, {

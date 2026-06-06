@@ -14,3 +14,14 @@ def test_open_redirect_scanner_registered_and_exposed() -> None:
     assert name in _DEFAULT_STAGES["all"]
     assert name not in _DEFAULT_STAGES["post-deploy"]
     assert _SCANNER_META[name]["label"] == "Open Redirect"
+
+
+def test_path_traversal_scanner_registered_and_exposed() -> None:
+    name = "path_traversal_check"
+
+    assert _SCANNER_MODULE_MAP[name] == "vibe_iterator.scanners.path_traversal_check"
+    assert name in _VALID_SCANNER_NAMES
+    assert name in _DEFAULT_STAGES["pre-deploy"]
+    assert name in _DEFAULT_STAGES["all"]
+    assert name not in _DEFAULT_STAGES["post-deploy"]
+    assert _SCANNER_META[name]["label"] == "Path Traversal"

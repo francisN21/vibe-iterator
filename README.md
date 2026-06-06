@@ -190,6 +190,7 @@ One click exports a self-contained HTML report file — same data, same aestheti
 | Bucket limits    | File uploads exceed plan limits without server rejection                       |
 | Client tampering | Roles, permissions, or feature flags in localStorage trusted by server         |
 | IDOR             | User A can access User B's data by swapping IDs                                |
+| Path traversal   | File/path parameters expose local `.env` or OS file signatures                 |
 
 ### 🔍 Data Leakage
 
@@ -231,6 +232,7 @@ Phase 6 tightened the scanners around runtime proof instead of loose pattern mat
 | Info disclosure | SPA fallback noise and unrelated route text are filtered out before reporting sensitive-path findings. |
 | IDOR, SQLi, XSS, method tampering | Proof quality metadata was added or tightened so reports distinguish runtime exploit evidence from weaker probes. |
 | Open redirect | Redirect-like query parameters are probed for actual external `Location` headers before reporting. |
+| Path traversal | File-like query parameters are probed with traversal payloads and only reported when sensitive file signatures are returned. |
 
 Current validation snapshot for this branch:
 
@@ -362,6 +364,7 @@ stages:
         http_method_tampering,
         rate_limit_check,
         open_redirect_check,
+        path_traversal_check,
         firebase_firestore,
         firebase_rtdb,
         firebase_storage,
@@ -383,7 +386,6 @@ stages:
         idor_check,
         http_method_tampering,
         rate_limit_check,
-        open_redirect_check,
         firebase_firestore,
         firebase_rtdb,
         firebase_storage,

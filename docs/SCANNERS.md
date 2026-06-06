@@ -142,6 +142,7 @@ Not a scanner — a module of helper functions used by `rls_bypass`, `tier_escal
 | `idor_check` | Access Control | pre-deploy, post-deploy | `['any']` | `False` | 7a |
 | `http_method_tampering` | Misconfiguration | pre-deploy, post-deploy | `['any']` | `False` | 7a |
 | `open_redirect_check` | Misconfiguration | pre-deploy | `['any']` | `False` | 8 |
+| `path_traversal_check` | Access Control | pre-deploy | `['any']` | `False` | 8 |
 
 *`xss_check` is intentionally excluded from `post-deploy` — see `xss_check` Stage Coverage Note section.
 
@@ -327,6 +328,13 @@ The scanner uses a layered approach:
 - **What it does:** Tests redirect parameters such as `next`, `redirect_url`, `return_to`, and `continue` for attacker-controlled external redirects.
 - **Checks:** Replaces redirect-like query parameters with a harmless external proof URL and confirms whether the response returns a 3xx `Location` header to an untrusted origin.
 - **How:** Uses captured network requests to find same-app URLs with redirect-like parameters, rewrites probes to `backend_url` when configured, sends a no-follow GET request, and reports only when the actual `Location` header points outside the target/backend origins.
+
+### `path_traversal_check.py`
+- **Category:** Access Control
+- **Stages:** pre-deploy
+- **What it does:** Tests file/path parameters such as `path`, `file`, `filename`, `template`, and `download` for traversal-based local file disclosure.
+- **Checks:** Replaces file-like query parameters with traversal payloads for `.env` and `/etc/passwd` style reads, then requires sensitive file signatures in a 200 response before reporting.
+- **How:** Uses captured GET requests to find same-app file parameters, rewrites probes to `backend_url` when configured, sends frontend `Origin` headers, ignores SPA fallbacks/static assets, and reports only on high-confidence sensitive file disclosure evidence.
 
 ---
 

@@ -110,6 +110,7 @@ _SCANNER_MODULE_MAP: dict[str, str] = {
     "api_key_exposure":       "vibe_iterator.scanners.api_key_exposure",
     "rate_limit_check":       "vibe_iterator.scanners.rate_limit_check",
     "open_redirect_check":    "vibe_iterator.scanners.open_redirect_check",
+    "path_traversal_check":   "vibe_iterator.scanners.path_traversal_check",
     # --- Firebase ---
     "firebase_firestore": "vibe_iterator.scanners.firebase_firestore",
     "firebase_rtdb":      "vibe_iterator.scanners.firebase_rtdb",
