@@ -133,12 +133,13 @@ def endpoint_to_dict(endpoint: ApiEndpoint) -> dict[str, Any]:
 
 
 def endpoint_from_dict(data: dict[str, Any]) -> ApiEndpoint:
+    path = str(data.get("path", ""))
     return ApiEndpoint(
-        method=str(data.get("method", "")),
+        method=str(data.get("method", "GET")),
         url=str(data.get("url", "")),
         origin=str(data.get("origin", "")),
-        path=str(data.get("path", "")),
-        normalized_path=str(data.get("normalized_path", "")),
+        path=path,
+        normalized_path=str(data.get("normalized_path", path)),
         status_codes=_status_codes_from_dict(data.get("status_codes", [])),
         content_types=_string_list(data.get("content_types", [])),
         request_content_types=_string_list(data.get("request_content_types", [])),
@@ -199,4 +200,15 @@ def _status_codes_from_dict(value: Any) -> list[int]:
 def _as_bool(value: Any) -> bool:
     if isinstance(value, bool):
         return value
-    return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "off", ""}:
+            return False
+        return False
+    if value in {1, 1.0}:
+        return True
+    if value in {0, 0.0, None}:
+        return False
+    return False

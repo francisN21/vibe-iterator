@@ -5,9 +5,11 @@ from vibe_iterator.api_inventory import (
     ApiIntelligenceConfig,
     ApiInventory,
     ApiParameter,
+    endpoint_from_dict,
     endpoint_to_dict,
     inventory_from_dict,
     inventory_to_dict,
+    parameter_from_dict,
     parameter_to_dict,
     resolve_mode,
 )
@@ -98,3 +100,30 @@ def test_inventory_round_trip() -> None:
 
 def test_inventory_from_dict_none_returns_none() -> None:
     assert inventory_from_dict(None) is None
+
+
+def test_string_boolean_false_values_deserialize_to_false() -> None:
+    param = parameter_from_dict({"sensitive_hint": "false"})
+    endpoint = endpoint_from_dict(
+        {
+            "auth_observed": "0",
+            "response_auth_required_hint": "no",
+        }
+    )
+
+    assert param.sensitive_hint is False
+    assert endpoint.auth_observed is False
+    assert endpoint.response_auth_required_hint is False
+
+
+def test_string_boolean_true_values_deserialize_to_true() -> None:
+    endpoint = endpoint_from_dict({"auth_observed": "yes"})
+
+    assert endpoint.auth_observed is True
+
+
+def test_endpoint_from_dict_defaults_method_and_normalized_path() -> None:
+    endpoint = endpoint_from_dict({"path": "/api/users"})
+
+    assert endpoint.method == "GET"
+    assert endpoint.normalized_path == "/api/users"
