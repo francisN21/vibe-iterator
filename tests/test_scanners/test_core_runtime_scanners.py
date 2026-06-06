@@ -16,8 +16,7 @@ from vibe_iterator.scanners.rls_bypass import _discover_tables, _extract_sub
 from vibe_iterator.scanners.sql_injection import Scanner as SqlScanner
 from vibe_iterator.scanners.sql_injection import _has_sql_error, _inject_postgrest_filter
 from vibe_iterator.scanners.tier_escalation import Scanner as TierScanner
-from vibe_iterator.scanners.tier_escalation import _network_reflects_tier
-from vibe_iterator.scanners.tier_escalation import _rpc_reflects_tier
+from vibe_iterator.scanners.tier_escalation import _network_reflects_tier, _rpc_reflects_tier
 
 
 def _jwt(payload: dict) -> str:
@@ -110,10 +109,14 @@ def test_auth_http_helpers_handle_success_and_http_errors() -> None:
     with patch("urllib.request.urlopen", return_value=_Response()):
         assert auth_mod._replay_with_token("token", "http://localhost") == 204
         assert auth_mod._replay_without_auth("http://localhost/api", "POST", "{}") == 204
-        assert auth_mod._get_login_error_message("http://localhost", "a@b.com", "pw") == "Invalid email or password"
+        assert (
+            auth_mod._get_login_error_message("http://localhost", "a@b.com", "pw")
+            == "Invalid email or password"
+        )
 
     # Use urllib's real HTTPError type for the scanner's specific except blocks.
     import urllib.error
+
     err = urllib.error.HTTPError("http://localhost", 403, "Forbidden", hdrs=None, fp=None)
     err.read = lambda: b'{"error_description":"Forbidden"}'
     with patch("urllib.request.urlopen", side_effect=err):
@@ -130,10 +133,12 @@ def test_auth_session_management_flags_logout_and_cookie_issues() -> None:
     ]
     findings = []
 
-    with patch.object(auth_mod, "_get_session_token", return_value=_jwt({"sub": "user-1"})), \
-            patch.object(auth_mod, "_replay_with_token", return_value=200), \
-            patch("vibe_iterator.crawler.auth.login"), \
-            patch.object(auth_mod.time, "sleep"):
+    with (
+        patch.object(auth_mod, "_get_session_token", return_value=_jwt({"sub": "user-1"})),
+        patch.object(auth_mod, "_replay_with_token", return_value=200),
+        patch("vibe_iterator.crawler.auth.login"),
+        patch.object(auth_mod.time, "sleep"),
+    ):
         scanner._group2_session_management(session, _config(), findings, "supabase", MagicMock())
 
     assert [f.title for f in findings] == [
@@ -146,8 +151,12 @@ def test_auth_login_security_reports_rate_limit_and_enumeration() -> None:
     scanner = AuthScanner()
     findings = []
 
-    with patch("urllib.request.urlopen", side_effect=RuntimeError("connection refused")), \
-            patch.object(auth_mod, "_get_login_error_message", side_effect=["Wrong password", "User not found"]):
+    with (
+        patch("urllib.request.urlopen", side_effect=RuntimeError("connection refused")),
+        patch.object(
+            auth_mod, "_get_login_error_message", side_effect=["Wrong password", "User not found"]
+        ),
+    ):
         scanner._group3_login_security(MagicMock(), _config(), findings, "custom", MagicMock())
 
     assert [f.evidence["check_name"] for f in findings] == [
@@ -170,9 +179,11 @@ def test_auth_password_bypass_and_oauth_checks_report_findings() -> None:
     session.driver.page_source = "private dashboard"
     findings = []
 
-    with patch("vibe_iterator.crawler.auth.login"), \
-            patch.object(auth_mod, "_replay_without_auth", return_value=200), \
-            patch.object(auth_mod.time, "sleep"):
+    with (
+        patch("vibe_iterator.crawler.auth.login"),
+        patch.object(auth_mod, "_replay_without_auth", return_value=200),
+        patch.object(auth_mod.time, "sleep"),
+    ):
         scanner._group4_password_account(session, cfg, findings, "custom", network)
         scanner._group5_auth_bypass(session, cfg, findings, "custom", network)
         scanner._group6_oauth(session, cfg, findings, "custom", network)
@@ -189,7 +200,11 @@ def test_sql_passive_analysis_reports_database_error() -> None:
     scanner = SqlScanner()
     network = MagicMock()
     network.get_requests.return_value = [
-        _request("http://localhost:3000/api/users?id=1", body='{"error":"syntax error near SELECT"}', status=500),
+        _request(
+            "http://localhost:3000/api/users?id=1",
+            body='{"error":"syntax error near SELECT"}',
+            status=500,
+        ),
     ]
     findings = []
 
@@ -197,10 +212,53 @@ def test_sql_passive_analysis_reports_database_error() -> None:
 
     assert len(findings) == 1
     assert findings[0].scanner == "sql_injection"
-    assert _has_sql_error("relation \"profiles\" does not exist") is True
+    assert findings[0].evidence["proof_quality"] == "passive_database_error_signature"
+    assert findings[0].evidence["confidence"] == "confirmed"
+    assert findings[0].evidence["matched_signature"]
+    assert _has_sql_error('relation "profiles" does not exist') is True
     assert "name=eq.abc%27" in _inject_postgrest_filter(
         "https://p.supabase.co/rest/v1/profiles?name=eq.abc", "name", "abc", "abc'"
     )
+
+
+def test_sql_passive_analysis_ignores_static_security_copy_mentions() -> None:
+    scanner = SqlScanner()
+    network = MagicMock()
+    network.get_requests.return_value = [
+        _request(
+            "http://localhost:3000/security",
+            body="<html><h1>Security</h1><p>We defend against SQL injection and XSS.</p></html>",
+        ),
+        _request(
+            "http://localhost:3000/privacy",
+            body="<html><p>Our policy mentions PostgreSQL only as an example technology.</p></html>",
+        ),
+    ]
+    findings = []
+
+    scanner._group1_passive_analysis(network, _config(), findings, "custom")
+
+    assert findings == []
+
+
+def test_sql_passive_analysis_ignores_static_assets_and_next_bundles() -> None:
+    scanner = SqlScanner()
+    network = MagicMock()
+    network.get_requests.return_value = [
+        _request(
+            "http://localhost:3000/_next/static/chunks/app.js",
+            body='throw new Error("SQL injection examples are documented elsewhere");',
+        ),
+        _request(
+            "http://localhost:3000/assets/security.css",
+            body="/* PostgreSQL support copy */",
+        ),
+    ]
+    findings = []
+
+    scanner._group1_passive_analysis(network, _config(), findings, "custom")
+
+    assert findings == []
 
 
 def test_sql_postgrest_injection_reports_active_error() -> None:
@@ -225,7 +283,9 @@ def test_sql_classic_injection_reports_url_and_json_fields() -> None:
     url_network = MagicMock()
     url_network.get_requests.return_value = [_request("http://localhost:3000/api/search?q=alice")]
     url_findings = []
-    with patch.object(sql_mod, "_make_request", return_value=("column \"x\" does not exist", 500, 0.1)):
+    with patch.object(
+        sql_mod, "_make_request", return_value=('column "x" does not exist', 500, 0.1)
+    ):
         scanner._group3_classic_injection(url_network, cfg, url_findings, "custom")
 
     body_network = MagicMock()
@@ -255,7 +315,10 @@ def test_sql_blind_input_vector_and_schema_checks_report_findings() -> None:
         scanner._group4_blind_injection(blind_network, cfg, blind_findings, "custom")
 
     input_el = MagicMock()
-    input_el.get_attribute.side_effect = lambda attr: {"name": "search", "placeholder": "Search"}.get(attr, "")
+    input_el.get_attribute.side_effect = lambda attr: {
+        "name": "search",
+        "placeholder": "Search",
+    }.get(attr, "")
     input_el.find_element.return_value.submit.return_value = None
     form_network = MagicMock()
     form_network.get_requests.return_value = [
@@ -406,7 +469,9 @@ def test_tier_escalation_does_not_report_unrelated_textual_plan_match() -> None:
 def test_network_reflects_tier_returns_structured_json_path() -> None:
     network = MagicMock()
     network.get_requests.return_value = [
-        _request("http://localhost:3000/api/subscription", body='{"subscription":{"tier":"premium"}}'),
+        _request(
+            "http://localhost:3000/api/subscription", body='{"subscription":{"tier":"premium"}}'
+        ),
     ]
 
     proof = _network_reflects_tier(network, "plan", "premium")
@@ -422,7 +487,9 @@ def test_network_reflects_tier_returns_structured_json_path() -> None:
 def test_network_reflects_tier_accepts_nested_subscription_path() -> None:
     network = MagicMock()
     network.get_requests.return_value = [
-        _request("http://localhost:3000/api/tier/structured", body='{"subscription":{"tier":"premium"}}'),
+        _request(
+            "http://localhost:3000/api/tier/structured", body='{"subscription":{"tier":"premium"}}'
+        ),
     ]
 
     proof = _network_reflects_tier(network, "plan", "premium")
@@ -438,7 +505,9 @@ def test_network_reflects_tier_accepts_nested_subscription_path() -> None:
 def test_network_reflects_tier_ignores_unstructured_text_match() -> None:
     network = MagicMock()
     network.get_requests.return_value = [
-        _request("http://localhost:3000/api/subscription", body='{"copy":"Premium plans are available"}'),
+        _request(
+            "http://localhost:3000/api/subscription", body='{"copy":"Premium plans are available"}'
+        ),
     ]
 
     assert _network_reflects_tier(network, "plan", "premium") is None
@@ -447,7 +516,10 @@ def test_network_reflects_tier_ignores_unstructured_text_match() -> None:
 def test_network_reflects_tier_ignores_rpc_error_text() -> None:
     network = MagicMock()
     network.get_requests.return_value = [
-        _request("http://localhost:3000/api/tier/rpc-error", body='{"data":null,"error":"Premium tier function unavailable"}'),
+        _request(
+            "http://localhost:3000/api/tier/rpc-error",
+            body='{"data":null,"error":"Premium tier function unavailable"}',
+        ),
     ]
 
     assert _network_reflects_tier(network, "plan", "premium") is None
