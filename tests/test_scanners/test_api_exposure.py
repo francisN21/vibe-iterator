@@ -158,15 +158,19 @@ def test_backend_url_direct_api_origin_is_discovered_for_unauth_probe() -> None:
 
 def test_missing_hsts_is_medium() -> None:
     req = _make_req(response_headers={"content-type": "text/html"})
-    findings = _run([req])
+    with patch("vibe_iterator.scanners.api_exposure._fetch_headers", return_value=(200, {})):
+        findings = _run([req])
     hsts = [f for f in findings if "strict-transport-security" in f.title.lower()]
     assert len(hsts) == 1
     assert hsts[0].severity == Severity.MEDIUM
+    assert hsts[0].evidence["proof_quality"] == "direct_header_revalidation_missing"
+    assert hsts[0].evidence["confidence"] == "confirmed"
 
 
 def test_missing_x_frame_options_is_low() -> None:
     req = _make_req(response_headers={"content-type": "text/html"})
-    findings = _run([req])
+    with patch("vibe_iterator.scanners.api_exposure._fetch_headers", return_value=(200, {})):
+        findings = _run([req])
     frame = [f for f in findings if "x-frame-options" in f.title.lower()]
     assert len(frame) == 1
     assert frame[0].severity == Severity.LOW
@@ -174,10 +178,38 @@ def test_missing_x_frame_options_is_low() -> None:
 
 def test_missing_x_content_type_options_is_low() -> None:
     req = _make_req(response_headers={"content-type": "text/html"})
-    findings = _run([req])
+    with patch("vibe_iterator.scanners.api_exposure._fetch_headers", return_value=(200, {})):
+        findings = _run([req])
     ct = [f for f in findings if "x-content-type-options" in f.title.lower()]
     assert len(ct) == 1
     assert ct[0].severity == Severity.LOW
+
+
+def test_direct_revalidation_suppresses_stale_missing_header_observation() -> None:
+    req = _make_req(response_headers={"content-type": "text/html"})
+    live_headers = {
+        "strict-transport-security": "max-age=31536000",
+        "x-frame-options": "DENY",
+        "x-content-type-options": "nosniff",
+    }
+
+    with patch("vibe_iterator.scanners.api_exposure._fetch_headers", return_value=(200, live_headers)):
+        findings = _run([req])
+
+    header_findings = [f for f in findings if "missing security header" in f.title.lower()]
+    assert header_findings == []
+
+
+def test_inconclusive_header_revalidation_uses_sanity_check_message() -> None:
+    req = _make_req(response_headers={"content-type": "text/html"})
+
+    with patch("vibe_iterator.scanners.api_exposure._fetch_headers", return_value=None):
+        findings = _run([req])
+
+    sanity = [f for f in findings if f.title.startswith("Sanity check:")]
+    assert sanity
+    assert all(f.severity == Severity.INFO for f in sanity)
+    assert all(f.evidence["confidence"] == "needs_review" for f in sanity)
 
 
 def test_present_security_headers_no_header_findings() -> None:

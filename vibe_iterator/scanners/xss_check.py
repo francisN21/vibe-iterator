@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import ssl
+import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Any
@@ -77,6 +78,22 @@ _DOM_SINK_JS = """
 """
 
 
+def _fetch_headers(url: str, origin: str | None = None, timeout: int = 5) -> tuple[int, dict[str, str]] | None:
+    """Re-fetch response headers directly so passive CDP observations can be verified."""
+    try:
+        ctx = ssl._create_unverified_context()
+        headers = {"User-Agent": "vibe-iterator/header-check", "Accept": "*/*"}
+        if origin:
+            headers["Origin"] = origin
+        req = urllib.request.Request(url, method="GET", headers=headers)
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+            return resp.status, {k.lower(): v for k, v in resp.headers.items()}
+    except urllib.error.HTTPError as e:
+        return e.code, {k.lower(): v for k, v in e.headers.items()}
+    except Exception:
+        return None
+
+
 class Scanner(BaseScanner):
     """Tests for XSS vulnerabilities via passive header analysis and DOM inspection."""
 
@@ -91,8 +108,9 @@ class Scanner(BaseScanner):
         stack = config.stack.backend if hasattr(config, "stack") else "unknown"
         network = listeners["network"]
         target = config.target
+        origin = frontend_origin(config)
 
-        self._check_response_headers(network, target, stack, findings)
+        self._check_response_headers(network, target, stack, findings, origin)
         self._check_csp_headers(network, target, stack, findings)
         self._check_dom_sinks(session, config, stack, findings)
         self._check_reflected_xss(network, config, target, stack, findings)
@@ -103,7 +121,7 @@ class Scanner(BaseScanner):
     # ------------------------------------------------------------------ #
 
     def _check_response_headers(
-        self, network: Any, target: str, stack: str, findings: list[Finding],
+        self, network: Any, target: str, stack: str, findings: list[Finding], origin: str | None,
     ) -> None:
         seen_fps: set[str] = set()
 
@@ -124,22 +142,75 @@ class Scanner(BaseScanner):
                     continue
                 seen_fps.add(fp)
 
+                recheck = _fetch_headers(req.url, origin=origin)
+                if recheck is not None:
+                    _status, rechecked_headers = recheck
+                    if header_key in rechecked_headers:
+                        continue
+
+                hint = f"Expected: `{header_key}: {expected_value}`" if expected_value else f"Expected: `{header_key}` header to be present"
+                if recheck is None:
+                    desc = (
+                        f"A passive network observation did not show the `{header_key}` security header, "
+                        "but Vibe Iterator could not directly revalidate the deployed response. Treat this "
+                        "as a sanity check before changing code or edge/CDN configuration."
+                    )
+                    findings.append(self.new_finding(
+                        scanner=self.name, severity=Severity.INFO,
+                        title=f"Sanity check: verify security header: {header_key}",
+                        description=desc,
+                        evidence={
+                            "request": {"method": req.method, "url": req.url},
+                            "response": {"status": getattr(req, "status_code", "?"), "headers": dict(req.response_headers)},
+                            "payload_type": "missing_header",
+                            "injection_point": f"response_header:{header_key}",
+                            "payload_used": hint,
+                            "proof_quality": "passive_header_observation_inconclusive",
+                            "confidence": "needs_review",
+                            "passive_observation_url": req.url,
+                            "revalidation_url": req.url,
+                        },
+                        llm_prompt=self.build_llm_prompt(
+                            title=f"Sanity check: verify security header: {header_key}",
+                            severity=Severity.INFO, scanner=self.name, page=req.url,
+                            category=self.category, description=desc,
+                            evidence_summary=(
+                                f"Passive observation did not include `{header_key}`, but direct "
+                                f"revalidation was inconclusive.\n{hint}\n"
+                                "Verify with curl/browser devtools before making changes."
+                            ),
+                            stack=stack,
+                        ),
+                        remediation=(
+                            f"**Sanity check:** Run `curl -I {req.url}` and verify whether "
+                            f"`{header_key}` is present on the live response.\n\n"
+                            "Only change app, proxy, or CDN configuration if the header is still missing."
+                        ),
+                        category=self.category, page=req.url,
+                    ))
+                    continue
+
+                _status, rechecked_headers = recheck
                 desc = (
                     f"The `{header_key}` security header is missing from responses. "
                     "This header helps prevent MIME-type sniffing and clickjacking attacks. "
                     "Modern browsers rely on these headers as an additional defence layer against XSS."
                 )
-                hint = f"Expected: `{header_key}: {expected_value}`" if expected_value else f"Expected: `{header_key}` header to be present"
                 findings.append(self.new_finding(
                     scanner=self.name, severity=Severity.LOW,
                     title=f"Missing security header: {header_key}",
                     description=desc,
                     evidence={
                         "request": {"method": req.method, "url": req.url},
-                        "response": {"status": getattr(req, "status_code", "?"), "headers": dict(req.response_headers)},
+                        "passive_response": {"status": getattr(req, "status_code", "?"), "headers": dict(req.response_headers)},
+                        "response": {"status": _status, "headers": dict(rechecked_headers)},
                         "payload_type": "missing_header",
                         "injection_point": f"response_header:{header_key}",
                         "payload_used": hint,
+                        "proof_quality": "direct_header_revalidation_missing",
+                        "confidence": "confirmed",
+                        "passive_observation_url": req.url,
+                        "revalidation_url": req.url,
                     },
                     llm_prompt=self.build_llm_prompt(
                         title=f"Missing security header: {header_key}",
