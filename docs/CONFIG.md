@@ -63,6 +63,9 @@ stages:
   dev:
     scanners: [data_leakage, auth_check, client_tampering, firebase_auth]
     description: "Catch basics during development"
+  safe-live:
+    scanners: [data_leakage, api_key_exposure, cors_check, info_disclosure, open_redirect_check, websocket_check]
+    description: "Reduced-risk live smoke scan"
   pre-deploy:
     scanners: [data_leakage, auth_check, client_tampering, rls_bypass, tier_escalation, bucket_limits, sql_injection, xss_check, api_exposure, mass_assignment, info_disclosure, idor_check, http_method_tampering, rate_limit_check, open_redirect_check, path_traversal_check, ssrf_check, csrf_check, graphql_check, webhook_check, websocket_check, unsafe_payload_check, file_upload_check, firebase_firestore, firebase_rtdb, firebase_storage, firebase_auth, firebase_functions]
     description: "Full audit before going live"
@@ -98,6 +101,13 @@ stack:
 - **Scanners:** Generic pre-deploy scanner set plus all five Firebase scanners
 - **Focus:** Comprehensive — everything that could be exploited in production
 - **Speed:** Thorough (28 scanners; stack-specific scanners are skipped when unavailable)
+
+### SAFE LIVE — "Reduced-risk live smoke scan"
+- **When:** Shared environments, staging, or production smoke checks where writes, uploads, brute/pressure tests, and high-risk payloads should stay off by default
+- **Scanners:** `data_leakage`, `api_key_exposure`, `cors_check`, `info_disclosure`, `open_redirect_check`, `websocket_check`
+- **Focus:** Low-impact signals from passive inspection plus bounded header/redirect/handshake probes
+- **Speed:** Fast (6 scanners; still review report contents before sharing because read-only checks can capture sensitive data)
+- **Triggered by:** `SAFE LIVE` dashboard stage card or `--stage safe-live` CLI flag
 
 ### POST-DEPLOY — "External-facing checks on live site"
 - **When:** After deployment, run against the live URL

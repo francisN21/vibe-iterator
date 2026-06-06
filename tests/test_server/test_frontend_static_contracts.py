@@ -12,6 +12,14 @@ def test_home_stage_picker_exposes_firebase_stage() -> None:
     assert "key: 'firebase'" in app_js
 
 
+def test_home_stage_picker_exposes_safe_live_stage() -> None:
+    app_js = (STATIC_DIR / "js" / "app.js").read_text(encoding="utf-8")
+
+    assert "key: 'safe-live'" in app_js
+    assert "label: 'SAFE LIVE'" in app_js
+    assert "tag: 'Smoke-safe'" in app_js
+
+
 def test_firebase_panel_visibility_uses_configured_stage_not_stack_detection_only() -> None:
     app_js = (STATIC_DIR / "js" / "app.js").read_text(encoding="utf-8")
 

@@ -63,7 +63,7 @@
 - Modify: `README.md`
 - Modify: `docs/CONFIG.md`
 
-- [ ] Add `_SAFE_LIVE_SCANNERS` list in `config.py` using the approved reduced-risk scanner set.
+- [ ] Add `_SAFE_LIVE_SCANNERS` list in `config.py` using the approved reduced-risk scanner set: `data_leakage`, `api_key_exposure`, `cors_check`, `info_disclosure`, `open_redirect_check`, and `websocket_check`.
 - [ ] Add `"safe-live"` to `_DEFAULT_STAGES`.
 - [ ] Add `"safe-live"` to the Click `--stage` choices.
 - [ ] Add `_STAGE_LABELS["safe-live"]` with label `SAFE LIVE`, tag `Smoke-safe`, and an estimated runtime.

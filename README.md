@@ -77,7 +77,7 @@ It then gives you a **copy-paste prompt** you can feed right back to your AI cod
 ```
 
 1. **You configure** — Point it at your app with a `.env` file (target URL, test credentials)
-2. **You choose a stage** — Dev (quick), Pre-Deploy (full), or Post-Deploy (production)
+2. **You choose a stage** — Dev (quick), Safe Live (reduced-risk smoke), Pre-Deploy (full), or Post-Deploy (production)
 3. **It launches your app** — Selenium opens a real browser, logs in, crawls your pages
 4. **It attacks your app** — Tampers with tokens, spoofs tiers, injects SQL, checks what leaks in devtools
 5. **It streams results live** — Watch the hacker-themed dashboard as findings roll in
@@ -117,6 +117,7 @@ Your browser opens to `http://localhost:3001` — select a scan stage, hit **STA
 
 ```bash
 vibe-iterator scan --stage pre-deploy
+vibe-iterator scan --stage safe-live
 ```
 
 **Separate frontend and backend?** If your API runs on a different port or domain than your frontend, add one more line:
@@ -134,7 +135,7 @@ Vibe Iterator ships with a **hacker-themed control center** on `localhost:3001` 
 
 ### 🏠 Home — Pick Your Stage
 
-Select **DEV**, **PRE-DEPLOY**, or **POST-DEPLOY**. Each stage runs a different set of scanners tuned for that phase of your project.
+Select **DEV**, **SAFE LIVE**, **PRE-DEPLOY**, or **POST-DEPLOY**. Each stage runs a different set of scanners tuned for that phase of your project.
 
 ### 📡 Live Scan — Watch It Happen
 
@@ -262,6 +263,7 @@ Current validation snapshot for this branch:
 | Stage              | Scanners                                                                                                                                                 | When to Use                                  |
 | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
 | **🔧 DEV**         | `data_leakage` · `auth_check` · `client_tampering` · `firebase_auth`                                                                                     | During development — quick feedback loop     |
+| **SAFE LIVE**      | `data_leakage` · `api_key_exposure` · `cors_check` · `info_disclosure` · `open_redirect_check` · `websocket_check`                                      | Shared/live smoke scan with reduced side effects |
 | **🚀 PRE-DEPLOY**  | Generic pre-deploy scanners plus all five Firebase scanners                                                                                              | Before going live — full audit               |
 | **🌍 POST-DEPLOY** | Generic post-deploy scanners plus all five Firebase scanners                                                                                             | Against production — external attack surface |
 | **FIREBASE**       | `firebase_firestore` · `firebase_rtdb` · `firebase_storage` · `firebase_auth` · `firebase_functions`                                                     | Focused Firebase stack audit                  |
@@ -361,6 +363,8 @@ pages:
 stages:
   dev:
     scanners: [data_leakage, auth_check, client_tampering, firebase_auth]
+  safe-live:
+    scanners: [data_leakage, api_key_exposure, cors_check, info_disclosure, open_redirect_check, websocket_check]
   pre-deploy:
     scanners:
       [

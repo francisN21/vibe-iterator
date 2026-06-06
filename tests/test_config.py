@@ -94,6 +94,37 @@ def test_firebase_stage_contains_firebase_scanners_only() -> None:
     ]
 
 
+def test_safe_live_stage_contains_only_reduced_risk_smoke_scanners() -> None:
+    assert _DEFAULT_STAGES["safe-live"] == [
+        "data_leakage",
+        "api_key_exposure",
+        "cors_check",
+        "info_disclosure",
+        "open_redirect_check",
+        "websocket_check",
+    ]
+
+
+def test_safe_live_stage_excludes_active_or_cross_user_scanners() -> None:
+    safe_live = set(_DEFAULT_STAGES["safe-live"])
+
+    excluded = {
+        "auth_check",
+        "api_exposure",
+        "rls_bypass",
+        "idor_check",
+        "rate_limit_check",
+        "path_traversal_check",
+        "ssrf_check",
+        "graphql_check",
+        "csrf_check",
+        "webhook_check",
+        "unsafe_payload_check",
+        "file_upload_check",
+    }
+    assert safe_live.isdisjoint(excluded)
+
+
 def test_valid_scanner_names_include_all_default_stage_scanners() -> None:
     stage_scanners = {
         scanner

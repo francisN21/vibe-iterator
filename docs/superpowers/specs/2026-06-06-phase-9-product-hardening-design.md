@@ -28,7 +28,6 @@ This phase starts with two implementation tracks:
 - `api_key_exposure`
 - `info_disclosure`
 - `open_redirect_check`
-- `graphql_check`
 - `websocket_check`
 
 The first version excludes scanners that intentionally write, upload, tamper client state, send unsafe mutations, brute/pressure endpoints, or submit higher-risk active payloads:
@@ -48,6 +47,7 @@ The first version excludes scanners that intentionally write, upload, tamper cli
 - `path_traversal_check`
 - `ssrf_check`
 - `csrf_check`
+- `graphql_check`
 - `webhook_check`
 - `unsafe_payload_check`
 - `file_upload_check`

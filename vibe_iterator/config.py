@@ -18,8 +18,18 @@ _FIREBASE_SCANNERS: list[str] = [
     "firebase_functions",
 ]
 
+_SAFE_LIVE_SCANNERS: list[str] = [
+    "data_leakage",
+    "api_key_exposure",
+    "cors_check",
+    "info_disclosure",
+    "open_redirect_check",
+    "websocket_check",
+]
+
 _DEFAULT_STAGES: dict[str, list[str]] = {
     "dev": ["data_leakage", "auth_check", "client_tampering", "firebase_auth"],
+    "safe-live": list(_SAFE_LIVE_SCANNERS),
     "pre-deploy": [
         "data_leakage", "auth_check", "client_tampering",
         "rls_bypass", "tier_escalation", "bucket_limits",

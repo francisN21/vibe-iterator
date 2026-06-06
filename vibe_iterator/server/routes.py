@@ -246,6 +246,7 @@ for _scanner_name, _risk_meta in _SCANNER_RISK_META.items():
 
 _STAGE_LABELS = {
     "dev":         {"label": "DEV",         "tag": "Quick scan",    "icon": "⟨/⟩", "est_minutes": 2},
+    "safe-live":   {"label": "SAFE LIVE",   "tag": "Smoke-safe",    "icon": "OK",  "est_minutes": 2},
     "pre-deploy":  {"label": "PRE-DEPLOY",  "tag": "Recommended",   "icon": "🚀",  "est_minutes": 8},
     "post-deploy": {"label": "POST-DEPLOY", "tag": "Production",     "icon": "🌍",  "est_minutes": 5},
     "all":         {"label": "ALL",         "tag": "Full Audit",     "icon": "⊞",   "est_minutes": 15},

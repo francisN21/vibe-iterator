@@ -128,6 +128,33 @@ async def test_config_endpoint_includes_scanner_risk_metadata() -> None:
 
 
 @pytest.mark.asyncio
+async def test_config_endpoint_exposes_safe_live_stage_metadata() -> None:
+    cfg = _make_config()
+    cfg.stages = {
+        "safe-live": [
+            "data_leakage",
+            "api_key_exposure",
+            "cors_check",
+            "info_disclosure",
+            "open_redirect_check",
+            "websocket_check",
+        ],
+    }
+    app = create_app(cfg)
+
+    async with await _client(app) as c:
+        r = await c.get("/api/config")
+
+    assert r.status_code == 200
+    stage = r.json()["stages"]["safe-live"]
+    assert stage["label"] == "SAFE LIVE"
+    assert stage["tag"] == "Smoke-safe"
+    assert [s["name"] for s in stage["scanners"]] == cfg.stages["safe-live"]
+    assert all(s["risk_level"] == "low" for s in stage["scanners"])
+    assert all(s["mutates_state"] is False for s in stage["scanners"])
+
+
+@pytest.mark.asyncio
 async def test_config_endpoint_marks_firebase_stage_unavailable_for_non_firebase_stack() -> None:
     cfg = _make_config()
     cfg.stack.backend = "supabase"

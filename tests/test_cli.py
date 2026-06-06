@@ -33,6 +33,42 @@ def test_scan_accepts_hidden_headless_flag_and_runs_engine() -> None:
     assert "Complete: status=completed" in result.output
 
 
+def test_scan_accepts_safe_live_stage() -> None:
+    config = SimpleNamespace(target="http://localhost:3000")
+    result_obj = SimpleNamespace(status="completed", findings=[], score=100)
+    runner_instance = MagicMock()
+    runner_instance.run = AsyncMock(return_value=result_obj)
+
+    with patch("vibe_iterator.config.load_config", return_value=config), \
+            patch("vibe_iterator.engine.runner.ScanRunner", return_value=runner_instance), \
+            patch("vibe_iterator.cli._check_target_reachable", return_value=True):
+        result = CliRunner().invoke(
+            cli,
+            ["scan", "--headless", "--target", "http://localhost:3000", "--stage", "safe-live"],
+        )
+
+    assert result.exit_code == 0, result.output
+    runner_instance.run.assert_awaited_once_with("safe-live")
+
+
+def test_scan_accepts_firebase_stage_from_default_config() -> None:
+    config = SimpleNamespace(target="http://localhost:3000")
+    result_obj = SimpleNamespace(status="completed", findings=[], score=100)
+    runner_instance = MagicMock()
+    runner_instance.run = AsyncMock(return_value=result_obj)
+
+    with patch("vibe_iterator.config.load_config", return_value=config), \
+            patch("vibe_iterator.engine.runner.ScanRunner", return_value=runner_instance), \
+            patch("vibe_iterator.cli._check_target_reachable", return_value=True):
+        result = CliRunner().invoke(
+            cli,
+            ["scan", "--headless", "--target", "http://localhost:3000", "--stage", "firebase"],
+        )
+
+    assert result.exit_code == 0, result.output
+    runner_instance.run.assert_awaited_once_with("firebase")
+
+
 def test_scan_exits_1_when_target_unreachable() -> None:
     config = SimpleNamespace(target="http://localhost:3000")
 

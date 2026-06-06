@@ -115,6 +115,7 @@ function renderStageCards(cfg) {
 
   const stages = [
     { key: 'dev',         label: 'DEV',        icon: '⟨/⟩', tag: 'Quick scan',  note: '~2 min' },
+    { key: 'safe-live',   label: 'SAFE LIVE',  icon: 'OK',   tag: 'Smoke-safe',  note: '~2 min' },
     { key: 'pre-deploy',  label: 'PRE-DEPLOY',  icon: '🚀',  tag: 'Recommended', note: '~8 min', recommend: true },
     { key: 'post-deploy', label: 'POST-DEPLOY', icon: '🌍',  tag: 'Production',  note: '~5 min' },
     { key: 'all',         label: 'ALL',         icon: '⊞',   tag: 'Full Audit',  note: '~15 min', warn: '⚠ Slow — best for deep audits' },
