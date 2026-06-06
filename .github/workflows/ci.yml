@@ -47,3 +47,6 @@ jobs:
 
       - name: Run tests with coverage
         run: pytest tests/ -v --tb=short --cov=vibe_iterator --cov-fail-under=70
+
+      - name: Check scanner exposure matrix
+        run: python scripts/check_scanner_exposure.py
