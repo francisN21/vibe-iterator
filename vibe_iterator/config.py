@@ -10,20 +10,30 @@ import yaml
 from dotenv import load_dotenv
 
 # Default stage → scanner mapping (mirrors vibe-iterator.config.yaml)
+_FIREBASE_SCANNERS: list[str] = [
+    "firebase_firestore",
+    "firebase_rtdb",
+    "firebase_storage",
+    "firebase_auth",
+    "firebase_functions",
+]
+
 _DEFAULT_STAGES: dict[str, list[str]] = {
-    "dev": ["data_leakage", "auth_check", "client_tampering"],
+    "dev": ["data_leakage", "auth_check", "client_tampering", "firebase_auth"],
     "pre-deploy": [
         "data_leakage", "auth_check", "client_tampering",
         "rls_bypass", "tier_escalation", "bucket_limits",
         "sql_injection", "xss_check", "api_exposure",
         "mass_assignment", "info_disclosure", "idor_check",
         "http_method_tampering", "rate_limit_check",
+        *_FIREBASE_SCANNERS,
     ],
     "post-deploy": [
         "cors_check", "data_leakage", "auth_check",
         "api_exposure", "api_key_exposure", "bucket_limits",
         "sql_injection", "mass_assignment", "info_disclosure",
         "idor_check", "http_method_tampering", "rate_limit_check",
+        *_FIREBASE_SCANNERS,
     ],
     "all": [
         "data_leakage", "rls_bypass", "tier_escalation", "bucket_limits",
@@ -31,12 +41,18 @@ _DEFAULT_STAGES: dict[str, list[str]] = {
         "cors_check", "xss_check", "api_exposure", "api_key_exposure",
         "mass_assignment", "info_disclosure", "idor_check",
         "http_method_tampering", "rate_limit_check",
+        *_FIREBASE_SCANNERS,
     ],
+    "firebase": list(_FIREBASE_SCANNERS),
 }
 
 _DEFAULT_PAGES: list[str] = ["/", "/login", "/dashboard", "/profile"]
 
-_VALID_SCANNER_NAMES: frozenset[str] = frozenset(_DEFAULT_STAGES["all"])
+_VALID_SCANNER_NAMES: frozenset[str] = frozenset(
+    scanner
+    for scanner_list in _DEFAULT_STAGES.values()
+    for scanner in scanner_list
+)
 
 
 @dataclass

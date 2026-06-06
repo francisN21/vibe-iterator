@@ -122,6 +122,36 @@ _SCANNER_META: dict[str, dict] = {
         "category": "Misconfiguration", "est_seconds": 15,
         "description": "Sends DELETE/PUT/PATCH to endpoints expecting GET/POST — checks if method overrides bypass access controls.",
     },
+    "firebase_firestore": {
+        "label": "Firestore Rules",
+        "requires_stack": ["firebase"], "requires_second_account": False,
+        "category": "Access Control", "est_seconds": 45,
+        "description": "Tests Firestore security rules for unauthenticated reads, writes, IDOR, and mass assignment.",
+    },
+    "firebase_rtdb": {
+        "label": "Realtime Database",
+        "requires_stack": ["firebase"], "requires_second_account": False,
+        "category": "Access Control", "est_seconds": 35,
+        "description": "Tests Realtime Database rules for open reads, writes, deletes, and sensitive data exposure.",
+    },
+    "firebase_storage": {
+        "label": "Storage Rules",
+        "requires_stack": ["firebase"], "requires_second_account": False,
+        "category": "Access Control", "est_seconds": 40,
+        "description": "Tests Firebase Storage rules for public downloads, uploads, object listing, and cross-user access.",
+    },
+    "firebase_auth": {
+        "label": "Firebase Auth",
+        "requires_stack": ["firebase"], "requires_second_account": False,
+        "category": "Authentication", "est_seconds": 30,
+        "description": "Tests Firebase Auth configuration for anonymous signup, account enumeration, and token leakage.",
+    },
+    "firebase_functions": {
+        "label": "Cloud Functions",
+        "requires_stack": ["firebase"], "requires_second_account": False,
+        "category": "API Security", "est_seconds": 35,
+        "description": "Tests Firebase Cloud Functions for unauthenticated access, token leakage, and permissive CORS.",
+    },
 }
 
 _STAGE_LABELS = {
@@ -129,6 +159,7 @@ _STAGE_LABELS = {
     "pre-deploy":  {"label": "PRE-DEPLOY",  "tag": "Recommended",   "icon": "🚀",  "est_minutes": 8},
     "post-deploy": {"label": "POST-DEPLOY", "tag": "Production",     "icon": "🌍",  "est_minutes": 5},
     "all":         {"label": "ALL",         "tag": "Full Audit",     "icon": "⊞",   "est_minutes": 15},
+    "firebase":    {"label": "FIREBASE",    "tag": "Stack-specific", "icon": "FB",  "est_minutes": 4},
 }
 
 

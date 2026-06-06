@@ -20,7 +20,7 @@ Every scanner lives in `vibe_iterator/scanners/` and inherits from `BaseScanner`
 # vibe_iterator/scanners/base.py
 class BaseScanner:
     name: str          # snake_case identifier, unique across all scanners
-    stages: list[str]  # when this scanner runs: "pre-deploy", "post-deploy", or both
+    stages: list[str]  # when this scanner runs: "dev", "pre-deploy", "post-deploy", "all", or "firebase"
     category: str      # one of the 7 valid categories (see below)
     requires_stack: list[str]   # ["supabase"], ["firebase"], or ["any"]
     requires_second_account: bool  # True if scanner needs a second test account
@@ -36,7 +36,7 @@ class BaseScanner:
 
 **Valid categories:** `injection`, `access_control`, `authentication`, `client_tampering`, `data_leakage`, `misconfiguration`, `api_security`
 
-**Valid stages:** `dev`, `pre-deploy`, `post-deploy`, `all`
+**Valid stages:** `dev`, `pre-deploy`, `post-deploy`, `all`, `firebase`
 
 ---
 

@@ -61,17 +61,20 @@ pages:
 # Stage-specific scanner selection
 stages:
   dev:
-    scanners: [data_leakage, auth_check, client_tampering]
+    scanners: [data_leakage, auth_check, client_tampering, firebase_auth]
     description: "Catch basics during development"
   pre-deploy:
-    scanners: [data_leakage, auth_check, client_tampering, rls_bypass, tier_escalation, bucket_limits, sql_injection, xss_check, api_exposure]
+    scanners: [data_leakage, auth_check, client_tampering, rls_bypass, tier_escalation, bucket_limits, sql_injection, xss_check, api_exposure, mass_assignment, info_disclosure, idor_check, http_method_tampering, rate_limit_check, firebase_firestore, firebase_rtdb, firebase_storage, firebase_auth, firebase_functions]
     description: "Full audit before going live"
   post-deploy:
-    scanners: [cors_check, data_leakage, auth_check, api_exposure, bucket_limits, sql_injection]
+    scanners: [cors_check, data_leakage, auth_check, api_exposure, api_key_exposure, bucket_limits, sql_injection, mass_assignment, info_disclosure, idor_check, http_method_tampering, rate_limit_check, firebase_firestore, firebase_rtdb, firebase_storage, firebase_auth, firebase_functions]
     description: "External-facing checks on live site"
   all:
-    scanners: [data_leakage, rls_bypass, tier_escalation, bucket_limits, auth_check, client_tampering, sql_injection, cors_check, xss_check, api_exposure]
+    scanners: [data_leakage, rls_bypass, tier_escalation, bucket_limits, auth_check, client_tampering, sql_injection, cors_check, xss_check, api_exposure, api_key_exposure, mass_assignment, info_disclosure, idor_check, http_method_tampering, rate_limit_check, firebase_firestore, firebase_rtdb, firebase_storage, firebase_auth, firebase_functions]
     description: "Run every scanner regardless of stage"
+  firebase:
+    scanners: [firebase_firestore, firebase_rtdb, firebase_storage, firebase_auth, firebase_functions]
+    description: "Firebase-specific security audit"
 
 # Technology detection (auto-detect if not specified — see Auto-Detection section below)
 stack:
@@ -86,27 +89,27 @@ stack:
 
 ### DEV — "Catch basics during development"
 - **When:** During active development, run frequently
-- **Scanners:** `data_leakage`, `auth_check`, `client_tampering`
+- **Scanners:** `data_leakage`, `auth_check`, `client_tampering`, `firebase_auth`
 - **Focus:** Quick feedback loop — catch leaked tokens, weak auth, and client-side trust issues early
-- **Speed:** Fast (3 scanners)
+- **Speed:** Fast (4 scanners; Firebase Auth is skipped unless the target stack is Firebase)
 
 ### PRE-DEPLOY — "Full audit before going live"
 - **When:** Before deploying to production, run once before each release
-- **Scanners:** `data_leakage`, `auth_check`, `client_tampering`, `rls_bypass`, `tier_escalation`, `bucket_limits`, `sql_injection`, `xss_check`, `api_exposure`
+- **Scanners:** Generic pre-deploy scanner set plus all five Firebase scanners
 - **Focus:** Comprehensive — everything that could be exploited in production
-- **Speed:** Thorough (9 scanners)
+- **Speed:** Thorough (19 scanners; stack-specific scanners are skipped when unavailable)
 
 ### POST-DEPLOY — "External-facing checks on live site"
 - **When:** After deployment, run against the live URL
-- **Scanners:** `cors_check`, `data_leakage`, `auth_check`, `api_exposure`, `bucket_limits`, `sql_injection`
+- **Scanners:** Generic post-deploy scanner set plus all five Firebase scanners
 - **Focus:** External attack surface — what's visible and exploitable from outside
-- **Speed:** Moderate (6 scanners)
+- **Speed:** Moderate (17 scanners; stack-specific scanners are skipped when unavailable)
 
 ### ALL — "Run every scanner regardless of stage"
 - **When:** Deep audit, debugging, CI pipeline where you want maximum coverage
-- **Scanners:** All 10 scanners in a logical order (data first, auth second, injection last)
+- **Scanners:** Every registered scanner in a logical order (data first, auth second, injection last)
 - **Focus:** Complete — every check the tool can perform
-- **Speed:** Slow (all 10 scanners — expect 10–20 minutes on a typical app)
+- **Speed:** Slow (all scanners; stack-specific scanners are skipped when unavailable)
 - **Triggered by:** "ALL SCANNERS" toggle in the dashboard home, or `--stage all` CLI flag
 
 ### FIREBASE — "Firebase-specific security audit — all five Firebase scanners"
@@ -114,7 +117,7 @@ stack:
 - **Scanners:** `firebase_firestore`, `firebase_rtdb`, `firebase_storage`, `firebase_auth`, `firebase_functions`
 - **Focus:** Firebase-native attack surface — Security Rules misconfigurations, RTDB open access, unauthenticated Cloud Function calls, auth weaknesses, Storage rule bypasses
 - **Speed:** Moderate (5 scanners — expect 5–10 minutes)
-- **Triggered by:** Firebase panel in the dashboard home (shown only when `backend: firebase` is detected), or `--stage firebase` CLI flag
+- **Triggered by:** Firebase panel in the dashboard home, Firebase stage card, or `--stage firebase` CLI flag
 
 ### DISCOVER — "Spider stage — maps attack surface, writes vibe-iterator.discovered.yaml"
 - **When:** Before running any other stages; maps pages and API endpoints your app exposes

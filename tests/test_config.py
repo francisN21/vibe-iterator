@@ -60,7 +60,7 @@ def test_missing_required_fields_raises(monkeypatch, tmp_path) -> None:
 # --------------------------------------------------------------------------- #
 
 def test_dev_stage_has_correct_scanners() -> None:
-    expected = {"data_leakage", "auth_check", "client_tampering"}
+    expected = {"data_leakage", "auth_check", "client_tampering", "firebase_auth"}
     assert set(_DEFAULT_STAGES["dev"]) == expected
 
 
@@ -78,9 +78,29 @@ def test_post_deploy_includes_cors() -> None:
     assert "cors_check" in _DEFAULT_STAGES["post-deploy"]
 
 
-def test_all_stage_contains_every_scanner() -> None:
+def test_all_stage_contains_every_valid_scanner() -> None:
     all_scanners = set(_DEFAULT_STAGES["all"])
+    assert "firebase_auth" in all_scanners
     assert all_scanners == _VALID_SCANNER_NAMES
+
+
+def test_firebase_stage_contains_firebase_scanners_only() -> None:
+    assert _DEFAULT_STAGES["firebase"] == [
+        "firebase_firestore",
+        "firebase_rtdb",
+        "firebase_storage",
+        "firebase_auth",
+        "firebase_functions",
+    ]
+
+
+def test_valid_scanner_names_include_all_default_stage_scanners() -> None:
+    stage_scanners = {
+        scanner
+        for scanner_list in _DEFAULT_STAGES.values()
+        for scanner in scanner_list
+    }
+    assert stage_scanners == _VALID_SCANNER_NAMES
 
 
 def test_dev_is_subset_of_pre_deploy() -> None:
@@ -115,6 +135,20 @@ def test_yaml_stage_override(monkeypatch, tmp_path) -> None:
     )
     cfg = load_config(yaml_path=yaml_file)
     assert cfg.stages["dev"] == ["data_leakage", "auth_check"]
+
+
+def test_yaml_stage_override_accepts_firebase_scanners(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("VIBE_ITERATOR_TEST_EMAIL", "t@e.com")
+    monkeypatch.setenv("VIBE_ITERATOR_TEST_PASSWORD", "pw")
+    monkeypatch.setenv("VIBE_ITERATOR_TARGET", "http://localhost:3000")
+
+    yaml_file = tmp_path / "vibe-iterator.config.yaml"
+    yaml_file.write_text(
+        "stages:\n  firebase:\n    scanners: [firebase_auth, firebase_storage]\n",
+        encoding="utf-8",
+    )
+    cfg = load_config(yaml_path=yaml_file)
+    assert cfg.stages["firebase"] == ["firebase_auth", "firebase_storage"]
 
 
 def test_yaml_invalid_scanner_raises(monkeypatch, tmp_path) -> None:

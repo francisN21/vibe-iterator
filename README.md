@@ -243,9 +243,10 @@ Current validation snapshot for this branch:
 
 | Stage              | Scanners                                                                                                                                                 | When to Use                                  |
 | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
-| **🔧 DEV**         | `data_leakage` · `auth_check` · `client_tampering`                                                                                                       | During development — quick feedback loop     |
-| **🚀 PRE-DEPLOY**  | `data_leakage` · `auth_check` · `client_tampering` · `rls_bypass` · `tier_escalation` · `bucket_limits` · `sql_injection` · `xss_check` · `api_exposure` | Before going live — full audit               |
-| **🌍 POST-DEPLOY** | `cors_check` · `data_leakage` · `auth_check` · `api_exposure` · `bucket_limits` · `sql_injection`                                                        | Against production — external attack surface |
+| **🔧 DEV**         | `data_leakage` · `auth_check` · `client_tampering` · `firebase_auth`                                                                                     | During development — quick feedback loop     |
+| **🚀 PRE-DEPLOY**  | Generic pre-deploy scanners plus all five Firebase scanners                                                                                              | Before going live — full audit               |
+| **🌍 POST-DEPLOY** | Generic post-deploy scanners plus all five Firebase scanners                                                                                             | Against production — external attack surface |
+| **FIREBASE**       | `firebase_firestore` · `firebase_rtdb` · `firebase_storage` · `firebase_auth` · `firebase_functions`                                                     | Focused Firebase stack audit                  |
 
 ---
 
@@ -341,7 +342,7 @@ pages:
 
 stages:
   dev:
-    scanners: [data_leakage, auth_check, client_tampering]
+    scanners: [data_leakage, auth_check, client_tampering, firebase_auth]
   pre-deploy:
     scanners:
       [
@@ -354,6 +355,16 @@ stages:
         sql_injection,
         xss_check,
         api_exposure,
+        mass_assignment,
+        info_disclosure,
+        idor_check,
+        http_method_tampering,
+        rate_limit_check,
+        firebase_firestore,
+        firebase_rtdb,
+        firebase_storage,
+        firebase_auth,
+        firebase_functions,
       ]
   post-deploy:
     scanners:
@@ -362,8 +373,28 @@ stages:
         data_leakage,
         auth_check,
         api_exposure,
+        api_key_exposure,
         bucket_limits,
         sql_injection,
+        mass_assignment,
+        info_disclosure,
+        idor_check,
+        http_method_tampering,
+        rate_limit_check,
+        firebase_firestore,
+        firebase_rtdb,
+        firebase_storage,
+        firebase_auth,
+        firebase_functions,
+      ]
+  firebase:
+    scanners:
+      [
+        firebase_firestore,
+        firebase_rtdb,
+        firebase_storage,
+        firebase_auth,
+        firebase_functions,
       ]
 
 stack:

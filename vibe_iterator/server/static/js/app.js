@@ -118,6 +118,7 @@ function renderStageCards(cfg) {
     { key: 'pre-deploy',  label: 'PRE-DEPLOY',  icon: '🚀',  tag: 'Recommended', note: '~8 min', recommend: true },
     { key: 'post-deploy', label: 'POST-DEPLOY', icon: '🌍',  tag: 'Production',  note: '~5 min' },
     { key: 'all',         label: 'ALL',         icon: '⊞',   tag: 'Full Audit',  note: '~15 min', warn: '⚠ Slow — best for deep audits' },
+    { key: 'firebase',    label: 'FIREBASE',    icon: 'FB',  tag: 'Stack-specific', note: '~4 min' },
   ];
 
   stages.forEach(({ key, label, icon, tag, note, recommend, warn }) => {
@@ -330,11 +331,12 @@ async function startDiscovery() {
 function initFirebasePanel(configMeta) {
   const panel = document.getElementById('firebase-panel');
   if (!panel) return;
+  const hasFirebaseStage = !!(configMeta && configMeta.stages && configMeta.stages.firebase);
   const isFirebase = configMeta && configMeta.stack && configMeta.stack.backend === 'firebase';
-  panel.hidden = !isFirebase;
-  if (!isFirebase) return;
+  panel.hidden = !hasFirebaseStage;
+  if (!hasFirebaseStage) return;
 
-  const projId = (configMeta.firebase && configMeta.firebase.projectId) || 'unknown';
+  const projId = isFirebase && configMeta.firebase ? configMeta.firebase.projectId : 'not detected';
   document.getElementById('fb-project-id').textContent = projId;
 
   document.getElementById('fb-select-all').addEventListener('click', toggleAllFirebaseServices);
@@ -369,7 +371,7 @@ async function startFirebaseScan() {
       method: 'POST',
       body: JSON.stringify({ stage: 'firebase', scanner_overrides: overrides }),
     });
-    window.location.href = '/scan';
+    window.location.href = '/scan?stage=firebase';
   } catch (e) {
     if (e.status === 409) {
       document.getElementById('running-modal').classList.add('open');

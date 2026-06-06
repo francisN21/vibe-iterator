@@ -10,6 +10,7 @@ from httpx import ASGITransport, AsyncClient
 from vibe_iterator.engine.runner import ScannerResult, ScanResult
 from vibe_iterator.scanners.base import Finding, Severity
 from vibe_iterator.server.app import create_app
+from vibe_iterator.config import load_config
 
 # --------------------------------------------------------------------------- #
 # Helpers                                                                     #
@@ -109,6 +110,32 @@ async def test_config_endpoint_masks_email() -> None:
     assert "test@example.com" not in data["test_email_masked"]
 
 
+@pytest.mark.asyncio
+async def test_config_endpoint_marks_firebase_stage_unavailable_for_non_firebase_stack() -> None:
+    cfg = _make_config()
+    cfg.stack.backend = "supabase"
+    cfg.stages = {
+        "firebase": [
+            "firebase_firestore",
+            "firebase_rtdb",
+            "firebase_storage",
+            "firebase_auth",
+            "firebase_functions",
+        ],
+    }
+    app = create_app(cfg)
+
+    async with await _client(app) as c:
+        r = await c.get("/api/config")
+
+    assert r.status_code == 200
+    scanners = r.json()["stages"]["firebase"]["scanners"]
+    assert [s["name"] for s in scanners] == cfg.stages["firebase"]
+    assert all(s["available"] is False for s in scanners)
+    assert all("Requires firebase stack" in s["skip_reason"] for s in scanners)
+    assert scanners[0]["label"] == "Firestore Rules"
+
+
 # --------------------------------------------------------------------------- #
 # Start scan                                                                   #
 # --------------------------------------------------------------------------- #
@@ -130,6 +157,38 @@ async def test_start_scan_returns_started() -> None:
     assert r.json()["status"] == "started"
     assert r.json()["stage"] == "dev"
     assert r.json()["scan_id"]
+
+
+@pytest.mark.asyncio
+async def test_start_scan_accepts_default_firebase_stage(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("VIBE_ITERATOR_TEST_EMAIL", "test@example.com")
+    monkeypatch.setenv("VIBE_ITERATOR_TEST_PASSWORD", "pass")
+    monkeypatch.setenv("VIBE_ITERATOR_TARGET", "http://localhost:3000")
+    env_path = tmp_path / "empty.env"
+    env_path.write_text("", encoding="utf-8")
+    config = load_config(env_path=env_path, yaml_path=tmp_path / "missing.yaml")
+    config.stack.backend = "firebase"
+    app = create_app(config)
+
+    with patch("vibe_iterator.server.routes.ScanRunner") as MockRunner:
+        mock_instance = MagicMock()
+        mock_instance.get_result.return_value = None
+        mock_instance.run = AsyncMock(return_value=_make_scan_result())
+        MockRunner.return_value = mock_instance
+
+        async with await _client(app) as c:
+            r = await c.post(
+                "/api/scan/start",
+                json={
+                    "stage": "firebase",
+                    "scanner_overrides": ["firebase_auth", "firebase_storage"],
+                },
+            )
+
+    assert r.status_code == 200
+    assert r.json()["stage"] == "firebase"
+    MockRunner.assert_called_once()
+    assert MockRunner.call_args.kwargs["scanner_overrides"] == ["firebase_auth", "firebase_storage"]
 
 
 @pytest.mark.asyncio
