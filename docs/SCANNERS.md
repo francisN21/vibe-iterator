@@ -113,6 +113,10 @@ Common values include:
 | `untrusted_origin_websocket_accepted` | A WebSocket endpoint accepted an upgrade from an attacker-controlled Origin. |
 | `ssti_marker_evaluated` | A harmless SSTI arithmetic marker such as `{{7*7}}` was evaluated server-side. |
 | `unsafe_parser_error_signature` | A harmless malformed parser marker exposed an unsafe deserialization/parser error signature. |
+| `executable_extension_upload_accepted` | Upload storage accepted a file with an executable extension. |
+| `dangerous_mime_upload_accepted` | Upload storage accepted a dangerous executable MIME type. |
+| `polyglot_svg_html_upload_accepted` | Upload storage accepted SVG/HTML polyglot content. |
+| `eicar_test_string_upload_accepted` | Upload storage accepted the harmless EICAR antivirus test string. |
 
 ---
 
@@ -162,6 +166,7 @@ Not a scanner — a module of helper functions used by `rls_bypass`, `tier_escal
 | `webhook_check` | API Security | pre-deploy | `['any']` | `False` | 8 |
 | `websocket_check` | API Security | pre-deploy | `['any']` | `False` | 8 |
 | `unsafe_payload_check` | Injection | pre-deploy | `['any']` | `False` | 8 |
+| `file_upload_check` | File Upload | pre-deploy | `['any']` | `False` | 8 |
 
 *`xss_check` is intentionally excluded from `post-deploy` — see `xss_check` Stage Coverage Note section.
 
@@ -396,6 +401,13 @@ The scanner uses a layered approach:
 - **What it does:** Tests render/template/parser endpoints for harmless SSTI marker evaluation and unsafe parser/deserialization error signatures.
 - **Checks:** Injects `{{7*7}}` into template-like JSON fields and sends malformed parser markers such as `__vibe_invalid_pickle__` into payload-like fields.
 - **How:** Reports only when the response evaluates the arithmetic marker to `49` or exposes known unsafe parser signatures such as `pickle.UnpicklingError`; literal reflection and generic validation errors are suppressed.
+
+### `file_upload_check.py`
+- **Category:** File Upload
+- **Stages:** pre-deploy
+- **What it does:** Tests generic upload endpoints for dangerous file acceptance beyond Supabase/Firebase storage-specific checks.
+- **Checks:** Uploads tiny harmless probes for executable extensions, dangerous MIME types, SVG/HTML polyglot content, and the EICAR antivirus test string.
+- **How:** Reports only when the endpoint returns an accepted/stored/uploaded success signal; rejected uploads, preview responses, dry-run responses, and validation-only echoes are suppressed.
 
 ---
 

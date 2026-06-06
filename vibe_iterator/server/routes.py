@@ -170,6 +170,12 @@ _SCANNER_META: dict[str, dict] = {
         "category": "Injection", "est_seconds": 25,
         "description": "Probes render/parser endpoints for harmless SSTI marker evaluation and unsafe parser error signatures.",
     },
+    "file_upload_check": {
+        "label": "File Upload",
+        "requires_stack": ["any"], "requires_second_account": False,
+        "category": "File Upload", "est_seconds": 30,
+        "description": "Probes upload endpoints for dangerous extensions, MIME types, polyglots, and EICAR test strings.",
+    },
     "firebase_firestore": {
         "label": "Firestore Rules",
         "requires_stack": ["firebase"], "requires_second_account": False,

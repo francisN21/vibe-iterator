@@ -186,3 +186,28 @@ def test_vulnerable_app_models_unsafe_render_and_parser_errors() -> None:
     assert "Hello 49" in render_body
     assert parser_status == 500
     assert "pickle.UnpicklingError" in parser_body
+
+
+def test_vulnerable_app_models_dangerous_file_upload_acceptance() -> None:
+    boundary = "----vibeiteratorfixture"
+    body = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="file"; filename="proof.php"\r\n'
+        "Content-Type: application/x-php\r\n\r\n"
+        "<?php echo 'proof'; ?>\r\n"
+        f"--{boundary}--\r\n"
+    ).encode("utf-8")
+
+    with VulnerableApp() as app:
+        req = urllib.request.Request(
+            app.base_url + "/api/upload",
+            data=body,
+            headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            response_body = resp.read().decode("utf-8")
+
+    assert resp.status == 201
+    assert '"accepted": true' in response_body
+    assert "proof.php" in response_body

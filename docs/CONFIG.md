@@ -64,13 +64,13 @@ stages:
     scanners: [data_leakage, auth_check, client_tampering, firebase_auth]
     description: "Catch basics during development"
   pre-deploy:
-    scanners: [data_leakage, auth_check, client_tampering, rls_bypass, tier_escalation, bucket_limits, sql_injection, xss_check, api_exposure, mass_assignment, info_disclosure, idor_check, http_method_tampering, rate_limit_check, open_redirect_check, path_traversal_check, ssrf_check, csrf_check, graphql_check, webhook_check, websocket_check, unsafe_payload_check, firebase_firestore, firebase_rtdb, firebase_storage, firebase_auth, firebase_functions]
+    scanners: [data_leakage, auth_check, client_tampering, rls_bypass, tier_escalation, bucket_limits, sql_injection, xss_check, api_exposure, mass_assignment, info_disclosure, idor_check, http_method_tampering, rate_limit_check, open_redirect_check, path_traversal_check, ssrf_check, csrf_check, graphql_check, webhook_check, websocket_check, unsafe_payload_check, file_upload_check, firebase_firestore, firebase_rtdb, firebase_storage, firebase_auth, firebase_functions]
     description: "Full audit before going live"
   post-deploy:
     scanners: [cors_check, data_leakage, auth_check, api_exposure, api_key_exposure, bucket_limits, sql_injection, mass_assignment, info_disclosure, idor_check, http_method_tampering, rate_limit_check, firebase_firestore, firebase_rtdb, firebase_storage, firebase_auth, firebase_functions]
     description: "External-facing checks on live site"
   all:
-    scanners: [data_leakage, rls_bypass, tier_escalation, bucket_limits, auth_check, client_tampering, sql_injection, cors_check, xss_check, api_exposure, api_key_exposure, mass_assignment, info_disclosure, idor_check, http_method_tampering, rate_limit_check, open_redirect_check, path_traversal_check, ssrf_check, csrf_check, graphql_check, webhook_check, websocket_check, unsafe_payload_check, firebase_firestore, firebase_rtdb, firebase_storage, firebase_auth, firebase_functions]
+    scanners: [data_leakage, rls_bypass, tier_escalation, bucket_limits, auth_check, client_tampering, sql_injection, cors_check, xss_check, api_exposure, api_key_exposure, mass_assignment, info_disclosure, idor_check, http_method_tampering, rate_limit_check, open_redirect_check, path_traversal_check, ssrf_check, csrf_check, graphql_check, webhook_check, websocket_check, unsafe_payload_check, file_upload_check, firebase_firestore, firebase_rtdb, firebase_storage, firebase_auth, firebase_functions]
     description: "Run every scanner regardless of stage"
   firebase:
     scanners: [firebase_firestore, firebase_rtdb, firebase_storage, firebase_auth, firebase_functions]
@@ -97,7 +97,7 @@ stack:
 - **When:** Before deploying to production, run once before each release
 - **Scanners:** Generic pre-deploy scanner set plus all five Firebase scanners
 - **Focus:** Comprehensive — everything that could be exploited in production
-- **Speed:** Thorough (27 scanners; stack-specific scanners are skipped when unavailable)
+- **Speed:** Thorough (28 scanners; stack-specific scanners are skipped when unavailable)
 
 ### POST-DEPLOY — "External-facing checks on live site"
 - **When:** After deployment, run against the live URL
@@ -162,7 +162,7 @@ When `stack` is omitted from `vibe-iterator.config.yaml`, the engine auto-detect
 | Firebase Storage requests (`firebasestorage.googleapis.com`) | `storage: firebase` |
 | None of the above | `backend: custom`, `auth: custom`, `storage: custom` |
 
-Auto-detection only affects which backend-specific scanners activate (`rls_bypass`, `tier_escalation`, `bucket_limits` require `backend: supabase`). All generic scanners (`xss_check`, `cors_check`, `api_exposure`, `data_leakage`, `auth_check`, `client_tampering`, `sql_injection`, `open_redirect_check`, `path_traversal_check`, `ssrf_check`, `csrf_check`, `graphql_check`, `webhook_check`, `websocket_check`, `unsafe_payload_check`) run regardless of detected stack.
+Auto-detection only affects which backend-specific scanners activate (`rls_bypass`, `tier_escalation`, `bucket_limits` require `backend: supabase`). All generic scanners (`xss_check`, `cors_check`, `api_exposure`, `data_leakage`, `auth_check`, `client_tampering`, `sql_injection`, `open_redirect_check`, `path_traversal_check`, `ssrf_check`, `csrf_check`, `graphql_check`, `webhook_check`, `websocket_check`, `unsafe_payload_check`, `file_upload_check`) run regardless of detected stack.
 
 When auto-detection fires, the dashboard terminal emits: `[INFO] Detected stack: supabase / supabase-auth / supabase`.
 

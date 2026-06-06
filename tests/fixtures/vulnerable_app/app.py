@@ -257,6 +257,20 @@ class VulnerableHandler(BaseHTTPRequestHandler):
             else:
                 self._respond_json(200, {"rendered": template})
 
+        elif path == "/api/upload":
+            body_text = body_bytes.decode("utf-8", errors="replace")
+            filename_match = re.search(r'filename="([^"]+)"', body_text)
+            type_match = re.search(r"Content-Type:\s*([^\r\n]+)", body_text, re.IGNORECASE)
+            filename = filename_match.group(1) if filename_match else "upload.bin"
+            content_type = type_match.group(1) if type_match else self.headers.get("Content-Type", "application/octet-stream")
+            self._respond_json(201, {
+                "accepted": True,
+                "stored": True,
+                "filename": filename,
+                "content_type": content_type,
+                "size": len(body_bytes),
+            })
+
         elif path == "/api/auth/login":
             # No rate limiting — always 401 (triggers Finding A)
             self._respond_json(401, {"error": "invalid credentials"})
