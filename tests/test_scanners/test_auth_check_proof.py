@@ -258,3 +258,13 @@ def test_protected_endpoint_returning_401_no_finding(vuln_app) -> None:
     findings = _run(vuln_app, [req])
     bypass = [f for f in findings if "accessible without authentication" in f.title.lower()]
     assert bypass == []
+
+
+def test_protected_401_endpoint_is_not_auth_bypass(vuln_app) -> None:
+    req = _make_api_req(url=vuln_app.base_url + "/api/protected-401")
+    req.status_code = 401
+    req.response_body = '{"error":"unauthorized"}'
+
+    findings = _run(vuln_app, [req])
+
+    assert [f for f in findings if "accessible without authentication" in f.title.lower()] == []

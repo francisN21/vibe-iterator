@@ -1,0 +1,27 @@
+name: vibe-iterator E2E Smoke
+
+on:
+  workflow_dispatch:
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Chrome
+        uses: browser-actions/setup-chrome@v1
+
+      - name: Install package and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Run opt-in Selenium/CDP e2e smoke
+        env:
+          VIBE_ITERATOR_RUN_E2E_SMOKE: "1"
+        run: python -m pytest tests/e2e -q

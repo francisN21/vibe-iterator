@@ -1,0 +1,36 @@
+{
+  "graduation_status": "option-c",
+  "graduation_target": "option-a",
+  "consecutive_clean_runs_required": 6,
+  "consecutive_clean_runs_achieved": 1,
+  "runs": [
+    {
+      "date": "2026-06-05",
+      "commit": "4b33a6c",
+      "trigger": "local-phase-7b-verification",
+      "command": "VIBE_ITERATOR_RUN_E2E_SMOKE=1 python -m pytest tests/e2e -q",
+      "result": "pass",
+      "tests": 4,
+      "duration_seconds": 41.49,
+      "flaky": false,
+      "scanners": [
+        "auth_check",
+        "api_exposure",
+        "cors_check",
+        "info_disclosure",
+        "sql_injection",
+        "xss_check",
+        "mass_assignment",
+        "idor_check",
+        "http_method_tampering",
+        "rate_limit_check",
+        "firebase_auth",
+        "firebase_firestore",
+        "firebase_rtdb",
+        "firebase_storage",
+        "firebase_functions"
+      ],
+      "notes": "First clean opt-in Selenium/CDP matrix run after adding isolated Chrome profiles and fixture write/read proof traffic."
+    }
+  ]
+}

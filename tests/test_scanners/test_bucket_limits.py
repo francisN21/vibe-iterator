@@ -119,3 +119,15 @@ def test_discover_buckets_parses_supabase_operation_paths() -> None:
     ]
 
     assert _discover_buckets(network) == ["avatars", "documents", "invoices"]
+
+
+def test_discover_buckets_preserves_fixture_control_words_as_real_bucket_names() -> None:
+    network = MagicMock()
+    network.get_requests.return_value = [
+        SimpleNamespace(url="https://x/storage/v1/object/preview/avatars/file.png"),
+        SimpleNamespace(url="https://x/storage/v1/object/dry-run/avatars/file.png"),
+        SimpleNamespace(url="https://x/storage/v1/object/denied/avatars/file.png"),
+        SimpleNamespace(url="https://x/storage/v1/object/preview/file.png"),
+    ]
+
+    assert _discover_buckets(network) == ["preview", "dry-run", "denied"]

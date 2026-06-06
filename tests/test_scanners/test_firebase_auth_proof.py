@@ -1,6 +1,9 @@
 """firebase_auth scanner proof tests."""
 from __future__ import annotations
 
+import json
+import urllib.error
+import urllib.request
 from unittest.mock import MagicMock
 
 import pytest
@@ -88,6 +91,22 @@ def test_negative_anonymous_disabled() -> None:
     findings = scanner.run(session=None, listeners={"network": net, "storage": storage}, config=cfg)
     anon = [f for f in findings if "anonymous" in f.title.lower()]
     assert anon == []
+
+
+def test_fixture_models_disabled_anonymous_signup(vuln_app) -> None:
+    req = urllib.request.Request(
+        f"{vuln_app.base_url}/v1/accounts:signUp",
+        data=json.dumps({"disableAnonymous": True}).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    with pytest.raises(urllib.error.HTTPError) as err:
+        urllib.request.urlopen(req, timeout=3)
+
+    assert err.value.code == 400
+    body = json.loads(err.value.read().decode())
+    assert body["error"]["message"] == "ADMIN_ONLY_OPERATION"
 
 
 def test_unreachable_local_toolkit_skips_http_requests(monkeypatch: pytest.MonkeyPatch) -> None:

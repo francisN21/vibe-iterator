@@ -1,6 +1,8 @@
 """firebase_firestore scanner proof tests."""
 from __future__ import annotations
 
+import urllib.error
+import urllib.request
 from unittest.mock import MagicMock
 
 import pytest
@@ -91,3 +93,17 @@ def test_negative_secured_collection_no_finding() -> None:
     unauth = [f for f in findings if "unauthenticated" in f.title.lower()
               and "read" in f.title.lower()]
     assert unauth == []
+
+
+def test_fixture_denies_secured_firestore_patch_and_delete(vuln_app) -> None:
+    url = f"{vuln_app.base_url}/v1/projects/proj/databases/(default)/documents/secured/doc1"
+    patch_req = urllib.request.Request(url, data=b'{"fields":{}}', method="PATCH")
+    delete_req = urllib.request.Request(url, method="DELETE")
+
+    with pytest.raises(urllib.error.HTTPError) as patch_err:
+        urllib.request.urlopen(patch_req, timeout=3)
+    assert patch_err.value.code == 403
+
+    with pytest.raises(urllib.error.HTTPError) as delete_err:
+        urllib.request.urlopen(delete_req, timeout=3)
+    assert delete_err.value.code == 403

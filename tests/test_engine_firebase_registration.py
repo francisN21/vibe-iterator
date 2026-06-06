@@ -7,3 +7,7 @@ def test_firebase_scanners_registered() -> None:
                  "firebase_auth", "firebase_functions"]:
         assert name in _SCANNER_MODULE_MAP, f"{name} not in _SCANNER_MODULE_MAP"
         assert _SCANNER_MODULE_MAP[name].startswith("vibe_iterator.scanners.")
+
+
+def test_rate_limit_scanner_registered() -> None:
+    assert _SCANNER_MODULE_MAP["rate_limit_check"] == "vibe_iterator.scanners.rate_limit_check"

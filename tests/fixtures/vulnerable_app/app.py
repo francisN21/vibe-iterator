@@ -13,6 +13,11 @@ Vulnerabilities baked in (all deliberate, local-only):
   - /api/resource   — GET-only resource but accepts DELETE (method tampering)
   - /login          — permissive test login form for e2e scan runner
   - /               — page with innerHTML DOM sink + no security headers
+  - /pricing, /application, /api/protected-401 — negative controls for auth bypass
+  - /api/tier/structured — structured tier proof response
+  - /api/tier/text-copy — unrelated premium text negative control
+  - /api/tier/rpc-error — RPC error text negative control
+  - /storage/v1/object/... — Supabase-shaped storage edge routes
   - All responses   — no X-Content-Type-Options, no X-Frame-Options, no CSP
 """
 
@@ -96,6 +101,25 @@ class VulnerableHandler(BaseHTTPRequestHandler):
             self._respond_html(200, _LOGIN_HTML)
         elif path == "/dashboard":
             self._respond_html(200, _DASHBOARD_HTML)
+        elif path == "/api/protected-401":
+            self._respond_json(401, {"error": "unauthorized"})
+        elif path in ("/pricing", "/application"):
+            self._respond_html(200, "<!doctype html><title>Public</title><h1>public product page</h1>")
+        elif path == "/api/tier/structured":
+            self._respond_json(200, {"subscription": {"tier": "premium"}, "source": "server"})
+        elif path == "/api/tier/text-copy":
+            self._respond_json(200, {"message": "Premium support is available on paid plans."})
+        elif path == "/api/tier/rpc-error":
+            self._respond_json(200, {"data": None, "error": "Premium tier function unavailable"})
+        elif path.startswith("/storage/v1/object/list/"):
+            bucket = path.rsplit("/", 1)[-1]
+            self._respond_json(200, {"bucket": bucket, "objects": []})
+        elif path.startswith("/storage/v1/object/public/"):
+            self._respond_json(200, {"storage": "public-object"})
+        elif path.startswith("/storage/v1/object/sign/"):
+            self._respond_json(200, {"signedURL": "/signed/test"})
+        elif path.startswith("/storage/v1/object/preview/"):
+            self._respond_json(200, {"preview": True, "accepted": False})
         else:
             self._respond_json(404, {"error": "not found"})
 
@@ -149,6 +173,15 @@ class VulnerableHandler(BaseHTTPRequestHandler):
                 self.send_header("Retry-After", "30")
                 self.end_headers()
                 self.wfile.write(data)
+
+        elif path.startswith("/storage/v1/object/dry-run/"):
+            self._respond_json(200, {"dry_run": True, "accepted": False})
+
+        elif path.startswith("/storage/v1/object/denied/"):
+            self._respond_json(403, {"error": "storage policy denied"})
+
+        elif path.startswith("/storage/v1/object/accepted/"):
+            self._respond_json(201, {"name": path.rsplit("/", 1)[-1], "accepted": True})
 
         else:
             self._respond_json(404, {"error": "not found"})
@@ -256,6 +289,12 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
     fetch('/api/user');
     fetch('/api/login');
     fetch('/api/protected', {headers: {'Authorization': 'Bearer fake-jwt'}});
+    fetch('/api/search?q=%27');
+    fetch('/api/profile', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({display_name: 'Alice'})
+    });
   </script>
 </body>
 </html>"""

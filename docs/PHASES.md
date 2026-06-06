@@ -109,3 +109,23 @@ Build in this order:
 11. Final test suite pass — run full test suite, target ≥80% coverage on scanner and engine modules
 
 **Done when:** A vibe coder can `pip install vibe-iterator`, create a `.env`, run `vibe-iterator`, and get a stunning hacker-themed dashboard where they select a stage, watch the scan live, explore findings with full evidence, copy fix prompts, and export a self-contained report — all in under 5 minutes from install.
+
+---
+
+## Phase 6 -- Proof Quality Hardening
+
+**Goal:** Reduce false positives and require stronger runtime proof before reporting scanner findings.
+
+**Delivered:** Split-origin backend probing with `VIBE_ITERATOR_BACKEND_URL`, scanner proof-quality gates, structured tier/client-tampering evidence, storage proof cleanup, CORS severity labels, known fake key suppression, and CI/CD scan workflow support.
+
+**Done when:** Full suite and coverage passed, fresh wheel install smoke passed, and `main` contained the Phase 6 scanner hardening merge.
+
+---
+
+## Phase 7B -- Verification Depth
+
+**Goal:** Prove the hardened scanners across deeper local fixtures and opt-in real browser e2e runs.
+
+**Delivered:** Firebase helper coverage above 75%, real-world tier/storage/auth edge fixtures with positive and negative controls, opt-in Selenium/CDP e2e proof matrix, e2e stability log, and final docs alignment.
+
+**Done when:** The Phase-Done Gate in `docs/superpowers/specs/2026-06-03-phase-7b-readiness-design.md` is fully checked by verification output.

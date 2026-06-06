@@ -462,7 +462,7 @@ See `docs/ADDING_SCANNERS.md` for the full guide.
 
 ## Status
 
-> **v0.1.0 — All phases complete. 491 tests passing, 2 skipped, 81% coverage.**
+> **v0.1.0 -- Phase 7B verification depth complete. 517 tests passing, 4 skipped, 82% coverage.**
 
 | Phase | What                                                                                                   | Status  |
 | ----- | ------------------------------------------------------------------------------------------------------ | ------- |
@@ -472,6 +472,7 @@ See `docs/ADDING_SCANNERS.md` for the full guide.
 | 4     | Exportable HTML reports + extended scanners (XSS, CORS, API exposure)                                  | ✅ Done |
 | 5     | Polish, finding deep-dive, CLI flags, PyPI packaging                                                   | ✅ Done |
 | 6     | False positive hardening, split-origin support, proof quality gates, CI/CD integration                 | ✅ Done |
+| 7B    | Verification depth: Firebase coverage, edge fixtures, opt-in Selenium/CDP e2e matrix                  | ✅ Done |
 
 ---
 
@@ -491,6 +492,7 @@ See `docs/ADDING_SCANNERS.md` for the full guide.
 - [x] CI/CD integration (GitHub Actions)
 - [x] Scanner marketplace (community-contributed scanners)
 - [x] Team reports and historical comparison
+- [x] Phase 7B verification depth: Firebase helper coverage, edge fixtures, opt-in Selenium/CDP e2e matrix
 
 ---
 

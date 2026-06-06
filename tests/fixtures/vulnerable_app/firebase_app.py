@@ -7,6 +7,10 @@ Routes simulate an open Firebase project (no Security Rules enforced):
   - Storage:    GET/POST/DELETE /v0/b/{bucket}/o[/{enc_path}]
   - Auth:       POST /v1/accounts:signUp, POST /v1/accounts:createAuthUri
   - Functions:  POST/GET/OPTIONS /{fn_name}  (any path not matched above)
+  - Negative controls: secured Firestore/RTDB/Storage routes return denied responses
+  - Positive probe controls: probe-prefixed writes/uploads return shaped success responses
+  - Auth controls: anonymous signup enabled and disabled paths are modeled separately
+  - Functions controls: unauthenticated execution and reflected credentialed CORS are separate
 """
 from __future__ import annotations
 
@@ -28,6 +32,33 @@ class FirebaseHandler(BaseHTTPRequestHandler):
         p = urllib.parse.urlparse(self.path)
         path = p.path
         qs = urllib.parse.parse_qs(p.query)
+
+        if path == "/":
+            self._html(200, """<!doctype html><title>Firebase Fixture</title>
+            <script>
+            fetch('/users.json');
+            fetch('/v0/b/proj.appspot.com/o');
+            fetch('/helloFunction', {method:'POST', body:'{}'});
+            </script>""")
+            return
+
+        if path == "/login":
+            self._html(200, """<!doctype html><title>Login</title>
+            <form action="/dashboard" method="get">
+              <input type="email" name="email" autocomplete="email">
+              <input type="password" name="password" autocomplete="current-password">
+              <button type="submit">Sign in</button>
+            </form>""")
+            return
+
+        if path == "/dashboard":
+            self._html(200, """<!doctype html><title>Dashboard</title>
+            <script>
+            fetch('/users.json');
+            fetch('/v0/b/proj.appspot.com/o');
+            fetch('/helloFunction', {method:'POST', body:'{}'});
+            </script>""")
+            return
 
         # RTDB: secured path -> 401
         if path.startswith("/secured/") or path == "/secured.json":
@@ -76,7 +107,7 @@ class FirebaseHandler(BaseHTTPRequestHandler):
             doc_path = parts[1] if len(parts) > 1 else ""
             # secured collection
             if doc_path.startswith("secured/"):
-                self._json(403, {"error": "PERMISSION_DENIED"})
+                self._permission_denied()
                 return
             self._json(200, {"fields": {
                 "name": {"stringValue": "alice"},
@@ -98,6 +129,9 @@ class FirebaseHandler(BaseHTTPRequestHandler):
 
         # Auth: anonymous sign-up (signUp with no email = anonymous)
         if path.endswith("accounts:signUp"):
+            if body.get("disableAnonymous") is True:
+                self._json(400, {"error": {"message": "ADMIN_ONLY_OPERATION"}})
+                return
             if not body.get("email"):
                 self._json(200, {
                     "kind": "identitytoolkit#SignupNewUserResponse",
@@ -121,6 +155,9 @@ class FirebaseHandler(BaseHTTPRequestHandler):
         # Storage: upload
         if "/v0/b/" in path and path.endswith("/o"):
             name = urllib.parse.parse_qs(p.query).get("name", [""])[0]
+            if name.startswith("secured/"):
+                self._permission_denied()
+                return
             if name:
                 self.server._store[name] = raw
             self._json(200, {"name": name, "bucket": "proj.appspot.com"})
@@ -169,6 +206,10 @@ class FirebaseHandler(BaseHTTPRequestHandler):
         raw = self.rfile.read(length) if length else b""
 
         if "/databases/(default)/documents/" in path:
+            doc_path = path.split("/documents/", 1)[1]
+            if doc_path.startswith("secured/"):
+                self._permission_denied()
+                return
             self.server._store[path] = raw.decode()
             self._json(200, {"name": path, "fields": {}})
             return
@@ -181,14 +222,28 @@ class FirebaseHandler(BaseHTTPRequestHandler):
         self.server._store.pop(path, None)
 
         if path.endswith(".json"):
+            rtdb_path = path[:-5]
+            if rtdb_path.startswith("/secured") or rtdb_path == "/secured":
+                self._json(401, {"error": "Permission denied"})
+                return
             self._json(200, {})
             return
 
         if "/databases/(default)/documents/" in path:
-            self._json(200, {})
+            doc_path = path.split("/documents/", 1)[1]
+            if doc_path.startswith("secured/"):
+                self._permission_denied()
+                return
+            self._json(200, {"name": path, "fields": {}})
             return
 
         if "/v0/b/" in path:
+            file_path = ""
+            if "/o/" in path:
+                file_path = urllib.parse.unquote(path.split("/o/", 1)[1])
+            if file_path.startswith("secured/"):
+                self._permission_denied()
+                return
             self._json(200, {})
             return
 
@@ -213,6 +268,23 @@ class FirebaseHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
+
+    def _html(self, status: int, body: str) -> None:
+        data = body.encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _permission_denied(self, status: int = 403) -> None:
+        self._json(status, {
+            "error": {
+                "code": status,
+                "message": "Permission denied",
+                "status": "PERMISSION_DENIED",
+            }
+        })
 
 
 class FirebaseVulnerableApp:
