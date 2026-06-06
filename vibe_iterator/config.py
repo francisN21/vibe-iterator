@@ -260,7 +260,11 @@ def load_config(
     # API intelligence                                                     #
     # ------------------------------------------------------------------ #
     api_intelligence_raw = yaml_data.get("api_intelligence", {}) or {}
+    if not isinstance(api_intelligence_raw, dict):
+        api_intelligence_raw = {}
     wordlists_raw = api_intelligence_raw.get("wordlists", {}) or {}
+    if not isinstance(wordlists_raw, dict):
+        wordlists_raw = {}
     try:
         api_intelligence = ApiIntelligenceConfig(
             mode=api_intelligence_raw.get("mode", "auto"),
@@ -274,8 +278,8 @@ def load_config(
             route_wordlist=wordlists_raw.get("routes", "builtin"),
             param_wordlist=wordlists_raw.get("params", "builtin"),
         )
-    except ValueError as exc:
-        raise ConfigError(str(exc)) from exc
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(f"api_intelligence configuration is invalid: {exc}") from exc
 
     # ------------------------------------------------------------------ #
     # Pages                                                               #

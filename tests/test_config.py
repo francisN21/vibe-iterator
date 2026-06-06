@@ -343,3 +343,57 @@ api_intelligence:
     assert cfg.api_intelligence.max_hidden_params_per_endpoint == 7
     assert cfg.api_intelligence.request_timeout_seconds == 2
     assert cfg.api_intelligence.total_timeout_seconds == 11
+
+
+def test_api_intelligence_non_dict_uses_defaults(tmp_path, monkeypatch):
+    cfg_path = tmp_path / "vibe-iterator.config.yaml"
+    cfg_path.write_text(
+        """
+target: http://localhost:3000
+pages: ['/']
+api_intelligence: bad
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("VIBE_ITERATOR_TEST_EMAIL", "a@example.com")
+    monkeypatch.setenv("VIBE_ITERATOR_TEST_PASSWORD", "pw")
+    cfg = load_config(yaml_path=cfg_path)
+    assert cfg.api_intelligence.mode == "auto"
+    assert cfg.api_intelligence.max_route_candidates == 200
+
+
+def test_api_intelligence_non_dict_wordlists_uses_builtin_defaults(tmp_path, monkeypatch):
+    cfg_path = tmp_path / "vibe-iterator.config.yaml"
+    cfg_path.write_text(
+        """
+target: http://localhost:3000
+pages: ['/']
+api_intelligence:
+  wordlists: bad
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("VIBE_ITERATOR_TEST_EMAIL", "a@example.com")
+    monkeypatch.setenv("VIBE_ITERATOR_TEST_PASSWORD", "pw")
+    cfg = load_config(yaml_path=cfg_path)
+    assert cfg.api_intelligence.route_wordlist == "builtin"
+    assert cfg.api_intelligence.param_wordlist == "builtin"
+
+
+def test_api_intelligence_null_numeric_raises_config_error(tmp_path, monkeypatch):
+    from vibe_iterator.config import ConfigError
+
+    cfg_path = tmp_path / "vibe-iterator.config.yaml"
+    cfg_path.write_text(
+        """
+target: http://localhost:3000
+pages: ['/']
+api_intelligence:
+  max_route_candidates:
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("VIBE_ITERATOR_TEST_EMAIL", "a@example.com")
+    monkeypatch.setenv("VIBE_ITERATOR_TEST_PASSWORD", "pw")
+    with pytest.raises(ConfigError, match="api_intelligence"):
+        load_config(yaml_path=cfg_path)
