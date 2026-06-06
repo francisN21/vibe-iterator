@@ -111,6 +111,8 @@ Common values include:
 | `invalid_webhook_signature_accepted` | A webhook endpoint processed a delivery with an intentionally invalid signature. |
 | `unauthenticated_websocket_accepted` | A WebSocket endpoint accepted an upgrade after auth headers were removed. |
 | `untrusted_origin_websocket_accepted` | A WebSocket endpoint accepted an upgrade from an attacker-controlled Origin. |
+| `ssti_marker_evaluated` | A harmless SSTI arithmetic marker such as `{{7*7}}` was evaluated server-side. |
+| `unsafe_parser_error_signature` | A harmless malformed parser marker exposed an unsafe deserialization/parser error signature. |
 
 ---
 
@@ -159,6 +161,7 @@ Not a scanner — a module of helper functions used by `rls_bypass`, `tier_escal
 | `graphql_check` | API Security | pre-deploy | `['any']` | `False` | 8 |
 | `webhook_check` | API Security | pre-deploy | `['any']` | `False` | 8 |
 | `websocket_check` | API Security | pre-deploy | `['any']` | `False` | 8 |
+| `unsafe_payload_check` | Injection | pre-deploy | `['any']` | `False` | 8 |
 
 *`xss_check` is intentionally excluded from `post-deploy` — see `xss_check` Stage Coverage Note section.
 
@@ -386,6 +389,13 @@ The scanner uses a layered approach:
 - **What it does:** Tests WebSocket endpoints for missing handshake authentication and weak Origin enforcement.
 - **Checks:** Sends raw RFC6455 upgrade handshakes after removing auth headers, then repeats with an attacker-controlled Origin.
 - **How:** Reports only when the server returns `101 Switching Protocols`; rejected handshakes and unreachable sockets are suppressed.
+
+### `unsafe_payload_check.py`
+- **Category:** Injection
+- **Stages:** pre-deploy
+- **What it does:** Tests render/template/parser endpoints for harmless SSTI marker evaluation and unsafe parser/deserialization error signatures.
+- **Checks:** Injects `{{7*7}}` into template-like JSON fields and sends malformed parser markers such as `__vibe_invalid_pickle__` into payload-like fields.
+- **How:** Reports only when the response evaluates the arithmetic marker to `49` or exposes known unsafe parser signatures such as `pickle.UnpicklingError`; literal reflection and generic validation errors are suppressed.
 
 ---
 

@@ -243,6 +243,20 @@ class VulnerableHandler(BaseHTTPRequestHandler):
                 "event_id": submitted.get("id"),
             })
 
+        elif path == "/api/render":
+            try:
+                submitted = json.loads(body_bytes.decode("utf-8"))
+            except Exception:
+                submitted = {}
+            template = str(submitted.get("template", ""))
+            payload = str(submitted.get("payload", ""))
+            if payload == "__vibe_invalid_pickle__":
+                self._respond_json(500, {"error": "pickle.UnpicklingError: invalid load key"})
+            elif "{{7*7}}" in template:
+                self._respond_json(200, {"rendered": template.replace("{{7*7}}", "49")})
+            else:
+                self._respond_json(200, {"rendered": template})
+
         elif path == "/api/auth/login":
             # No rate limiting — always 401 (triggers Finding A)
             self._respond_json(401, {"error": "invalid credentials"})

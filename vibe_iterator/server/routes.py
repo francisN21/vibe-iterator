@@ -164,6 +164,12 @@ _SCANNER_META: dict[str, dict] = {
         "category": "API Security", "est_seconds": 25,
         "description": "Probes WebSocket upgrades for missing auth and untrusted Origin acceptance.",
     },
+    "unsafe_payload_check": {
+        "label": "Unsafe Payloads",
+        "requires_stack": ["any"], "requires_second_account": False,
+        "category": "Injection", "est_seconds": 25,
+        "description": "Probes render/parser endpoints for harmless SSTI marker evaluation and unsafe parser error signatures.",
+    },
     "firebase_firestore": {
         "label": "Firestore Rules",
         "requires_stack": ["firebase"], "requires_second_account": False,

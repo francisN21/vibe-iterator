@@ -214,6 +214,7 @@ One click exports a self-contained HTML report file — same data, same aestheti
 | GraphQL                    | Public introspection, unauth data queries, or missing depth guards       |
 | Webhooks                   | Missing or invalid signature headers still process provider events       |
 | WebSockets                 | Missing auth or untrusted Origins still complete socket handshakes       |
+| Unsafe payloads            | SSTI markers evaluate or malformed parser inputs expose unsafe parsers   |
 | Mass assignment            | API accepts fields it shouldn't (role escalation via extra JSON fields) |
 | Missing security headers   | No CSP, no `X-Frame-Options`, no `Strict-Transport-Security`            |
 
@@ -243,6 +244,7 @@ Phase 6 tightened the scanners around runtime proof instead of loose pattern mat
 | GraphQL | Introspection, unauthenticated sensitive data, and bounded depth probes produce separate findings only when JSON proof is present. |
 | Webhooks | Captured webhook deliveries are replayed with missing or invalid signature headers and only reported when processing evidence is returned. |
 | WebSockets | Raw WebSocket upgrade probes report only when unauthenticated or untrusted-Origin handshakes return `101 Switching Protocols`. |
+| Unsafe payloads | Harmless SSTI and malformed parser markers report only on evaluated output or known unsafe parser signatures. |
 
 Current validation snapshot for this branch:
 
@@ -380,6 +382,7 @@ stages:
         graphql_check,
         webhook_check,
         websocket_check,
+        unsafe_payload_check,
         firebase_firestore,
         firebase_rtdb,
         firebase_storage,

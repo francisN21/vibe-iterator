@@ -157,3 +157,32 @@ def test_vulnerable_app_models_websocket_unauthenticated_origin_acceptance() -> 
 
     assert "101 Switching Protocols" in response
     assert "Sec-WebSocket-Accept" in response
+
+
+def test_vulnerable_app_models_unsafe_render_and_parser_errors() -> None:
+    with VulnerableApp() as app:
+        render_req = urllib.request.Request(
+            app.base_url + "/api/render",
+            data=b'{"template":"Hello {{7*7}}"}',
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(render_req, timeout=5) as resp:
+            render_body = resp.read().decode("utf-8")
+
+        parser_req = urllib.request.Request(
+            app.base_url + "/api/render",
+            data=b'{"payload":"__vibe_invalid_pickle__"}',
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            urllib.request.urlopen(parser_req, timeout=5)
+        except urllib.error.HTTPError as exc:
+            parser_status = exc.code
+            parser_body = exc.read().decode("utf-8")
+
+    assert resp.status == 200
+    assert "Hello 49" in render_body
+    assert parser_status == 500
+    assert "pickle.UnpicklingError" in parser_body
