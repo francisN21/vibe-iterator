@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import urllib.request
 import urllib.error
+import urllib.parse
+import urllib.request
 
 from tests.fixtures.vulnerable_app.app import VulnerableApp
 
@@ -52,3 +53,15 @@ def test_vulnerable_app_models_path_traversal_file_read() -> None:
     assert resp.status == 200
     assert "DATABASE_URL=" in body
     assert "SECRET_KEY=" in body
+
+
+def test_vulnerable_app_models_ssrf_fetch_proxy() -> None:
+    with VulnerableApp() as app:
+        internal_url = urllib.parse.quote(app.base_url + "/api/user", safe="")
+        url = app.base_url + f"/api/fetch?url={internal_url}"
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            body = resp.read().decode("utf-8")
+
+    assert resp.status == 200
+    assert "fetched_body" in body
+    assert "victim@example.com" in body

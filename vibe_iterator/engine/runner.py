@@ -111,6 +111,7 @@ _SCANNER_MODULE_MAP: dict[str, str] = {
     "rate_limit_check":       "vibe_iterator.scanners.rate_limit_check",
     "open_redirect_check":    "vibe_iterator.scanners.open_redirect_check",
     "path_traversal_check":   "vibe_iterator.scanners.path_traversal_check",
+    "ssrf_check":             "vibe_iterator.scanners.ssrf_check",
     # --- Firebase ---
     "firebase_firestore": "vibe_iterator.scanners.firebase_firestore",
     "firebase_rtdb":      "vibe_iterator.scanners.firebase_rtdb",

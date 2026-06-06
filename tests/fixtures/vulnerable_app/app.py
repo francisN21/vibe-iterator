@@ -29,6 +29,7 @@ import json
 import re
 import threading
 import urllib.parse
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 # Module-level attempt counter — reset by VulnerableApp.start()
@@ -102,6 +103,22 @@ class VulnerableHandler(BaseHTTPRequestHandler):
                 self.wfile.write(data)
             else:
                 self._respond_json(200, {"file": requested or "default.txt", "public": True})
+        elif path == "/api/fetch":
+            target = query.get("url", [""])[0]
+            try:
+                req = urllib.request.Request(target, headers={"User-Agent": "vulnerable-fixture-fetch"})
+                with urllib.request.urlopen(req, timeout=2) as resp:
+                    fetched = resp.read(2048).decode("utf-8", errors="replace")
+                    self._respond_json(
+                        200,
+                        {
+                            "target": target,
+                            "fetched_status": resp.status,
+                            "fetched_body": fetched,
+                        },
+                    )
+            except Exception as exc:
+                self._respond_json(502, {"target": target, "error": str(exc)})
         elif path == "/swagger.json":
             # Info disclosure: exposed API docs
             self._respond_json(200, {

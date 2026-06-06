@@ -100,6 +100,9 @@ Common values include:
 | `wildcard_origin_without_credentials` | CORS allowed wildcard origin without credentials. |
 | `api_documentation_response` | A sensitive documentation endpoint returned API schema content. |
 | `env_file_key_value_response` | A sensitive path returned environment-style key/value secrets. |
+| `env_file_disclosed_via_traversal` | A traversal payload returned environment-style key/value secrets. |
+| `passwd_file_disclosed_via_traversal` | A traversal payload returned `/etc/passwd`-style account records. |
+| `ssrf_callback_received` | A scanner-controlled callback URL received a server-side request from the target app. |
 
 ---
 
@@ -143,6 +146,7 @@ Not a scanner — a module of helper functions used by `rls_bypass`, `tier_escal
 | `http_method_tampering` | Misconfiguration | pre-deploy, post-deploy | `['any']` | `False` | 7a |
 | `open_redirect_check` | Misconfiguration | pre-deploy | `['any']` | `False` | 8 |
 | `path_traversal_check` | Access Control | pre-deploy | `['any']` | `False` | 8 |
+| `ssrf_check` | API Security | pre-deploy | `['any']` | `False` | 8 |
 
 *`xss_check` is intentionally excluded from `post-deploy` — see `xss_check` Stage Coverage Note section.
 
@@ -335,6 +339,13 @@ The scanner uses a layered approach:
 - **What it does:** Tests file/path parameters such as `path`, `file`, `filename`, `template`, and `download` for traversal-based local file disclosure.
 - **Checks:** Replaces file-like query parameters with traversal payloads for `.env` and `/etc/passwd` style reads, then requires sensitive file signatures in a 200 response before reporting.
 - **How:** Uses captured GET requests to find same-app file parameters, rewrites probes to `backend_url` when configured, sends frontend `Origin` headers, ignores SPA fallbacks/static assets, and reports only on high-confidence sensitive file disclosure evidence.
+
+### `ssrf_check.py`
+- **Category:** API Security
+- **Stages:** pre-deploy
+- **What it does:** Tests URL-like parameters such as `url`, `target`, `callback_url`, `webhook_url`, `image_url`, and `feed_url` for server-side request forgery.
+- **Checks:** Starts a local callback listener with a unique proof URL, injects that URL into discovered parameters, and reports only if the callback server receives a request from the target application.
+- **How:** Sends no-follow probes so open redirects cannot fake the proof, rewrites probes to `backend_url` when configured, sends frontend `Origin` headers, and records callback path/header evidence.
 
 ---
 

@@ -26,7 +26,7 @@ _DEFAULT_STAGES: dict[str, list[str]] = {
         "sql_injection", "xss_check", "api_exposure",
         "mass_assignment", "info_disclosure", "idor_check",
         "http_method_tampering", "rate_limit_check", "open_redirect_check",
-        "path_traversal_check",
+        "path_traversal_check", "ssrf_check",
         *_FIREBASE_SCANNERS,
     ],
     "post-deploy": [
@@ -42,7 +42,7 @@ _DEFAULT_STAGES: dict[str, list[str]] = {
         "cors_check", "xss_check", "api_exposure", "api_key_exposure",
         "mass_assignment", "info_disclosure", "idor_check",
         "http_method_tampering", "rate_limit_check", "open_redirect_check",
-        "path_traversal_check",
+        "path_traversal_check", "ssrf_check",
         *_FIREBASE_SCANNERS,
     ],
     "firebase": list(_FIREBASE_SCANNERS),

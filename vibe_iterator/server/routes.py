@@ -134,6 +134,12 @@ _SCANNER_META: dict[str, dict] = {
         "category": "Access Control", "est_seconds": 20,
         "description": "Probes file/path parameters for traversal payloads that disclose local configuration or system files.",
     },
+    "ssrf_check": {
+        "label": "SSRF",
+        "requires_stack": ["any"], "requires_second_account": False,
+        "category": "API Security", "est_seconds": 25,
+        "description": "Probes URL-like parameters with a local callback and reports only when the server fetches it.",
+    },
     "firebase_firestore": {
         "label": "Firestore Rules",
         "requires_stack": ["firebase"], "requires_second_account": False,

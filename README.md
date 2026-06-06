@@ -209,6 +209,7 @@ One click exports a self-contained HTML report file — same data, same aestheti
 | XSS (reflected/stored/DOM) | Script injection payloads execute in the browser                        |
 | CORS misconfiguration      | Wildcard origins or credentials with `*` allowed                        |
 | API exposure               | Protected endpoints accessible without auth                             |
+| SSRF                       | URL-like parameters trigger server-side callback fetches                 |
 | Mass assignment            | API accepts fields it shouldn't (role escalation via extra JSON fields) |
 | Missing security headers   | No CSP, no `X-Frame-Options`, no `Strict-Transport-Security`            |
 
@@ -233,6 +234,7 @@ Phase 6 tightened the scanners around runtime proof instead of loose pattern mat
 | IDOR, SQLi, XSS, method tampering | Proof quality metadata was added or tightened so reports distinguish runtime exploit evidence from weaker probes. |
 | Open redirect | Redirect-like query parameters are probed for actual external `Location` headers before reporting. |
 | Path traversal | File-like query parameters are probed with traversal payloads and only reported when sensitive file signatures are returned. |
+| SSRF | URL-like parameters are probed with a scanner-controlled local callback and only reported when the callback receives a server-side request. |
 
 Current validation snapshot for this branch:
 
@@ -365,6 +367,7 @@ stages:
         rate_limit_check,
         open_redirect_check,
         path_traversal_check,
+        ssrf_check,
         firebase_firestore,
         firebase_rtdb,
         firebase_storage,
