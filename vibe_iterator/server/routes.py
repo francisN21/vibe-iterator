@@ -208,6 +208,42 @@ _SCANNER_META: dict[str, dict] = {
     },
 }
 
+_SCANNER_RISK_META: dict[str, dict[str, bool | str]] = {
+    "data_leakage": {"mutates_state": False, "risk_level": "low"},
+    "rls_bypass": {"mutates_state": False, "risk_level": "medium"},
+    "tier_escalation": {"mutates_state": True, "risk_level": "high"},
+    "bucket_limits": {"mutates_state": True, "risk_level": "high"},
+    "auth_check": {"mutates_state": False, "risk_level": "medium"},
+    "client_tampering": {"mutates_state": True, "risk_level": "high"},
+    "sql_injection": {"mutates_state": True, "risk_level": "high"},
+    "cors_check": {"mutates_state": False, "risk_level": "low"},
+    "xss_check": {"mutates_state": True, "risk_level": "high"},
+    "api_exposure": {"mutates_state": False, "risk_level": "medium"},
+    "mass_assignment": {"mutates_state": True, "risk_level": "high"},
+    "info_disclosure": {"mutates_state": False, "risk_level": "low"},
+    "idor_check": {"mutates_state": False, "risk_level": "medium"},
+    "http_method_tampering": {"mutates_state": True, "risk_level": "high"},
+    "api_key_exposure": {"mutates_state": False, "risk_level": "low"},
+    "rate_limit_check": {"mutates_state": False, "risk_level": "medium"},
+    "open_redirect_check": {"mutates_state": False, "risk_level": "low"},
+    "path_traversal_check": {"mutates_state": False, "risk_level": "medium"},
+    "ssrf_check": {"mutates_state": False, "risk_level": "high"},
+    "csrf_check": {"mutates_state": True, "risk_level": "high"},
+    "graphql_check": {"mutates_state": False, "risk_level": "low"},
+    "webhook_check": {"mutates_state": True, "risk_level": "high"},
+    "websocket_check": {"mutates_state": False, "risk_level": "low"},
+    "unsafe_payload_check": {"mutates_state": True, "risk_level": "high"},
+    "file_upload_check": {"mutates_state": True, "risk_level": "high"},
+    "firebase_firestore": {"mutates_state": True, "risk_level": "high"},
+    "firebase_rtdb": {"mutates_state": True, "risk_level": "high"},
+    "firebase_storage": {"mutates_state": True, "risk_level": "high"},
+    "firebase_auth": {"mutates_state": False, "risk_level": "medium"},
+    "firebase_functions": {"mutates_state": False, "risk_level": "medium"},
+}
+
+for _scanner_name, _risk_meta in _SCANNER_RISK_META.items():
+    _SCANNER_META[_scanner_name].update(_risk_meta)
+
 _STAGE_LABELS = {
     "dev":         {"label": "DEV",         "tag": "Quick scan",    "icon": "⟨/⟩", "est_minutes": 2},
     "pre-deploy":  {"label": "PRE-DEPLOY",  "tag": "Recommended",   "icon": "🚀",  "est_minutes": 8},
@@ -286,6 +322,8 @@ def _scanner_availability(scanner_name: str, config: Any) -> dict:
         "category": meta.get("category", ""),
         "est_seconds": meta.get("est_seconds", 30),
         "description": meta.get("description", ""),
+        "mutates_state": meta.get("mutates_state", False),
+        "risk_level": meta.get("risk_level", "medium"),
     }
 
 

@@ -111,6 +111,23 @@ async def test_config_endpoint_masks_email() -> None:
 
 
 @pytest.mark.asyncio
+async def test_config_endpoint_includes_scanner_risk_metadata() -> None:
+    app = create_app(_make_config())
+
+    async with await _client(app) as c:
+        r = await c.get("/api/config")
+
+    assert r.status_code == 200
+    scanners = r.json()["stages"]["dev"]["scanners"]
+    leakage = next(s for s in scanners if s["name"] == "data_leakage")
+    auth = next(s for s in scanners if s["name"] == "auth_check")
+    assert leakage["mutates_state"] is False
+    assert leakage["risk_level"] == "low"
+    assert auth["mutates_state"] is False
+    assert auth["risk_level"] == "medium"
+
+
+@pytest.mark.asyncio
 async def test_config_endpoint_marks_firebase_stage_unavailable_for_non_firebase_stack() -> None:
     cfg = _make_config()
     cfg.stack.backend = "supabase"
