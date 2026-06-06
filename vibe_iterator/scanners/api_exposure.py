@@ -28,6 +28,19 @@ _SENSITIVE_BODY_TERMS = {
 }
 _RATE_LIMIT_HEADERS = {"x-ratelimit-limit", "x-rate-limit-limit", "ratelimit-limit", "retry-after"}
 _AUTH_PATHS = ["/auth", "/login", "/signin", "/token", "/api/auth", "/api/login"]
+_AUTH_RATE_LIMIT_ACTIONS = (
+    "/login",
+    "/signin",
+    "/token",
+    "/signup",
+    "/register",
+    "/forgot-password",
+    "/reset-password",
+    "/otp",
+    "/magic-link",
+    "/verify",
+    "/resend",
+)
 _MAX_ENDPOINTS = 15
 _RATE_LIMIT_PROBE_COUNT = 8  # bounded burst to check for 429 response
 
@@ -112,6 +125,14 @@ def _unauth_access_proof_quality(req: Any, url: str) -> str | None:
         return "authenticated_response_body_contains_sensitive_terms"
 
     return None
+
+
+def _is_auth_rate_limit_candidate(method: str, path: str) -> bool:
+    """Return whether this path is a credential/action endpoint worth brute-force probing."""
+    if method.upper() != "POST":
+        return False
+    lowered = path.lower().rstrip("/")
+    return any(action in lowered for action in _AUTH_RATE_LIMIT_ACTIONS)
 
 
 class Scanner(BaseScanner):
@@ -280,8 +301,7 @@ class Scanner(BaseScanner):
 
         for req in requests:
             parsed = urlparse(req.url)
-            is_auth_path = any(frag in parsed.path.lower() for frag in _AUTH_PATHS)
-            if not is_auth_path:
+            if not _is_auth_rate_limit_candidate(req.method, parsed.path):
                 continue
             # Skip RSC prefetch variants and HTML page routes — same reasons as
             # _check_rate_limiting: page routes don't process credentials.
@@ -297,14 +317,20 @@ class Scanner(BaseScanner):
 
             # Send _RATE_LIMIT_PROBE_COUNT rapid requests; check if any return 429
             got_429 = False
+            status_codes: list[int] = []
             for _ in range(_RATE_LIMIT_PROBE_COUNT):
                 result = _fetch_without_auth(base_url, method="POST", origin=origin, timeout=3)
-                if result and result[0] == 429:
+                if result is None:
+                    break
+                status_codes.append(result[0])
+                if result[0] == 429:
                     got_429 = True
                     break
 
             if got_429:
                 continue  # rate limiting is working
+            if len(status_codes) < _RATE_LIMIT_PROBE_COUNT:
+                continue
 
             fp = self.make_fingerprint(self.name, "Rate limit probe: no 429 after burst", base_url)
             if fp in seen_fps:
@@ -323,7 +349,10 @@ class Scanner(BaseScanner):
                 evidence={
                     "endpoint": base_url,
                     "test_performed": "active_rate_limit_probe",
+                    "proof_quality": "repeated_auth_post_without_429",
+                    "confidence": "confirmed",
                     "requests_sent": _RATE_LIMIT_PROBE_COUNT,
+                    "response_codes_seen": status_codes,
                     "result": f"No 429 response after {_RATE_LIMIT_PROBE_COUNT} rapid requests",
                     "expected_response": "429 Too Many Requests after repeated attempts",
                 },
@@ -438,6 +467,11 @@ class Scanner(BaseScanner):
     def _check_rate_limiting(
         self, requests: list, target: str, stack: str, findings: list[Finding],
     ) -> None:
+        # Missing rate-limit headers alone are not proof. Some platforms enforce
+        # throttling without exposing these headers, so vulnerability reporting is
+        # reserved for the active repeated-POST probe in _probe_rate_limiting.
+        return
+
         seen_fps: set[str] = set()
 
         for req in requests:

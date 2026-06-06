@@ -256,16 +256,40 @@ def test_hashed_embed_view_path_produces_no_security_header_findings() -> None:
 # Rate limiting on auth endpoints                                               #
 # --------------------------------------------------------------------------- #
 
-def test_auth_endpoint_no_rate_limit_is_medium() -> None:
+def test_auth_endpoint_repeated_post_without_429_is_medium() -> None:
     req = _make_req(
         url="https://example.com/api/login",
+        method="POST",
         response_headers={"content-type": "application/json"},
     )
-    # fetch_result=(429, {}) makes the active probe see a 429 so it won't add a second finding
-    findings = _run([req], fetch_result=(429, {}))
+    findings = _run([req], fetch_result=(401, {}))
     rl = [f for f in findings if "rate limiting" in f.title.lower()]
     assert len(rl) == 1
     assert rl[0].severity == Severity.MEDIUM
+    assert rl[0].evidence["proof_quality"] == "repeated_auth_post_without_429"
+    assert rl[0].evidence["confidence"] == "confirmed"
+
+
+def test_missing_rate_limit_headers_alone_do_not_create_vulnerability() -> None:
+    req = _make_req(
+        url="https://example.com/api/login",
+        method="POST",
+        response_headers={"content-type": "application/json"},
+    )
+    findings = _run([req], fetch_result=(429, {}))
+    rl = [f for f in findings if "rate limiting" in f.title.lower()]
+    assert rl == []
+
+
+def test_get_auth_session_missing_rate_headers_is_not_bruteforce_finding() -> None:
+    req = _make_req(
+        url="https://example.com/api/auth/me",
+        method="GET",
+        response_headers={"content-type": "application/json"},
+    )
+    findings = _run([req])
+    rl = [f for f in findings if "rate limiting" in f.title.lower()]
+    assert rl == []
 
 
 def test_auth_endpoint_with_rate_limit_header_no_finding() -> None:
@@ -309,6 +333,7 @@ def test_retry_after_header_satisfies_rate_limit() -> None:
 def test_backend_url_routes_active_rate_limit_probe_from_frontend_proxy() -> None:
     req = _make_req(
         url="https://app.example.com/api/login",
+        method="POST",
         response_headers={
             "content-type": "application/json",
             "retry-after": "60",

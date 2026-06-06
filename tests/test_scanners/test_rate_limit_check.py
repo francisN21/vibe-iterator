@@ -3,10 +3,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
-from vibe_iterator.scanners.rate_limit_check import Scanner
 from vibe_iterator.scanners.base import Severity
+from vibe_iterator.scanners.rate_limit_check import Scanner, _find_active_path
 
 
 def _make_config(deep_scan: bool = False, backend_url: str | None = None) -> MagicMock:
@@ -95,6 +93,27 @@ def test_all_endpoints_404_no_findings():
     """If all path variants 404, no findings emitted."""
     findings = _run(active_path=None)
     assert findings == []
+
+
+def test_find_active_path_skips_generic_auth_catchall() -> None:
+    """A generic 401 unauthorized catch-all is not enough route proof."""
+    with patch(
+        "vibe_iterator.scanners.rate_limit_check._post_full",
+        return_value=(401, {}, '{"error": "unauthorized"}'),
+    ):
+        assert _find_active_path("https://example.com", ["/api/auth/signup"], "https://app.example.com") is None
+
+
+def test_find_active_path_accepts_auth_specific_invalid_credentials() -> None:
+    """Auth-specific response text is enough to treat the route as active."""
+    with patch(
+        "vibe_iterator.scanners.rate_limit_check._post_full",
+        return_value=(401, {}, '{"error": "invalid credentials"}'),
+    ):
+        assert (
+            _find_active_path("https://example.com", ["/api/auth/login"], "https://app.example.com")
+            == "/api/auth/login"
+        )
 
 
 # ── Finding B ────────────────────────────────────────────────────────────────

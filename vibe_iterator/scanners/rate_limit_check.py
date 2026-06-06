@@ -17,6 +17,22 @@ _REQUEST_TIMEOUT = 3
 _BURST_COUNT = 10
 _DEEP_SCAN_CAP = 20
 _LOCKOUT_BODY_SIGNALS = ("locked", "suspended", "too many attempts", "too many requests")
+_AUTH_ROUTE_BODY_SIGNALS = (
+    "invalid credentials",
+    "invalid password",
+    "invalid email",
+    "bad credentials",
+    "registered",
+    "password",
+    "email",
+    "otp",
+    "magic link",
+    "verification",
+    "verify",
+    "rate limit",
+    "too many attempts",
+    "locked",
+)
 
 _AUTH_ENDPOINTS: list[tuple[list[str], str]] = [
     (["/api/auth/login", "/api/login", "/auth/login"], "Login"),
@@ -76,12 +92,24 @@ class Scanner(BaseScanner):
 
 
 def _find_active_path(base: str, variants: list[str], origin: str) -> str | None:
-    """Return first path variant that does not 404/405/501, or None."""
+    """Return first path variant with route-specific evidence, or None."""
     for path in variants:
-        code = _post_once(base + path, origin)
+        code, _headers, body = _post_full(base + path, origin)
         if code not in (404, 405, 501, None):
+            if code in (401, 403) and not _has_auth_route_evidence(body):
+                continue
             return path
     return None
+
+
+def _has_auth_route_evidence(body: str) -> bool:
+    """Return whether a 401/403 body looks route-specific instead of catch-all auth middleware."""
+    body_lower = body.lower()
+    if not body_lower:
+        return False
+    if body_lower.strip() in {"unauthorized", '{"error": "unauthorized"}', '{"error":"unauthorized"}'}:
+        return False
+    return any(signal in body_lower for signal in _AUTH_ROUTE_BODY_SIGNALS)
 
 
 def _probe_endpoint(
