@@ -296,6 +296,23 @@ def test_build_inventory_includes_api_requests_from_different_origin() -> None:
     ]
 
 
+def test_build_inventory_keeps_same_path_different_origins_separate() -> None:
+    net = MagicMock()
+    net.get_requests.return_value = [
+        _req("https://app.example.com/api/users/1"),
+        _req("https://api.example.com/api/users/2"),
+    ]
+
+    inv = build_inventory_from_network(net, "https://app.example.com", "auto", "safe")
+
+    assert inv.summary["endpoints"] == 2
+    assert {endpoint.origin for endpoint in inv.endpoints} == {
+        "https://app.example.com",
+        "https://api.example.com",
+    }
+    assert {endpoint.normalized_path for endpoint in inv.endpoints} == {"/api/users/{id}"}
+
+
 def test_build_inventory_extracts_json_body_without_content_type() -> None:
     net = MagicMock()
     net.get_requests.return_value = [

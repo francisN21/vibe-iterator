@@ -108,7 +108,7 @@ def build_inventory_from_network(
     mode: str,
     resolved_mode: str,
 ) -> ApiInventory:
-    endpoints_by_key: dict[tuple[str, str], ApiEndpoint] = {}
+    endpoints_by_key: dict[tuple[str, str, str], ApiEndpoint] = {}
 
     get_requests = getattr(network, "get_requests", None)
     requests = get_requests() if callable(get_requests) else []
@@ -117,7 +117,7 @@ def build_inventory_from_network(
         if endpoint is None:
             continue
 
-        key = (endpoint.method, endpoint.normalized_path)
+        key = (endpoint.origin, endpoint.method, endpoint.normalized_path)
         if key in endpoints_by_key:
             endpoints_by_key[key] = merge_endpoints(endpoints_by_key[key], endpoint)
         else:
