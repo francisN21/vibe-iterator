@@ -220,6 +220,17 @@ class VulnerableHandler(BaseHTTPRequestHandler):
             else:
                 self._respond_json(200, {"data": {"ok": True}})
 
+        elif path == "/api/webhooks/stripe":
+            try:
+                submitted = json.loads(body_bytes.decode("utf-8"))
+            except Exception:
+                submitted = {}
+            self._respond_json(200, {
+                "received": True,
+                "event_type": submitted.get("type"),
+                "event_id": submitted.get("id"),
+            })
+
         elif path == "/api/auth/login":
             # No rate limiting — always 401 (triggers Finding A)
             self._respond_json(401, {"error": "invalid credentials"})

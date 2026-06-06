@@ -119,3 +119,19 @@ def test_vulnerable_app_models_graphql_exposures() -> None:
     assert "__schema" in introspection_body
     assert "victim@example.com" in unauth_body
     assert '"depth": 5' in deep_body
+
+
+def test_vulnerable_app_models_unsigned_webhook_acceptance() -> None:
+    with VulnerableApp() as app:
+        req = urllib.request.Request(
+            app.base_url + "/api/webhooks/stripe",
+            data=b'{"type":"invoice.paid","id":"evt_fixture"}',
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            body = resp.read().decode("utf-8")
+
+    assert resp.status == 200
+    assert '"received": true' in body
+    assert "invoice.paid" in body

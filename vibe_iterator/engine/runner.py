@@ -114,6 +114,7 @@ _SCANNER_MODULE_MAP: dict[str, str] = {
     "ssrf_check":             "vibe_iterator.scanners.ssrf_check",
     "csrf_check":             "vibe_iterator.scanners.csrf_check",
     "graphql_check":          "vibe_iterator.scanners.graphql_check",
+    "webhook_check":          "vibe_iterator.scanners.webhook_check",
     # --- Firebase ---
     "firebase_firestore": "vibe_iterator.scanners.firebase_firestore",
     "firebase_rtdb":      "vibe_iterator.scanners.firebase_rtdb",

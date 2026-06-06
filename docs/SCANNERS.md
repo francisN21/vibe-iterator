@@ -107,6 +107,8 @@ Common values include:
 | `unauthenticated_graphql_introspection` | A GraphQL endpoint returned `__schema` data without authentication. |
 | `unauthenticated_graphql_sensitive_data` | A GraphQL endpoint returned sensitive user data without authentication. |
 | `graphql_depth_query_accepted` | A GraphQL endpoint accepted a bounded nested query without depth or complexity rejection. |
+| `unsigned_webhook_accepted` | A webhook endpoint processed a delivery after signature headers were removed. |
+| `invalid_webhook_signature_accepted` | A webhook endpoint processed a delivery with an intentionally invalid signature. |
 
 ---
 
@@ -153,6 +155,7 @@ Not a scanner — a module of helper functions used by `rls_bypass`, `tier_escal
 | `ssrf_check` | API Security | pre-deploy | `['any']` | `False` | 8 |
 | `csrf_check` | API Security | pre-deploy | `['any']` | `False` | 8 |
 | `graphql_check` | API Security | pre-deploy | `['any']` | `False` | 8 |
+| `webhook_check` | API Security | pre-deploy | `['any']` | `False` | 8 |
 
 *`xss_check` is intentionally excluded from `post-deploy` — see `xss_check` Stage Coverage Note section.
 
@@ -366,6 +369,13 @@ The scanner uses a layered approach:
 - **What it does:** Tests discovered GraphQL endpoints for public introspection, unauthenticated sensitive data, and missing depth/complexity controls.
 - **Checks:** Sends unauthenticated introspection, unauthenticated `viewer`/`me`/`currentUser` data probes, and a bounded nested depth query.
 - **How:** Reports separate findings only when JSON proof is present: `__schema` returned, sensitive fields such as email/role/token returned without auth, or a nested depth-5 response is accepted without GraphQL errors.
+
+### `webhook_check.py`
+- **Category:** API Security
+- **Stages:** pre-deploy
+- **What it does:** Tests webhook endpoints for missing or invalid signature verification.
+- **Checks:** Replays captured webhook deliveries after removing provider signature headers; if missing signatures are rejected, sends an intentionally invalid signature.
+- **How:** Reports only when the endpoint returns a successful processing signal such as `received: true`, `processed: true`, or `accepted: true`; rejected probes and preview/dry-run responses are suppressed.
 
 ---
 

@@ -152,6 +152,12 @@ _SCANNER_META: dict[str, dict] = {
         "category": "API Security", "est_seconds": 30,
         "description": "Probes GraphQL endpoints for public introspection, unauthenticated sensitive data, and missing depth guards.",
     },
+    "webhook_check": {
+        "label": "Webhooks",
+        "requires_stack": ["any"], "requires_second_account": False,
+        "category": "API Security", "est_seconds": 25,
+        "description": "Replays webhook deliveries without valid signatures and reports only when events are processed.",
+    },
     "firebase_firestore": {
         "label": "Firestore Rules",
         "requires_stack": ["firebase"], "requires_second_account": False,
