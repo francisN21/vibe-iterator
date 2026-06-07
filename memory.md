@@ -2,59 +2,149 @@
 
 ## Current Branch
 
-- Branch: `codex/firebase-stage-config-alignment`
-- Phase 8 scanner-family expansion is implemented across all named exploit families.
-- Do not commit local generated/untracked artifacts unless explicitly requested:
+- Branch: `codex/phase9-product-hardening`
+- Active product direction: API Intelligence Foundation.
+- Goal: add endpoint inventory model, method-aware discovery, hidden parameter discovery, API inventory reporting, and feed the inventory into scanners.
+- Do not commit unrelated local artifacts unless explicitly requested:
   - `docs/results.md`
   - `graphify-out/`
   - `vibe-iterator.discovered.yaml`
 
-## Phase 8 Scanner Families Added
+## API Intelligence Policy
 
-- `open_redirect_check`: proves external 3xx `Location` header on redirect-like params.
-- `path_traversal_check`: proves `.env` or `/etc/passwd`-style disclosure from file/path params.
-- `ssrf_check`: proves server-side URL fetches with a local callback listener.
-- `csrf_check`: proves cookie-auth unsafe methods accept cross-site Origin/Referer after CSRF headers are stripped.
-- `graphql_check`: proves unauth introspection, unauth sensitive data, and bounded depth query acceptance.
-- `webhook_check`: proves missing or invalid webhook signatures still process events.
-- `websocket_check`: proves unauthenticated or untrusted-Origin WebSocket handshakes return `101`.
-- `unsafe_payload_check`: proves harmless SSTI evaluation or unsafe parser/deserialization error signatures.
-- `file_upload_check`: proves dangerous extension, MIME, SVG/HTML polyglot, or EICAR test-string uploads are accepted/stored.
+- Default API intelligence mode is `auto`.
+- `auto` resolves public domain targets to `safe`.
+- `auto` resolves local targets to `aggressive`.
+- Local targets include `localhost`, `127.0.0.1`, `::1`, private IP ranges, and `.local`.
+- End user must be able to toggle `Auto`, `Safe`, `Aggressive`, or `Off`.
+- Aggressive mode must show a warning that extra HTTP requests may trigger logs, rate limits, analytics events, emails, audit alerts, WAF rules, or other side effects.
 
-All Phase 8 scanners are registered in:
+## Committed Planning Docs
 
-- `vibe_iterator/engine/runner.py`
-- `vibe_iterator/config.py`
-- `vibe_iterator/server/routes.py`
-- `tests/test_phase8_scanner_registration.py`
-- `docs/SCANNERS.md`
-- `docs/CONFIG.md`
-- `README.md`
+- `0aa4a1b docs: design api intelligence foundation`
+  - Spec: `docs/superpowers/specs/2026-06-06-api-intelligence-foundation-design.md`
+- `7f95a7f docs: plan api intelligence foundation`
+  - Plan: `docs/superpowers/plans/2026-06-06-api-intelligence-foundation.md`
 
-## Verification Snapshot
+## Completed Implementation Checkpoints
 
-- `python -m pytest -q`: 613 passed, 4 skipped
-- `python -m pytest --cov=vibe_iterator --cov-report=term-missing`: 613 passed, 4 skipped, 84% total coverage
-- Scanner exposure matrix: 30 registered, 30 preset-visible, no missing valid-name/server-meta/module-map entries
-- New scanner line coverage:
-  - `path_traversal_check`: 91%
-  - `ssrf_check`: 95%
-  - `csrf_check`: 90%
-  - `graphql_check`: 92%
-  - `webhook_check`: 94%
-  - `websocket_check`: 91%
-  - `unsafe_payload_check`: 95%
-  - `file_upload_check`: 95%
+- `c0dd4e2 feat: add api intelligence config`
+- `b829316 fix: harden api intelligence config parsing`
+- `1cd0db7 feat: add api inventory model`
+- `436fd0d fix: harden api inventory deserialization`
+- `f30c8af feat: build api inventory from traffic`
+- `a080b75 fix: capture backend api inventory traffic`
+- `ef6f8e0 fix: preserve api inventory origins`
+- `8bf1da5 fix: tighten api inventory risk tags`
 
-## Recent Commit Trail
+## Task Status
 
-- `5ab936c feat: add unsafe payload scanner`
-- `67e3e0e feat: add generic file upload scanner`
+### Task 1: API Intelligence Config And Mode Resolver
 
-Earlier Phase 8 commits on this branch include open redirect, path traversal, SSRF, CSRF, GraphQL, webhook, and WebSocket scanner slices.
+Status: complete.
 
-## Sensible Next Checks
+Review state:
 
-- Run against the user's live DetermiNext stack with `VIBE_ITERATOR_TARGET=http://localhost:3000` and `VIBE_ITERATOR_BACKEND_URL=http://localhost:4000` after confirming the backend is actually listening.
-- Consider a small live-app smoke config that runs only the newest Phase 8 scanners first.
-- If preparing to merge, run one final full suite and coverage command after any docs-only cleanup.
+- Spec compliance approved.
+- Code quality approved after config parsing hardening.
+
+Verification recorded by agents:
+
+- `python -m ruff check vibe_iterator/api_inventory.py vibe_iterator/config.py tests/test_api_inventory.py tests/test_config.py`: passed.
+- `python -m pytest tests/test_api_inventory.py tests/test_config.py -q`: 35 passed.
+
+### Task 2: Inventory Dataclasses And Serialization
+
+Status: complete.
+
+Review state:
+
+- Spec compliance approved.
+- Code quality approved after deserialization hardening.
+
+Verification recorded by agents:
+
+- `python -m ruff check vibe_iterator/api_inventory.py tests/test_api_inventory.py`: passed.
+- `python -m pytest tests/test_api_inventory.py -q`: 11 passed after Task 2 hardening.
+
+### Task 3: Build Inventory From Captured Network Requests
+
+Status: implemented, spec-approved, code-quality review still needs final approval.
+
+Implemented features:
+
+- `build_inventory_from_network(...)`.
+- API path filtering.
+- method-aware endpoints.
+- integer/UUID-like ID normalization.
+- query parameter extraction.
+- JSON body key extraction, including missing content type and `application/*+json`.
+- form body key extraction.
+- request and response content type tracking.
+- auth detection from `authorization`, `cookie`, and `x-api-key`.
+- status code tracking.
+- state-changing method tags.
+- risk tags for GraphQL, upload, webhook, admin, redirect, file, and SSRF.
+- duplicate merging while preserving distinct origins.
+- aggressive mode warning.
+- token-aware risk tag matching so `/api/profile` is not tagged as `file`.
+
+Review state:
+
+- Initial spec review requested backend-origin traffic and relaxed JSON extraction; fixed in `a080b75`.
+- Second spec review requested origin-aware merge keys; fixed in `ef6f8e0`.
+- Final spec review approved: `python -m pytest tests/test_api_inventory.py -q` produced 21 passed at that time.
+- Code quality review requested token-aware risk matching; fixed in `8bf1da5`.
+- The final code-quality re-review could not complete because the thread hit the usage limit.
+
+Next safest action:
+
+1. Run:
+
+   ```powershell
+   python -m ruff check vibe_iterator/api_inventory.py tests/test_api_inventory.py
+   python -m pytest tests/test_api_inventory.py -q
+   ```
+
+2. Review `vibe_iterator/api_inventory.py` around risk-tag tokenization and builder merge behavior.
+3. If approved, mark Task 3 complete in the working plan and proceed to Task 4.
+
+## Remaining Plan
+
+Continue from `docs/superpowers/plans/2026-06-06-api-intelligence-foundation.md`:
+
+1. Task 4: DiscoveryResult sidecar and history serialization.
+2. Task 5: Build inventory during discover and normal scans, inject `listeners["api_inventory"]`.
+3. Task 6: Hidden parameter inference.
+4. Task 7: Bounded aggressive route and parameter probing.
+5. Task 8: Dashboard toggle, warning, and inventory report panel.
+6. Task 9: Exported HTML report inventory.
+7. Task 10: Mass assignment and IDOR inventory migration.
+8. Task 11: API exposure and rate limit inventory migration.
+9. Task 12: URL and GraphQL scanner inventory migration.
+10. Task 13: Documentation and final verification.
+
+## Current Known Local State
+
+- Tracked work should be clean after the baton-pass commit.
+- Untracked artifacts intentionally left alone:
+  - `docs/results.md`
+  - `graphify-out/`
+  - `vibe-iterator.discovered.yaml`
+
+## Final Completion Criteria
+
+Do not mark the API Intelligence Foundation goal complete until current evidence proves:
+
+- endpoint inventory model exists and is serialized.
+- method-aware discovery differentiates method, origin, and normalized path.
+- hidden parameter discovery works and records source/confidence.
+- dashboard/results render API inventory and aggressive warning.
+- exported report includes API inventory.
+- runner injects `listeners["api_inventory"]`.
+- scanners consume inventory with network fallback.
+- safe/aggressive/off/auto mode policy is implemented.
+- public targets resolve safe; local targets resolve aggressive.
+- user can toggle mode.
+- full `python -m pytest -q` passes.
+- `python scripts/check_scanner_exposure.py` passes.
