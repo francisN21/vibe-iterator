@@ -8,6 +8,7 @@ from typing import Any
 
 from jinja2 import Environment, FileSystemLoader
 
+from vibe_iterator.api_inventory import inventory_to_dict
 from vibe_iterator.engine.runner import ScanResult
 
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
@@ -102,6 +103,11 @@ def _build_context(result: ScanResult, css: str) -> dict[str, Any]:
         "pages_crawled": result.pages_crawled or [],
         "requests_captured": result.requests_captured or {},
         "stack_detected": result.stack_detected or "unknown",
+        "api_inventory": (
+            inventory_to_dict(result.discovered_surface.api_inventory)
+            if result.discovered_surface and result.discovered_surface.api_inventory
+            else None
+        ),
         "generated_at": generated_at,
     }
 
