@@ -178,6 +178,54 @@ def test_idor_uses_inventory_numeric_id_endpoint(monkeypatch: pytest.MonkeyPatch
     assert findings[0].evidence["inventory_confidence"] == "confirmed"
 
 
+def test_idor_prefers_matching_network_context_over_inventory(monkeypatch: pytest.MonkeyPatch) -> None:
+    scanner = Scanner()
+    config = _make_config("https://example.com")
+    inv = ApiInventory(
+        generated_at="2026-06-06T00:00:00Z",
+        mode="safe",
+        resolved_mode="safe",
+        target="https://example.com",
+        endpoints=[
+            ApiEndpoint(
+                method="GET",
+                url="https://example.com/api/users/123",
+                origin="https://example.com",
+                path="/api/users/123",
+                normalized_path="/api/users/{id}",
+                auth_observed=True,
+                sources=["network"],
+                confidence="confirmed",
+            )
+        ],
+    )
+    network_req = _make_req(
+        url="https://example.com/api/users/123",
+        body='{"id":123,"email":"mine@example.com"}',
+    )
+    calls: list[tuple[str, dict]] = []
+
+    def fake_fetch(url, headers, timeout=5):
+        calls.append((url, headers))
+        assert headers["Authorization"] == "Bearer fake-token"
+        return '{"id":124,"email":"other@example.com"}', 200
+
+    monkeypatch.setattr("vibe_iterator.scanners.idor_check._fetch", fake_fetch)
+
+    findings = scanner.run(
+        session=None,
+        listeners={"network": _make_network([network_req]), "api_inventory": inv},
+        config=config,
+    )
+
+    assert findings
+    assert calls == [("https://example.com/api/users/124", {"Authorization": "Bearer fake-token"})]
+    assert findings[0].evidence["request"]["headers"]["Authorization"] == "Bearer fake-token"
+    assert findings[0].evidence["inventory_endpoint"] == "GET /api/users/{id}"
+    assert findings[0].evidence["inventory_source"] == "network"
+    assert findings[0].evidence["inventory_confidence"] == "confirmed"
+
+
 # ---------------------------------------------------------------------------
 # Metadata
 # ---------------------------------------------------------------------------

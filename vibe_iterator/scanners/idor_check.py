@@ -57,7 +57,7 @@ class Scanner(BaseScanner):
 
         tested_patterns: set[str] = set()
 
-        for candidate in [*_inventory_candidates(inventory, config), *_network_candidates(network, config)]:
+        for candidate in _merged_candidates(inventory, network, config):
             if candidate.pattern_key in tested_patterns:
                 continue
             tested_patterns.add(candidate.pattern_key)
@@ -184,6 +184,45 @@ def _inventory_candidates(inventory: Any, config: Any) -> list[_IdorCandidate]:
             candidates.append(candidate)
 
     return candidates
+
+
+def _merged_candidates(inventory: Any, network: Any, config: Any) -> list[_IdorCandidate]:
+    candidates_by_pattern: dict[str, _IdorCandidate] = {
+        candidate.pattern_key: candidate for candidate in _inventory_candidates(inventory, config)
+    }
+
+    for network_candidate in _network_candidates(network, config):
+        inventory_candidate = candidates_by_pattern.get(network_candidate.pattern_key)
+        if inventory_candidate is None:
+            candidates_by_pattern[network_candidate.pattern_key] = network_candidate
+            continue
+
+        candidates_by_pattern[network_candidate.pattern_key] = _merge_candidate_context(
+            inventory_candidate=inventory_candidate,
+            network_candidate=network_candidate,
+        )
+
+    return list(candidates_by_pattern.values())
+
+
+def _merge_candidate_context(
+    *,
+    inventory_candidate: _IdorCandidate,
+    network_candidate: _IdorCandidate,
+) -> _IdorCandidate:
+    return _IdorCandidate(
+        original_url=network_candidate.original_url,
+        base=network_candidate.base,
+        prefix=network_candidate.prefix,
+        numeric_id=network_candidate.numeric_id,
+        suffix=network_candidate.suffix,
+        pattern_key=network_candidate.pattern_key,
+        auth_headers=network_candidate.auth_headers,
+        original_body=network_candidate.original_body,
+        inventory_source=inventory_candidate.inventory_source,
+        inventory_confidence=inventory_candidate.inventory_confidence,
+        inventory_endpoint=inventory_candidate.inventory_endpoint,
+    )
 
 
 def _network_candidates(network: Any, config: Any) -> list[_IdorCandidate]:
