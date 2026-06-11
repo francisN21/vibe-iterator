@@ -355,3 +355,46 @@ def test_rate_limit_uses_inventory_auth_post_endpoint(monkeypatch) -> None:
     )
 
     assert any(f.evidence.get("inventory_endpoint") == "POST /api/auth/login" for f in findings)
+
+
+def test_rate_limit_skips_builtin_discovery_for_inventory_path(monkeypatch) -> None:
+    inv = ApiInventory(
+        generated_at="now",
+        mode="auto",
+        resolved_mode="safe",
+        target="http://localhost:3000",
+        endpoints=[
+            ApiEndpoint(
+                method="POST",
+                url="http://localhost:3000/api/auth/login",
+                origin="http://localhost:3000",
+                path="/api/auth/login",
+                normalized_path="/api/auth/login",
+                sources=["route_wordlist"],
+                risk_tags=["auth", "state_changing"],
+                confidence="confirmed",
+            )
+        ],
+    )
+    active_calls: list[tuple[str, list[str], str]] = []
+    burst_calls: list[str] = []
+
+    def fake_find_active_path(base, variants, origin):
+        active_calls.append((base, variants, origin))
+        return None
+
+    def fake_post_full(url, origin):
+        burst_calls.append(url)
+        return 401, {}, '{"error":"invalid credentials"}'
+
+    monkeypatch.setattr("vibe_iterator.scanners.rate_limit_check._find_active_path", fake_find_active_path)
+    monkeypatch.setattr("vibe_iterator.scanners.rate_limit_check._post_full", fake_post_full)
+
+    Scanner().run(
+        session=None,
+        listeners={"network": _make_network([]), "api_inventory": inv},
+        config=_make_config(),
+    )
+
+    assert len([url for url in burst_calls if url.endswith("/api/auth/login")]) == 10
+    assert all("/api/auth/login" not in variants for _base, variants, _origin in active_calls)

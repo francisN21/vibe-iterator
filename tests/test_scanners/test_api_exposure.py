@@ -192,6 +192,44 @@ def test_api_exposure_uses_inventory_auth_endpoint(monkeypatch) -> None:
     assert any(f.evidence.get("inventory_endpoint") == "GET /api/account" for f in findings)
 
 
+def test_api_exposure_uses_inventory_auth_risk_tag_as_proof(monkeypatch) -> None:
+    inv = ApiInventory(
+        generated_at="now",
+        mode="auto",
+        resolved_mode="safe",
+        target="https://example.com",
+        endpoints=[
+            ApiEndpoint(
+                method="GET",
+                url="https://example.com/api/orders",
+                origin="https://example.com",
+                path="/api/orders",
+                normalized_path="/api/orders",
+                sources=["route_wordlist"],
+                risk_tags=["auth"],
+                confidence="confirmed",
+            )
+        ],
+    )
+
+    monkeypatch.setattr(
+        "vibe_iterator.scanners.api_exposure._fetch_without_auth",
+        lambda *args, **kwargs: (200, {}),
+    )
+    net = MagicMock()
+    net.get_requests.return_value = []
+
+    findings = Scanner().run(
+        session=None,
+        listeners={"network": net, "api_inventory": inv},
+        config=_make_config(),
+    )
+
+    unauth = [f for f in findings if f.evidence.get("inventory_endpoint") == "GET /api/orders"]
+    assert len(unauth) == 1
+    assert unauth[0].evidence["proof_quality"] == "inventory_auth_endpoint_replayed_without_auth"
+
+
 # --------------------------------------------------------------------------- #
 # Security headers (passive)                                                   #
 # --------------------------------------------------------------------------- #

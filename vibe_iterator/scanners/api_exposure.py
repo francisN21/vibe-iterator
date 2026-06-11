@@ -65,6 +65,7 @@ class _InventoryRequest:
     inventory_source: str
     inventory_confidence: str
     inventory_endpoint: str
+    inventory_risk_tags: set[str]
 
 
 def _fetch_without_auth(
@@ -134,6 +135,9 @@ def _unauth_access_proof_quality(req: Any, url: str) -> str | None:
     if any(frag in lowered_url for frag in _PROTECTED_PATH_FRAGMENTS):
         return "protected_path_replayed_without_auth"
 
+    if "auth" in getattr(req, "inventory_risk_tags", set()):
+        return "inventory_auth_endpoint_replayed_without_auth"
+
     raw_body = getattr(req, "response_body", "")
     body = raw_body.lower() if isinstance(raw_body, str) else ""
     if body and any(term in body for term in _SENSITIVE_BODY_TERMS):
@@ -194,6 +198,7 @@ def _inventory_requests(inventory: Any, target: str, backend_url: str | None) ->
             inventory_source=",".join(getattr(endpoint, "sources", [])),
             inventory_confidence=getattr(endpoint, "confidence", "") or "",
             inventory_endpoint=f"{method} {getattr(endpoint, 'normalized_path', getattr(endpoint, 'path', url))}",
+            inventory_risk_tags=risk_tags,
         ))
 
     return requests
@@ -227,6 +232,7 @@ def _attach_inventory_metadata(req: Any, inv_req: _InventoryRequest) -> None:
     req.inventory_source = inv_req.inventory_source
     req.inventory_confidence = inv_req.inventory_confidence
     req.inventory_endpoint = inv_req.inventory_endpoint
+    req.inventory_risk_tags = inv_req.inventory_risk_tags
 
 
 class Scanner(BaseScanner):

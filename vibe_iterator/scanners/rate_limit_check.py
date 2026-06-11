@@ -70,7 +70,10 @@ class Scanner(BaseScanner):
             _probe_endpoint(backend_base, path, label, stack, findings, self, origin, inventory_evidence)
 
         for path_variants, label in _AUTH_ENDPOINTS:
-            path = _find_active_path(backend_base, path_variants, origin)
+            unprobed_variants = [path for path in path_variants if path not in probed_paths]
+            if not unprobed_variants:
+                continue
+            path = _find_active_path(backend_base, unprobed_variants, origin)
             if path is None or path in probed_paths:
                 continue
             probed_paths.add(path)
