@@ -104,6 +104,19 @@ _FILE_ENDPOINT_TOKENS = {
     "uploads",
 }
 _GENERIC_API_PARAM_NAMES = {"include", "expand", "fields", "select", "debug", "trace", "verbose"}
+_GENERIC_ENDPOINT_TOKENS = {
+    "debug",
+    "export",
+    "feed",
+    "feeds",
+    "list",
+    "logs",
+    "metrics",
+    "report",
+    "reports",
+    "search",
+    "trace",
+}
 
 
 @dataclass
@@ -297,20 +310,23 @@ def infer_hidden_parameters(
     max_hidden_params_per_endpoint: int = 20,
 ) -> ApiInventory:
     candidate_names = _hidden_parameter_candidates(inventory.endpoints)
+    observed_names = {parameter.name.lower() for endpoint in inventory.endpoints for parameter in endpoint.parameters}
     updated_endpoints = []
     max_candidates = max(0, max_hidden_params_per_endpoint)
 
     for endpoint in inventory.endpoints:
         location = "body" if endpoint.method.upper() in _STATE_METHODS else "query"
         existing = {(parameter.location, parameter.name.lower()) for parameter in endpoint.parameters}
+        existing_names = {parameter.name.lower() for parameter in endpoint.parameters}
         inferred_parameters = []
 
         for name in candidate_names:
             if len(inferred_parameters) >= max_candidates:
                 break
-            if (location, name.lower()) in existing:
+            normalized_name = name.lower()
+            if normalized_name in existing_names or (location, normalized_name) in existing:
                 continue
-            if not _candidate_matches_endpoint(name, endpoint):
+            if not _candidate_matches_endpoint(name, endpoint, observed_names):
                 continue
 
             inferred_parameters.append(
@@ -323,7 +339,8 @@ def infer_hidden_parameters(
                     sensitive_hint=name.lower() in _SENSITIVE_PARAM_NAMES,
                 )
             )
-            existing.add((location, name.lower()))
+            existing.add((location, normalized_name))
+            existing_names.add(normalized_name)
 
         updated_endpoints.append(replace(endpoint, parameters=[*endpoint.parameters, *inferred_parameters]))
 
@@ -502,11 +519,16 @@ def _hidden_parameter_candidates(endpoints: list[ApiEndpoint]) -> list[str]:
     return _unique_preserve_case_insensitive(names)
 
 
-def _candidate_matches_endpoint(name: str, endpoint: ApiEndpoint) -> bool:
+def _candidate_matches_endpoint(
+    name: str,
+    endpoint: ApiEndpoint,
+    observed_names: set[str] | None = None,
+) -> bool:
     normalized_name = name.lower()
     tokens = _risk_tokens(endpoint.path, [])
     tags = set(endpoint.risk_tags)
     is_state_changing = endpoint.method.upper() in _STATE_METHODS
+    observed_names = observed_names or set()
 
     if normalized_name in _AUTHZ_PARAM_NAMES:
         return is_state_changing and (
@@ -525,7 +547,7 @@ def _candidate_matches_endpoint(name: str, endpoint: ApiEndpoint) -> bool:
         return bool({"file", "upload"} & tags) or bool(tokens & _FILE_ENDPOINT_TOKENS)
 
     if normalized_name in _GENERIC_API_PARAM_NAMES:
-        return _is_api_path(endpoint.path)
+        return normalized_name in observed_names and bool(tokens & _GENERIC_ENDPOINT_TOKENS)
 
     return False
 

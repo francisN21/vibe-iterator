@@ -172,6 +172,57 @@ def test_infer_hidden_parameters_adds_sensitive_observed_candidates_to_matching_
     )
 
 
+def test_infer_hidden_parameters_skips_names_already_present_on_endpoint() -> None:
+    inv = ApiInventory(
+        generated_at="2026-06-06T00:00:00Z",
+        mode="auto",
+        resolved_mode="safe",
+        target="https://example.com",
+        endpoints=[
+            ApiEndpoint(
+                method="POST",
+                url="https://example.com/api/reports",
+                origin="https://example.com",
+                path="/api/reports",
+                normalized_path="/api/reports",
+                parameters=[ApiParameter("include", "query", ["owner"])],
+                risk_tags=["state_changing"],
+            ),
+        ],
+        summary={"endpoints": 1, "hidden_parameters": 0},
+    )
+
+    inferred = infer_hidden_parameters(inv, max_hidden_params_per_endpoint=10)
+
+    endpoint = inferred.endpoints[0]
+    assert [parameter.name.lower() for parameter in endpoint.parameters].count("include") == 1
+
+
+def test_infer_hidden_parameters_does_not_add_generic_candidates_without_signal() -> None:
+    inv = ApiInventory(
+        generated_at="2026-06-06T00:00:00Z",
+        mode="auto",
+        resolved_mode="safe",
+        target="https://example.com",
+        endpoints=[
+            ApiEndpoint(
+                method="GET",
+                url="https://example.com/api/profile",
+                origin="https://example.com",
+                path="/api/profile",
+                normalized_path="/api/profile",
+                parameters=[],
+            ),
+        ],
+        summary={"endpoints": 1, "hidden_parameters": 0},
+    )
+
+    inferred = infer_hidden_parameters(inv, max_hidden_params_per_endpoint=10)
+
+    assert inferred.endpoints[0].parameters == []
+    assert inferred.summary["hidden_parameters"] == 0
+
+
 def test_string_boolean_false_values_deserialize_to_false() -> None:
     param = parameter_from_dict({"sensitive_hint": "false"})
     endpoint = endpoint_from_dict(
