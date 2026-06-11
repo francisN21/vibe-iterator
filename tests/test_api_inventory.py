@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from unittest.mock import MagicMock
+from urllib.error import HTTPError
 
 import vibe_iterator.api_inventory as api_inventory
 from vibe_iterator.api_inventory import (
@@ -470,6 +471,53 @@ def test_aggressive_expansion_honors_route_and_method_caps(monkeypatch) -> None:
         ("http://localhost:3000/api/projects", "GET", "http://localhost:3000", 7),
         ("http://localhost:3000/api/projects", "POST", "http://localhost:3000", 7),
     ]
+
+
+def test_aggressive_expansion_honors_total_timeout_budget(monkeypatch) -> None:
+    calls = []
+
+    def _fake_probe(url, method, origin, timeout):
+        calls.append((url, method, origin, timeout))
+        return None
+
+    monkeypatch.setattr(api_inventory, "_probe_endpoint", _fake_probe)
+    inv = ApiInventory(
+        generated_at="2026-06-06T00:00:00Z",
+        mode="auto",
+        resolved_mode="aggressive",
+        target="http://localhost:3000",
+        endpoints=[],
+        summary={"endpoints": 0},
+    )
+
+    api_inventory.expand_aggressive_inventory(
+        inv,
+        ApiIntelligenceConfig(mode="aggressive", total_timeout_seconds=0),
+    )
+
+    assert calls == []
+
+
+def test_probe_endpoint_does_not_follow_redirects(monkeypatch) -> None:
+    opener = MagicMock()
+    opener.open.side_effect = HTTPError(
+        "http://localhost:3000/api/redirect",
+        302,
+        "Found",
+        {"Location": "http://127.0.0.1:4000/api/escaped"},
+        None,
+    )
+    monkeypatch.setattr(api_inventory, "_NO_REDIRECT_OPENER", opener)
+
+    result = api_inventory._probe_endpoint(
+        "http://localhost:3000/api/redirect",
+        "GET",
+        "http://localhost:3000",
+        1,
+    )
+
+    assert result == (302, {"location": "http://127.0.0.1:4000/api/escaped"})
+    opener.open.assert_called_once()
 
 
 def test_build_inventory_tags_risk_categories() -> None:

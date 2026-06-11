@@ -5,12 +5,13 @@ from __future__ import annotations
 import ipaddress
 import json
 import re
+import time
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qsl, urlparse
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 _MODES = {"auto", "safe", "aggressive", "off"}
 _ID_SEGMENT_RE = re.compile(
@@ -131,6 +132,14 @@ _GENERIC_ENDPOINT_TOKENS = {
     "search",
     "trace",
 }
+
+
+class _NoRedirectHandler(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[no-untyped-def]
+        return None
+
+
+_NO_REDIRECT_OPENER = build_opener(_NoRedirectHandler)
 
 
 @dataclass
@@ -262,11 +271,18 @@ def expand_aggressive_inventory(inventory: ApiInventory, config: ApiIntelligence
     }
     max_routes = max(0, config.max_route_candidates)
     max_methods = max(0, config.max_methods_per_route)
+    deadline = time.monotonic() + max(0.0, float(config.total_timeout_seconds))
 
     for route in _candidate_routes(inventory.endpoints)[:max_routes]:
+        if time.monotonic() >= deadline:
+            break
         url = inventory.target.rstrip("/") + route
         for method in _METHOD_MATRIX[:max_methods]:
-            probe_result = _probe_endpoint(url, method, origin, config.request_timeout_seconds)
+            remaining_seconds = deadline - time.monotonic()
+            if remaining_seconds <= 0:
+                break
+            probe_timeout = min(float(config.request_timeout_seconds), remaining_seconds)
+            probe_result = _probe_endpoint(url, method, origin, probe_timeout)
             if probe_result is None:
                 continue
 
@@ -552,14 +568,14 @@ def _probe_endpoint(
     url: str,
     method: str,
     origin: str,
-    timeout_seconds: int,
+    timeout_seconds: int | float,
 ) -> tuple[int, dict[str, str]] | None:
     headers = {"Origin": origin} if origin else {}
     request = Request(url, headers=headers, method=method.upper())
     timeout = max(0.1, float(timeout_seconds))
 
     try:
-        with urlopen(request, timeout=timeout) as response:
+        with _NO_REDIRECT_OPENER.open(request, timeout=timeout) as response:
             return response.status, _lower_headers(dict(response.headers.items()))
     except HTTPError as exc:
         return exc.code, _lower_headers(dict(exc.headers.items()))

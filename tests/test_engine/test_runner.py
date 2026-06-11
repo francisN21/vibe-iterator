@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from vibe_iterator.api_inventory import ApiIntelligenceConfig
 from vibe_iterator.engine.runner import (
     ScannerResult,
     ScanResult,
@@ -31,6 +32,7 @@ def _make_config(stage_scanners: list[str] | None = None) -> MagicMock:
     config.pages = ["/", "/dashboard"]
     config.scanner_timeout_seconds = 60
     config.scanners_for_stage.return_value = stage_scanners or ["data_leakage"]
+    config.api_intelligence = ApiIntelligenceConfig(mode="safe")
     return config
 
 
