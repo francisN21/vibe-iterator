@@ -21,6 +21,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+_API_INTELLIGENCE_MODES = {"auto", "safe", "aggressive", "off"}
+
 # --------------------------------------------------------------------------- #
 # Static scanner metadata — avoids importing all scanner modules per request  #
 # --------------------------------------------------------------------------- #
@@ -261,6 +263,7 @@ _STAGE_LABELS = {
 class StartScanRequest(BaseModel):
     stage: str
     scanner_overrides: list[str] | None = None
+    api_intelligence_mode: str | None = None
 
 
 class MarkItem(BaseModel):
@@ -364,6 +367,15 @@ async def start_scan(body: StartScanRequest, request: Request) -> dict:
                         f"Valid names: {stage_scanners}"
                     ),
                 )
+
+    if body.api_intelligence_mode is not None:
+        if body.api_intelligence_mode not in _API_INTELLIGENCE_MODES:
+            valid = ", ".join(sorted(_API_INTELLIGENCE_MODES))
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid api_intelligence_mode: '{body.api_intelligence_mode}'. Valid modes: {valid}.",
+            )
+        config.api_intelligence.mode = body.api_intelligence_mode
 
     loop = asyncio.get_event_loop()
     scan_id = str(uuid.uuid4())

@@ -78,6 +78,22 @@ async function initHomePage() {
   document.getElementById('start-btn').addEventListener('click', onStartScan);
   document.getElementById('discover-btn').addEventListener('click', startDiscovery);
   document.getElementById('cancel-existing-btn').addEventListener('click', cancelExistingAndStart);
+
+  const apiIntelMode = document.getElementById('api-intel-mode');
+  if (apiIntelMode) {
+    apiIntelMode.addEventListener('change', updateApiIntelligenceWarning);
+    updateApiIntelligenceWarning();
+  }
+}
+
+function getApiIntelligenceMode() {
+  return document.getElementById('api-intel-mode')?.value || 'auto';
+}
+
+function updateApiIntelligenceWarning() {
+  const warning = document.getElementById('api-intel-warning');
+  if (!warning) return;
+  warning.classList.toggle('hidden', getApiIntelligenceMode() !== 'aggressive');
 }
 
 function renderHomeConfig(cfg) {
@@ -285,7 +301,11 @@ async function onStartScan() {
   try {
     await apiFetch('/api/scan/start', {
       method: 'POST',
-      body: JSON.stringify({ stage: _selectedStage, scanner_overrides: overrides }),
+      body: JSON.stringify({
+        stage: _selectedStage,
+        scanner_overrides: overrides,
+        api_intelligence_mode: getApiIntelligenceMode(),
+      }),
     });
     window.location.href = `/scan?stage=${encodeURIComponent(_selectedStage)}`;
   } catch (e) {
@@ -313,7 +333,7 @@ async function startDiscovery() {
   try {
     await apiFetch('/api/scan/start', {
       method: 'POST',
-      body: JSON.stringify({ stage: 'discover' }),
+      body: JSON.stringify({ stage: 'discover', api_intelligence_mode: getApiIntelligenceMode() }),
     });
     window.location.href = '/scan?stage=discover';
   } catch (e) {
@@ -370,7 +390,11 @@ async function startFirebaseScan() {
   try {
     await apiFetch('/api/scan/start', {
       method: 'POST',
-      body: JSON.stringify({ stage: 'firebase', scanner_overrides: overrides }),
+      body: JSON.stringify({
+        stage: 'firebase',
+        scanner_overrides: overrides,
+        api_intelligence_mode: getApiIntelligenceMode(),
+      }),
     });
     window.location.href = '/scan?stage=firebase';
   } catch (e) {
@@ -1428,12 +1452,67 @@ function checkDeepDiveHash() {
   }
 }
 
+function renderApiInventory(inventory) {
+  const panel = document.getElementById('api-inventory-panel');
+  if (!panel) return;
+
+  if (!inventory) {
+    panel.style.display = 'none';
+    return;
+  }
+
+  const endpoints = Array.isArray(inventory.endpoints) ? inventory.endpoints : [];
+  const summary = inventory.summary || {};
+  const endpointCount = summary.endpoints ?? endpoints.length;
+  const authCount = summary.auth_observed ?? 0;
+  const hiddenCount = summary.hidden_parameters ?? 0;
+  const warnings = Array.isArray(inventory.warnings) ? inventory.warnings : [];
+
+  panel.style.display = '';
+  document.getElementById('api-inventory-mode').textContent =
+    `mode: ${inventory.mode || 'auto'} | resolved: ${inventory.resolved_mode || inventory.mode || 'auto'}`;
+  document.getElementById('api-inventory-stats').innerHTML = `
+    <span><strong>${escHtml(endpointCount)}</strong> endpoints</span>
+    <span><strong>${escHtml(authCount)}</strong> auth</span>
+    <span><strong>${escHtml(hiddenCount)}</strong> hidden params</span>
+  `;
+
+  const warningEl = document.getElementById('api-inventory-warnings');
+  warningEl.innerHTML = warnings.map(w => `<div>${escHtml(w)}</div>`).join('');
+  warningEl.style.display = warnings.length ? '' : 'none';
+
+  const rowsEl = document.getElementById('api-inventory-rows');
+  rowsEl.innerHTML = endpoints.map(endpoint => {
+    const statuses = Array.isArray(endpoint.status_codes) && endpoint.status_codes.length
+      ? endpoint.status_codes.join(', ')
+      : '--';
+    const tags = Array.isArray(endpoint.risk_tags) ? endpoint.risk_tags : [];
+    const tagsHtml = tags.length
+      ? tags.map(tag => `<span class="api-inventory-tag">${escHtml(tag)}</span>`).join('')
+      : '<span class="api-inventory-muted">none</span>';
+    return `
+      <tr>
+        <td><span class="api-method-pill">${escHtml(endpoint.method || 'GET')}</span></td>
+        <td class="api-inventory-path" title="${escHtml(endpoint.url || endpoint.path || '')}">${escHtml(endpoint.path || endpoint.normalized_path || '/')}</td>
+        <td>${escHtml(statuses)}</td>
+        <td>${escHtml(endpoint.confidence || 'unknown')}</td>
+        <td><div class="api-inventory-tags">${tagsHtml}</div></td>
+      </tr>
+    `;
+  }).join('') || `
+    <tr>
+      <td colspan="5" class="api-inventory-empty">No API endpoints captured.</td>
+    </tr>
+  `;
+}
+
 function renderDiscoverySurface(r) {
   const panel = document.getElementById('discovery-panel');
   if (!panel) return;
   const ds = r && r.discovered_surface;
   if (!ds) {
     panel.style.display = 'none';
+    renderApiInventory(null);
     return;
   }
   panel.style.display = '';
@@ -1450,7 +1529,9 @@ function renderDiscoverySurface(r) {
   const endpointsList = document.getElementById('discovery-endpoints-list');
   endpointsList.innerHTML = endpoints.map(e => `<li>${escHtml(e)}</li>`).join('');
 
-  document.getElementById('copy-discovery-btn').addEventListener('click', () => {
+  renderApiInventory(ds.api_inventory);
+
+  document.getElementById('copy-discovery-btn').onclick = () => {
     const text = [
       '=== DISCOVERED PAGES ===',
       ...pages,
@@ -1460,7 +1541,7 @@ function renderDiscoverySurface(r) {
     ].join('\n');
     copyToClipboard(text, null);
     showToast(`Copied ${pages.length} pages + ${endpoints.length} endpoints`);
-  });
+  };
 }
 
 // Auto-dispatch init function based on which page is loaded

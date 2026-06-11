@@ -7,10 +7,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from vibe_iterator.config import load_config
 from vibe_iterator.engine.runner import ScannerResult, ScanResult
 from vibe_iterator.scanners.base import Finding, Severity
 from vibe_iterator.server.app import create_app
-from vibe_iterator.config import load_config
 
 # --------------------------------------------------------------------------- #
 # Helpers                                                                     #
@@ -30,6 +30,7 @@ def _make_config(target: str = "http://localhost:3000") -> MagicMock:
     cfg.stack.auth = "supabase-auth"
     cfg.stack.storage = "supabase"
     cfg.stack.detection_source = "manually-configured"
+    cfg.api_intelligence.mode = "auto"
     cfg.scanners_for_stage.return_value = ["data_leakage", "auth_check"]
     cfg.stages = {
         "dev": ["data_leakage", "auth_check"],
@@ -233,6 +234,51 @@ async def test_start_scan_accepts_default_firebase_stage(monkeypatch, tmp_path) 
     assert r.json()["stage"] == "firebase"
     MockRunner.assert_called_once()
     assert MockRunner.call_args.kwargs["scanner_overrides"] == ["firebase_auth", "firebase_storage"]
+
+
+@pytest.mark.asyncio
+async def test_start_scan_accepts_api_intelligence_mode_override() -> None:
+    cfg = _make_config()
+    app = create_app(cfg)
+
+    with patch("vibe_iterator.server.routes.ScanRunner") as MockRunner:
+        mock_instance = MagicMock()
+        mock_instance.get_result.return_value = None
+        mock_instance.run = AsyncMock(return_value=_make_scan_result())
+        MockRunner.return_value = mock_instance
+
+        async with await _client(app) as c:
+            r = await c.post(
+                "/api/scan/start",
+                json={"stage": "dev", "api_intelligence_mode": "safe"},
+            )
+
+    assert r.status_code == 200
+    MockRunner.assert_called_once()
+    passed_config = MockRunner.call_args.args[0]
+    assert passed_config.api_intelligence.mode == "safe"
+
+
+@pytest.mark.asyncio
+async def test_start_scan_rejects_invalid_api_intelligence_mode() -> None:
+    app = create_app(_make_config())
+
+    with patch("vibe_iterator.server.routes.ScanRunner") as MockRunner:
+        mock_instance = MagicMock()
+        mock_instance.get_result.return_value = None
+        mock_instance.run = AsyncMock(return_value=_make_scan_result())
+        MockRunner.return_value = mock_instance
+
+        async with await _client(app) as c:
+            r = await c.post(
+                "/api/scan/start",
+                json={"stage": "dev", "api_intelligence_mode": "reckless"},
+            )
+
+    assert r.status_code == 400
+    assert "api_intelligence_mode" in r.json()["detail"]
+    assert "auto" in r.json()["detail"]
+    MockRunner.assert_not_called()
 
 
 @pytest.mark.asyncio
