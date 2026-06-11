@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import MagicMock, patch
 
+from vibe_iterator.api_inventory import ApiIntelligenceConfig
 from vibe_iterator.engine.discover_runner import DiscoveryResult
 from vibe_iterator.engine.runner import ScanRunner
 
@@ -17,6 +18,7 @@ def _make_config() -> MagicMock:
     cfg.spider_max_depth = 3
     cfg.stack.backend = "custom"
     cfg.stack.detection_source = "auto-detect"
+    cfg.api_intelligence = ApiIntelligenceConfig()
     return cfg
 
 

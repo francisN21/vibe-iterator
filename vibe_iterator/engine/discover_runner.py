@@ -10,7 +10,13 @@ from typing import Any, Callable
 
 import yaml
 
-from vibe_iterator.api_inventory import ApiInventory, inventory_from_dict, inventory_to_dict
+from vibe_iterator.api_inventory import (
+    ApiInventory,
+    build_inventory_from_network,
+    inventory_from_dict,
+    inventory_to_dict,
+    resolve_mode,
+)
 from vibe_iterator.config import Config
 from vibe_iterator.listeners.network import NetworkListener
 from vibe_iterator.spider.dom_crawler import crawl_dom
@@ -86,6 +92,12 @@ def run_discovery(
     _log("[spider] Harvesting API endpoints from traffic...")
     api_endpoints = harvest_endpoints(network)
     _log(f"[spider] API endpoints: {len(api_endpoints)} unique")
+    api_inventory = build_inventory_from_network(
+        network,
+        target=config.target,
+        mode=config.api_intelligence.mode,
+        resolved_mode=resolve_mode(config.target, config.api_intelligence),
+    )
 
     # 4. Merge page paths: sitemap + DOM + JS routes, deduplicated, sorted
     seen: set[str] = set()
@@ -99,6 +111,7 @@ def run_discovery(
         pages=sorted(merged),
         api_endpoints=api_endpoints,
         discovered_at=datetime.now(timezone.utc).isoformat(),
+        api_inventory=api_inventory,
     )
 
     # 5. Write sidecar (always — even when empty)

@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable
 
+from vibe_iterator.api_inventory import build_inventory_from_network, resolve_mode
 from vibe_iterator.config import Config
 from vibe_iterator.crawler import browser as browser_mod
 from vibe_iterator.engine.discover_runner import DiscoveryResult, run_discovery
@@ -290,6 +291,21 @@ class ScanRunner:
             self._result.pages_crawled = [
                 {"url": page.url, "status_code": page.status_code} for page in crawled_pages
             ]
+            api_inventory = build_inventory_from_network(
+                network,
+                target=self.config.target,
+                mode=self.config.api_intelligence.mode,
+                resolved_mode=resolve_mode(self.config.target, self.config.api_intelligence),
+            )
+            self._result.discovered_surface = DiscoveryResult(
+                pages=[p["url"] for p in self._result.pages_crawled],
+                api_endpoints=[
+                    f"{endpoint.method} {endpoint.normalized_path}"
+                    for endpoint in api_inventory.endpoints
+                ],
+                discovered_at=api_inventory.generated_at,
+                api_inventory=api_inventory,
+            )
 
             # ---------------------------------------------------------------- #
             # 5. Load scanner instances                                        #
@@ -301,7 +317,12 @@ class ScanRunner:
                 except Exception as exc:
                     logger.warning("Could not load scanner '%s': %s", name, exc)
 
-            listeners = {"network": network, "console": console, "storage": storage}
+            listeners = {
+                "network": network,
+                "console": console,
+                "storage": storage,
+                "api_inventory": api_inventory,
+            }
 
             # ---------------------------------------------------------------- #
             # 6. Run each scanner                                              #
