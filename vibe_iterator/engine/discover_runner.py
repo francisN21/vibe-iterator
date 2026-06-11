@@ -12,10 +12,9 @@ import yaml
 
 from vibe_iterator.api_inventory import (
     ApiInventory,
-    build_inventory_from_network,
+    build_api_inventory,
     inventory_from_dict,
     inventory_to_dict,
-    resolve_mode,
 )
 from vibe_iterator.config import Config
 from vibe_iterator.listeners.network import NetworkListener
@@ -92,11 +91,10 @@ def run_discovery(
     _log("[spider] Harvesting API endpoints from traffic...")
     api_endpoints = harvest_endpoints(network)
     _log(f"[spider] API endpoints: {len(api_endpoints)} unique")
-    api_inventory = build_inventory_from_network(
+    api_inventory = build_api_inventory(
         network,
-        target=config.target,
-        mode=config.api_intelligence.mode,
-        resolved_mode=resolve_mode(config.target, config.api_intelligence),
+        config.target,
+        config.api_intelligence,
     )
 
     # 4. Merge page paths: sitemap + DOM + JS routes, deduplicated, sorted

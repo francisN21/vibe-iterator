@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import vibe_iterator.api_inventory as api_inventory
 from vibe_iterator.api_inventory import (
     ApiEndpoint,
     ApiIntelligenceConfig,
@@ -359,6 +360,116 @@ def test_build_inventory_warns_for_aggressive_mode() -> None:
     inv = build_inventory_from_network(net, "http://localhost:3000", "auto", "aggressive")
 
     assert inv.warnings == ["Aggressive API intelligence may send additional probing requests."]
+
+
+def test_aggressive_expansion_skipped_in_safe_mode(monkeypatch) -> None:
+    calls = []
+
+    def _fake_probe(*args):
+        calls.append(args)
+        return (200, {"content-type": "application/json"})
+
+    monkeypatch.setattr(api_inventory, "_probe_endpoint", _fake_probe, raising=False)
+    inv = ApiInventory(
+        generated_at="2026-06-06T00:00:00Z",
+        mode="auto",
+        resolved_mode="safe",
+        target="https://example.com",
+        endpoints=[
+            ApiEndpoint(
+                method="GET",
+                url="https://example.com/api/users",
+                origin="https://example.com",
+                path="/api/users",
+                normalized_path="/api/users",
+            )
+        ],
+        summary={"endpoints": 1},
+    )
+
+    expanded = api_inventory.expand_aggressive_inventory(inv, ApiIntelligenceConfig(mode="safe"))
+
+    assert expanded is inv
+    assert calls == []
+
+
+def test_aggressive_expansion_adds_confirmed_local_candidate(monkeypatch) -> None:
+    calls = []
+
+    def _fake_probe(url, method, origin, timeout):
+        calls.append((url, method, origin, timeout))
+        if url == "http://localhost:3000/api/auth/login" and method == "POST":
+            return (401, {"content-type": "application/json"})
+        return None
+
+    monkeypatch.setattr(api_inventory, "_probe_endpoint", _fake_probe)
+    inv = ApiInventory(
+        generated_at="2026-06-06T00:00:00Z",
+        mode="auto",
+        resolved_mode="aggressive",
+        target="http://localhost:3000",
+        endpoints=[],
+        summary={"endpoints": 0},
+    )
+
+    expanded = api_inventory.expand_aggressive_inventory(inv, ApiIntelligenceConfig())
+
+    assert ("http://localhost:3000/api/auth/login", "POST", "http://localhost:3000", 3) in calls
+    login = next(endpoint for endpoint in expanded.endpoints if endpoint.path == "/api/auth/login")
+    assert login.method == "POST"
+    assert login.status_codes == [401]
+    assert login.content_types == ["application/json"]
+    assert login.confidence == "confirmed"
+    assert login.sources == ["probe:POST http://localhost:3000/api/auth/login"]
+    assert login.response_auth_required_hint is True
+
+
+def test_aggressive_expansion_honors_route_and_method_caps(monkeypatch) -> None:
+    calls = []
+
+    def _fake_probe(url, method, origin, timeout):
+        calls.append((url, method, origin, timeout))
+        return None
+
+    monkeypatch.setattr(api_inventory, "_probe_endpoint", _fake_probe)
+    inv = ApiInventory(
+        generated_at="2026-06-06T00:00:00Z",
+        mode="auto",
+        resolved_mode="aggressive",
+        target="http://localhost:3000",
+        endpoints=[
+            ApiEndpoint(
+                method="GET",
+                url="http://localhost:3000/api/projects",
+                origin="http://localhost:3000",
+                path="/api/projects",
+                normalized_path="/api/projects",
+            ),
+            ApiEndpoint(
+                method="GET",
+                url="http://localhost:3000/api/teams",
+                origin="http://localhost:3000",
+                path="/api/teams",
+                normalized_path="/api/teams",
+            ),
+        ],
+        summary={"endpoints": 2},
+    )
+
+    api_inventory.expand_aggressive_inventory(
+        inv,
+        ApiIntelligenceConfig(
+            mode="aggressive",
+            max_route_candidates=1,
+            max_methods_per_route=2,
+            request_timeout_seconds=7,
+        ),
+    )
+
+    assert calls == [
+        ("http://localhost:3000/api/projects", "GET", "http://localhost:3000", 7),
+        ("http://localhost:3000/api/projects", "POST", "http://localhost:3000", 7),
+    ]
 
 
 def test_build_inventory_tags_risk_categories() -> None:

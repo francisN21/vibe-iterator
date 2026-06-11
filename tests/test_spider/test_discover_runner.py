@@ -21,7 +21,7 @@ def _cfg(max_pages: int = 30, max_depth: int = 3) -> MagicMock:
     c.pages = ["/", "/login"]
     c.spider_max_pages = max_pages
     c.spider_max_depth = max_depth
-    c.api_intelligence = ApiIntelligenceConfig()
+    c.api_intelligence = ApiIntelligenceConfig(mode="safe")
     return c
 
 
@@ -129,7 +129,7 @@ def test_root_always_in_crawl_seeds():
     cfg.pages = []  # user configured nothing
     cfg.spider_max_pages = 30
     cfg.spider_max_depth = 3
-    cfg.api_intelligence = ApiIntelligenceConfig()
+    cfg.api_intelligence = ApiIntelligenceConfig(mode="safe")
 
     session = MagicMock()
     network = MagicMock()

@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable
 
-from vibe_iterator.api_inventory import build_inventory_from_network, resolve_mode
+from vibe_iterator.api_inventory import build_api_inventory
 from vibe_iterator.config import Config
 from vibe_iterator.crawler import browser as browser_mod
 from vibe_iterator.engine.discover_runner import DiscoveryResult, run_discovery
@@ -291,11 +291,10 @@ class ScanRunner:
             self._result.pages_crawled = [
                 {"url": page.url, "status_code": page.status_code} for page in crawled_pages
             ]
-            api_inventory = build_inventory_from_network(
+            api_inventory = build_api_inventory(
                 network,
-                target=self.config.target,
-                mode=self.config.api_intelligence.mode,
-                resolved_mode=resolve_mode(self.config.target, self.config.api_intelligence),
+                self.config.target,
+                self.config.api_intelligence,
             )
             self._result.discovered_surface = DiscoveryResult(
                 pages=[p["url"] for p in self._result.pages_crawled],

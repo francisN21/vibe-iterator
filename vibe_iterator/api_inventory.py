@@ -8,13 +8,27 @@ import re
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Any
+from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qsl, urlparse
+from urllib.request import Request, urlopen
 
 _MODES = {"auto", "safe", "aggressive", "off"}
 _ID_SEGMENT_RE = re.compile(
     r"^(?:\d+|[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}|[0-9a-fA-F]{16,})$"
 )
 _API_PREFIXES = ("/api/", "/v1/", "/v2/", "/v3/", "/graphql", "/rest/", "/rpc/")
+_BUILTIN_ROUTES = (
+    "/api/auth/login",
+    "/api/auth/logout",
+    "/api/auth/signup",
+    "/api/auth/forgot-password",
+    "/api/users",
+    "/api/admin/users",
+    "/api/settings",
+    "/api/billing",
+    "/graphql",
+)
+_METHOD_MATRIX = ("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
 _AUTH_HEADER_NAMES = {"authorization", "cookie", "x-api-key"}
 _STATE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 _SENSITIVE_PARAM_NAMES = {"role", "admin", "isadmin", "permissions", "tenant_id", "org_id", "user_id"}
@@ -225,6 +239,57 @@ def build_inventory_from_network(
     )
 
 
+def build_api_inventory(network: Any, target: str, config: ApiIntelligenceConfig) -> ApiInventory:
+    resolved = resolve_mode(target, config)
+    inventory = build_inventory_from_network(
+        network,
+        target=target,
+        mode=config.mode,
+        resolved_mode=resolved,
+    )
+    inventory = infer_hidden_parameters(inventory, config.max_hidden_params_per_endpoint)
+    return expand_aggressive_inventory(inventory, config)
+
+
+def expand_aggressive_inventory(inventory: ApiInventory, config: ApiIntelligenceConfig) -> ApiInventory:
+    if inventory.resolved_mode != "aggressive":
+        return inventory
+
+    origin = _origin_for_target(inventory.target)
+    endpoints_by_key: dict[tuple[str, str, str], ApiEndpoint] = {
+        (endpoint.origin, endpoint.method, endpoint.normalized_path): endpoint
+        for endpoint in inventory.endpoints
+    }
+    max_routes = max(0, config.max_route_candidates)
+    max_methods = max(0, config.max_methods_per_route)
+
+    for route in _candidate_routes(inventory.endpoints)[:max_routes]:
+        url = inventory.target.rstrip("/") + route
+        for method in _METHOD_MATRIX[:max_methods]:
+            probe_result = _probe_endpoint(url, method, origin, config.request_timeout_seconds)
+            if probe_result is None:
+                continue
+
+            status, headers = probe_result
+            if status in {404, 405, 501}:
+                continue
+
+            endpoint = endpoint_from_probe(url, route, method, status, headers)
+            key = (endpoint.origin, endpoint.method, endpoint.normalized_path)
+            if key in endpoints_by_key:
+                endpoints_by_key[key] = merge_endpoints(endpoints_by_key[key], endpoint)
+            else:
+                endpoints_by_key[key] = endpoint
+
+    endpoints = sorted(endpoints_by_key.values(), key=lambda endpoint: (endpoint.normalized_path, endpoint.method))
+    return replace(
+        inventory,
+        endpoints=endpoints,
+        summary=_inventory_summary(endpoints),
+        warnings=aggressive_warnings(inventory.resolved_mode),
+    )
+
+
 def aggressive_warnings(resolved_mode: str) -> list[str]:
     if resolved_mode == "aggressive":
         return ["Aggressive API intelligence may send additional probing requests."]
@@ -279,6 +344,35 @@ def endpoint_from_request(req: Any, target: str) -> ApiEndpoint | None:
         parameters=parameters,
         sources=[f"network:{url}"],
         risk_tags=risk_tags,
+        confidence="confirmed",
+    )
+
+
+def endpoint_from_probe(
+    url: str,
+    route: str,
+    method: str,
+    status: int,
+    headers: dict[str, Any],
+) -> ApiEndpoint:
+    content_types = []
+    content_type = _content_type(headers)
+    if content_type:
+        content_types.append(content_type)
+
+    method = method.upper()
+    return ApiEndpoint(
+        method=method,
+        url=url,
+        origin=_origin_for_target(url),
+        path=route,
+        normalized_path=_normalize_path(route),
+        status_codes=[status],
+        content_types=content_types,
+        response_auth_required_hint=status in {401, 403},
+        parameters=[],
+        sources=[f"probe:{method} {url}"],
+        risk_tags=_risk_tags(route, method, []),
         confidence="confirmed",
     )
 
@@ -441,6 +535,36 @@ def inventory_from_dict(data: dict[str, Any] | None) -> ApiInventory | None:
         summary={str(key): int(value) for key, value in data.get("summary", {}).items()},
         warnings=_string_list(data.get("warnings", [])),
     )
+
+
+def _candidate_routes(endpoints: list[ApiEndpoint]) -> list[str]:
+    routes = []
+    for endpoint in endpoints:
+        if endpoint.path.startswith("/"):
+            routes.append(endpoint.path)
+        else:
+            routes.append(f"/{endpoint.path}")
+    routes.extend(_BUILTIN_ROUTES)
+    return _unique_preserve(routes)
+
+
+def _probe_endpoint(
+    url: str,
+    method: str,
+    origin: str,
+    timeout_seconds: int,
+) -> tuple[int, dict[str, str]] | None:
+    headers = {"Origin": origin} if origin else {}
+    request = Request(url, headers=headers, method=method.upper())
+    timeout = max(0.1, float(timeout_seconds))
+
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            return response.status, _lower_headers(dict(response.headers.items()))
+    except HTTPError as exc:
+        return exc.code, _lower_headers(dict(exc.headers.items()))
+    except (OSError, TimeoutError, URLError, ValueError):
+        return None
 
 
 def _origin_for_target(target: str) -> str:
@@ -622,6 +746,10 @@ def _content_type(headers: dict[str, Any]) -> str:
         if name.lower() == "content-type" and isinstance(value, str):
             return value.split(";", 1)[0].strip().lower()
     return ""
+
+
+def _lower_headers(headers: dict[str, Any]) -> dict[str, str]:
+    return {str(name).lower(): str(value) for name, value in headers.items()}
 
 
 def _is_json_body(content_type: str, post_data: str) -> bool:

@@ -21,7 +21,7 @@ def _make_config() -> MagicMock:
     cfg.pages = ["/", "/dashboard"]
     cfg.scanner_timeout_seconds = 10
     cfg.scanners_for_stage.return_value = ["api_exposure"]
-    cfg.api_intelligence = ApiIntelligenceConfig()
+    cfg.api_intelligence = ApiIntelligenceConfig(mode="safe")
     return cfg
 
 
