@@ -6,7 +6,13 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from vibe_iterator.engine.discover_runner import load_sidecar, run_discovery
+from vibe_iterator.api_inventory import ApiEndpoint, ApiInventory
+from vibe_iterator.engine.discover_runner import (
+    DiscoveryResult,
+    _write_sidecar,
+    load_sidecar,
+    run_discovery,
+)
 
 
 def _cfg(max_pages: int = 30, max_depth: int = 3) -> MagicMock:
@@ -69,6 +75,45 @@ def test_load_sidecar_round_trip():
         assert loaded is not None
         assert "/a" in loaded.pages
         assert "GET /api/x" in loaded.api_endpoints
+
+
+def test_sidecar_round_trips_api_inventory():
+    inventory = ApiInventory(
+        generated_at="2026-01-01T00:00:00Z",
+        mode="auto",
+        resolved_mode="aggressive",
+        target="http://localhost:3000",
+        endpoints=[
+            ApiEndpoint(
+                method="POST",
+                url="http://localhost:3000/api/projects",
+                origin="http://localhost:3000",
+                path="/api/projects",
+                normalized_path="/api/projects",
+                status_codes=[201],
+                request_content_types=["application/json"],
+                auth_observed=True,
+                sources=["network:http://localhost:3000/api/projects"],
+                risk_tags=["state_changing"],
+            ),
+        ],
+        summary={"endpoints": 1, "state_changing": 1},
+        warnings=["Aggressive API intelligence may send additional probing requests."],
+    )
+    result = DiscoveryResult(
+        pages=["/projects"],
+        api_endpoints=["POST /api/projects"],
+        discovered_at="2026-01-01T00:00:00Z",
+        api_inventory=inventory,
+    )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        _write_sidecar(result, tmp_path / "vibe-iterator.discovered.yaml")
+        loaded = load_sidecar(tmp_path)
+
+    assert loaded is not None
+    assert loaded.api_inventory == inventory
 
 
 def test_load_sidecar_absent_returns_none():

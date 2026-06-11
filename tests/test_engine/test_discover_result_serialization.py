@@ -2,6 +2,7 @@
 """Tests for discovered_surface field in ScanResult and _result_dict serialization."""
 from __future__ import annotations
 
+from vibe_iterator.api_inventory import ApiEndpoint, ApiInventory
 from vibe_iterator.engine.runner import ScanResult
 from vibe_iterator.history import serialize_result as _result_dict
 
@@ -45,3 +46,44 @@ def test_result_dict_serializes_discovery_result():
     assert d["discovered_surface"]["pages"] == ["/", "/about"]
     assert d["discovered_surface"]["api_endpoints"] == ["GET /api/users"]
     assert d["discovered_surface"]["discovered_at"] == "2026-01-01T00:00:00Z"
+
+
+def test_result_dict_serializes_discovered_surface_api_inventory():
+    from vibe_iterator.engine.discover_runner import DiscoveryResult
+    inventory = ApiInventory(
+        generated_at="2026-01-01T00:00:00Z",
+        mode="auto",
+        resolved_mode="safe",
+        target="https://example.test",
+        endpoints=[
+            ApiEndpoint(
+                method="GET",
+                url="https://example.test/api/users",
+                origin="https://example.test",
+                path="/api/users",
+                normalized_path="/api/users",
+                status_codes=[200],
+                content_types=["application/json"],
+                auth_observed=True,
+                sources=["network:https://example.test/api/users"],
+                risk_tags=["admin"],
+            ),
+        ],
+        summary={"endpoints": 1, "auth_observed": 1},
+        warnings=["safe mode"],
+    )
+    ds = DiscoveryResult(
+        pages=["/"],
+        api_endpoints=["GET /api/users"],
+        discovered_at="2026-01-01T00:00:00Z",
+        api_inventory=inventory,
+    )
+    r = _base_result(stage="discover", discovered_surface=ds)
+
+    d = _result_dict(r)
+
+    api_inventory = d["discovered_surface"]["api_inventory"]
+    assert api_inventory["target"] == "https://example.test"
+    assert api_inventory["summary"] == {"endpoints": 1, "auth_observed": 1}
+    assert api_inventory["endpoints"][0]["method"] == "GET"
+    assert api_inventory["endpoints"][0]["auth_observed"] is True

@@ -10,6 +10,7 @@ from typing import Any, Callable
 
 import yaml
 
+from vibe_iterator.api_inventory import ApiInventory, inventory_from_dict, inventory_to_dict
 from vibe_iterator.config import Config
 from vibe_iterator.listeners.network import NetworkListener
 from vibe_iterator.spider.dom_crawler import crawl_dom
@@ -29,6 +30,7 @@ class DiscoveryResult:
     pages: list[str] = field(default_factory=list)
     api_endpoints: list[str] = field(default_factory=list)
     discovered_at: str = ""
+    api_inventory: ApiInventory | None = None
 
 
 def run_discovery(
@@ -113,6 +115,7 @@ def _write_sidecar(result: DiscoveryResult, path: Path) -> None:
         "pages": result.pages,
         "api_endpoints": result.api_endpoints,
         "discovered_at": result.discovered_at,
+        "api_inventory": inventory_to_dict(result.api_inventory) if result.api_inventory else None,
     }
     with path.open("w", encoding="utf-8") as fh:
         yaml.dump(data, fh, default_flow_style=False, allow_unicode=True)
@@ -131,6 +134,7 @@ def load_sidecar(yaml_dir: Path | None = None) -> DiscoveryResult | None:
             pages=data.get("pages", []),
             api_endpoints=data.get("api_endpoints", []),
             discovered_at=data.get("discovered_at", ""),
+            api_inventory=inventory_from_dict(data.get("api_inventory")),
         )
     except Exception as exc:
         logger.warning("Could not load sidecar %s: %s", sidecar_path, exc)
