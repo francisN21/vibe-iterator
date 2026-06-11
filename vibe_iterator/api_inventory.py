@@ -5,7 +5,7 @@ from __future__ import annotations
 import ipaddress
 import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import parse_qsl, urlparse
@@ -18,6 +18,30 @@ _API_PREFIXES = ("/api/", "/v1/", "/v2/", "/v3/", "/graphql", "/rest/", "/rpc/")
 _AUTH_HEADER_NAMES = {"authorization", "cookie", "x-api-key"}
 _STATE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 _SENSITIVE_PARAM_NAMES = {"role", "admin", "isadmin", "permissions", "tenant_id", "org_id", "user_id"}
+_HIDDEN_PARAM_CANDIDATES = (
+    "role",
+    "admin",
+    "isAdmin",
+    "permissions",
+    "tenant_id",
+    "org_id",
+    "user_id",
+    "include",
+    "expand",
+    "fields",
+    "select",
+    "debug",
+    "trace",
+    "verbose",
+    "next",
+    "return_to",
+    "redirect",
+    "url",
+    "callback_url",
+    "path",
+    "file",
+    "filename",
+)
 _RISK_KEYWORDS = {
     "graphql": ("graphql",),
     "upload": ("upload", "uploads"),
@@ -27,6 +51,59 @@ _RISK_KEYWORDS = {
     "file": ("file", "files", "filename", "path", "download"),
     "ssrf": ("url", "uri", "endpoint", "host", "callback", "webhook"),
 }
+_AUTHZ_PARAM_NAMES = {"role", "admin", "isadmin", "permissions", "tenant_id", "org_id", "user_id"}
+_AUTHZ_ENDPOINT_TOKENS = {
+    "account",
+    "admin",
+    "auth",
+    "member",
+    "members",
+    "me",
+    "org",
+    "organization",
+    "organizations",
+    "profile",
+    "tenant",
+    "user",
+    "users",
+}
+_REDIRECT_PARAM_NAMES = {"next", "return_to", "redirect", "callback_url"}
+_REDIRECT_ENDPOINT_TOKENS = {
+    "auth",
+    "callback",
+    "login",
+    "logout",
+    "oauth",
+    "redirect",
+    "return",
+    "signin",
+    "signout",
+}
+_URL_PARAM_NAMES = {"url", "callback_url"}
+_URL_ENDPOINT_TOKENS = {
+    "callback",
+    "fetch",
+    "import",
+    "proxy",
+    "remote",
+    "scrape",
+    "url",
+    "webhook",
+    "webhooks",
+}
+_FILE_PARAM_NAMES = {"path", "file", "filename"}
+_FILE_ENDPOINT_TOKENS = {
+    "download",
+    "export",
+    "file",
+    "files",
+    "filename",
+    "import",
+    "path",
+    "upload",
+    "uploads",
+}
+_GENERIC_API_PARAM_NAMES = {"include", "expand", "fields", "select", "debug", "trace", "verbose"}
 
 
 @dataclass
@@ -215,6 +292,44 @@ def merge_endpoints(existing: ApiEndpoint, incoming: ApiEndpoint) -> ApiEndpoint
     )
 
 
+def infer_hidden_parameters(
+    inventory: ApiInventory,
+    max_hidden_params_per_endpoint: int = 20,
+) -> ApiInventory:
+    candidate_names = _hidden_parameter_candidates(inventory.endpoints)
+    updated_endpoints = []
+    max_candidates = max(0, max_hidden_params_per_endpoint)
+
+    for endpoint in inventory.endpoints:
+        location = "body" if endpoint.method.upper() in _STATE_METHODS else "query"
+        existing = {(parameter.location, parameter.name.lower()) for parameter in endpoint.parameters}
+        inferred_parameters = []
+
+        for name in candidate_names:
+            if len(inferred_parameters) >= max_candidates:
+                break
+            if (location, name.lower()) in existing:
+                continue
+            if not _candidate_matches_endpoint(name, endpoint):
+                continue
+
+            inferred_parameters.append(
+                ApiParameter(
+                    name=name,
+                    location=location,
+                    observed_values=[],
+                    source="inferred",
+                    confidence="needs_review",
+                    sensitive_hint=name.lower() in _SENSITIVE_PARAM_NAMES,
+                )
+            )
+            existing.add((location, name.lower()))
+
+        updated_endpoints.append(replace(endpoint, parameters=[*endpoint.parameters, *inferred_parameters]))
+
+    return replace(inventory, endpoints=updated_endpoints, summary=_inventory_summary(updated_endpoints))
+
+
 def parameter_to_dict(parameter: ApiParameter) -> dict[str, Any]:
     return {
         "name": parameter.name,
@@ -379,6 +494,42 @@ def _risk_tokens(path: str, parameter_names: list[str]) -> set[str]:
     return tokens
 
 
+def _hidden_parameter_candidates(endpoints: list[ApiEndpoint]) -> list[str]:
+    names = []
+    for endpoint in endpoints:
+        names.extend(parameter.name for parameter in endpoint.parameters)
+    names.extend(_HIDDEN_PARAM_CANDIDATES)
+    return _unique_preserve_case_insensitive(names)
+
+
+def _candidate_matches_endpoint(name: str, endpoint: ApiEndpoint) -> bool:
+    normalized_name = name.lower()
+    tokens = _risk_tokens(endpoint.path, [])
+    tags = set(endpoint.risk_tags)
+    is_state_changing = endpoint.method.upper() in _STATE_METHODS
+
+    if normalized_name in _AUTHZ_PARAM_NAMES:
+        return is_state_changing and (
+            endpoint.auth_observed
+            or "admin" in tags
+            or bool(tokens & _AUTHZ_ENDPOINT_TOKENS)
+        )
+
+    if normalized_name in _REDIRECT_PARAM_NAMES:
+        return "redirect" in tags or bool(tokens & _REDIRECT_ENDPOINT_TOKENS)
+
+    if normalized_name in _URL_PARAM_NAMES:
+        return bool({"ssrf", "webhook"} & tags) or bool(tokens & _URL_ENDPOINT_TOKENS)
+
+    if normalized_name in _FILE_PARAM_NAMES:
+        return bool({"file", "upload"} & tags) or bool(tokens & _FILE_ENDPOINT_TOKENS)
+
+    if normalized_name in _GENERIC_API_PARAM_NAMES:
+        return _is_api_path(endpoint.path)
+
+    return False
+
+
 def _inventory_summary(endpoints: list[ApiEndpoint]) -> dict[str, int]:
     return {
         "endpoints": len(endpoints),
@@ -476,6 +627,17 @@ def _unique_preserve(values: list[str]) -> list[str]:
     for value in values:
         if value not in seen:
             seen.add(value)
+            unique.append(value)
+    return unique
+
+
+def _unique_preserve_case_insensitive(values: list[str]) -> list[str]:
+    seen = set()
+    unique = []
+    for value in values:
+        key = value.lower()
+        if key not in seen:
+            seen.add(key)
             unique.append(value)
     return unique
 

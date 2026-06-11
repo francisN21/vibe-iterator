@@ -10,6 +10,7 @@ from vibe_iterator.api_inventory import (
     build_inventory_from_network,
     endpoint_from_dict,
     endpoint_to_dict,
+    infer_hidden_parameters,
     inventory_from_dict,
     inventory_to_dict,
     parameter_from_dict,
@@ -121,6 +122,54 @@ def test_inventory_round_trip() -> None:
 
 def test_inventory_from_dict_none_returns_none() -> None:
     assert inventory_from_dict(None) is None
+
+
+def test_infer_hidden_parameters_adds_sensitive_observed_candidates_to_matching_endpoints() -> None:
+    inv = ApiInventory(
+        generated_at="2026-06-06T00:00:00Z",
+        mode="auto",
+        resolved_mode="safe",
+        target="https://example.com",
+        endpoints=[
+            ApiEndpoint(
+                method="PATCH",
+                url="https://example.com/api/profile",
+                origin="https://example.com",
+                path="/api/profile",
+                normalized_path="/api/profile",
+                parameters=[ApiParameter("name", "body", ["Ada"])],
+                risk_tags=["state_changing"],
+            ),
+            ApiEndpoint(
+                method="POST",
+                url="https://example.com/api/admin/users",
+                origin="https://example.com",
+                path="/api/admin/users",
+                normalized_path="/api/admin/users",
+                parameters=[ApiParameter("role", "body", ["admin"], sensitive_hint=True)],
+                risk_tags=["admin", "state_changing"],
+            ),
+        ],
+        summary={"endpoints": 2, "hidden_parameters": 0},
+    )
+
+    inferred = infer_hidden_parameters(inv, max_hidden_params_per_endpoint=5)
+
+    profile = next(endpoint for endpoint in inferred.endpoints if endpoint.path == "/api/profile")
+    role = next(parameter for parameter in profile.parameters if parameter.name == "role")
+    assert role.location == "body"
+    assert role.observed_values == []
+    assert role.source == "inferred"
+    assert role.confidence == "needs_review"
+    assert role.sensitive_hint is True
+    assert sum(parameter.source == "inferred" for parameter in profile.parameters) <= 5
+    assert inferred.summary["hidden_parameters"] > inv.summary["hidden_parameters"]
+    assert inferred.summary["hidden_parameters"] == sum(
+        1
+        for endpoint in inferred.endpoints
+        for parameter in endpoint.parameters
+        if parameter.source == "inferred"
+    )
 
 
 def test_string_boolean_false_values_deserialize_to_false() -> None:
