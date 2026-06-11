@@ -6,6 +6,7 @@ import json
 import urllib.error
 import urllib.request
 from typing import Any
+from urllib.parse import urlparse
 
 from vibe_iterator.scanners.base import BaseScanner, Finding, Severity
 
@@ -62,6 +63,12 @@ class Scanner(BaseScanner):
         origin = target
 
         probed_paths: set[str] = set()
+        for path, label, inventory_evidence in _inventory_auth_paths(listeners.get("api_inventory")):
+            if path in probed_paths:
+                continue
+            probed_paths.add(path)
+            _probe_endpoint(backend_base, path, label, stack, findings, self, origin, inventory_evidence)
+
         for path_variants, label in _AUTH_ENDPOINTS:
             path = _find_active_path(backend_base, path_variants, origin)
             if path is None or path in probed_paths:
@@ -89,6 +96,43 @@ class Scanner(BaseScanner):
                     _probe_endpoint(backend_base, path, label, stack, findings, self, origin)
 
         return findings
+
+
+def _inventory_auth_paths(inventory: Any) -> list[tuple[str, str, dict[str, str]]]:
+    if inventory is None:
+        return []
+
+    paths: list[tuple[str, str, dict[str, str]]] = []
+    for endpoint in getattr(inventory, "endpoints", []):
+        method = str(getattr(endpoint, "method", "")).upper()
+        if method != "POST":
+            continue
+
+        risk_tags = {str(tag).lower() for tag in getattr(endpoint, "risk_tags", [])}
+        path = getattr(endpoint, "path", "") or urlparse(getattr(endpoint, "url", "")).path
+        if not path or ("auth" not in risk_tags and not _is_auth_path(path)):
+            continue
+        if "state_changing" not in risk_tags and not _is_auth_path(path):
+            continue
+
+        normalized = getattr(endpoint, "normalized_path", path)
+        label = path.rstrip("/").split("/")[-1].replace("-", " ").replace("_", " ").title() or "Auth"
+        paths.append((
+            path,
+            label,
+            {
+                "inventory_source": ",".join(getattr(endpoint, "sources", [])),
+                "inventory_confidence": getattr(endpoint, "confidence", "") or "",
+                "inventory_endpoint": f"{method} {normalized}",
+            },
+        ))
+
+    return paths
+
+
+def _is_auth_path(path: str) -> bool:
+    lowered = path.lower().rstrip("/")
+    return any(fragment in lowered for variants, _label in _AUTH_ENDPOINTS for fragment in variants)
 
 
 def _find_active_path(base: str, variants: list[str], origin: str) -> str | None:
@@ -120,6 +164,7 @@ def _probe_endpoint(
     findings: list[Finding],
     scanner: BaseScanner,
     origin: str,
+    inventory_evidence: dict[str, str] | None = None,
 ) -> None:
     """Phase 1 burst + Phase 2 Retry-After check for one endpoint."""
     url = base + path
@@ -161,18 +206,19 @@ def _probe_endpoint(
 
     if found_429:
         if not retry_after:
-            findings.append(_finding_c(scanner, url, path, label, stack))
+            findings.append(_finding_c(scanner, url, path, label, stack, inventory_evidence))
         return
 
     if lockout_at is not None:
         findings.append(_finding_b(
             scanner, url, path, label, stack,
             lockout_at, lockout_code_before or 0, lockout_code_after or 0, lockout_body,
+            inventory_evidence,
         ))
         return
 
     if len(codes) >= _BURST_COUNT and not all(c == 403 for c in codes):
-        findings.append(_finding_a(scanner, url, path, label, stack, codes))
+        findings.append(_finding_a(scanner, url, path, label, stack, codes, inventory_evidence))
 
 
 def _post_once(url: str, origin: str) -> int | None:
@@ -210,6 +256,7 @@ def _post_full(url: str, origin: str) -> tuple[int | None, dict, str]:
 def _finding_a(
     scanner: BaseScanner, url: str, path: str,
     label: str, stack: str, codes: list[int],
+    inventory_evidence: dict[str, str] | None = None,
 ) -> Finding:
     desc = (
         f"{label} endpoint has no rate limiting — "
@@ -231,6 +278,7 @@ def _finding_a(
             "attempts_sent": len(codes),
             "response_codes_seen": codes,
             "expected_behavior": "Endpoint should return 429 by attempt 6 with a Retry-After header",
+            **(inventory_evidence or {}),
         },
         llm_prompt=scanner.build_llm_prompt(
             title=f"No rate limiting on {label} endpoint",
@@ -251,6 +299,7 @@ def _finding_a(
 def _finding_b(
     scanner: BaseScanner, url: str, path: str, label: str, stack: str,
     lockout_at: int, code_before: int, code_after: int, body_excerpt: str,
+    inventory_evidence: dict[str, str] | None = None,
 ) -> Finding:
     desc = (
         f"{label} endpoint locks accounts after {lockout_at} failed attempts "
@@ -277,6 +326,7 @@ def _finding_b(
             "code_after": code_after,
             "body_excerpt": body_excerpt,
             "expected_behavior": "Endpoint should return 429 + Retry-After, not lock the account",
+            **(inventory_evidence or {}),
         },
         llm_prompt=scanner.build_llm_prompt(
             title=f"Account lockout on {label} endpoint — DoS risk",
@@ -304,6 +354,7 @@ def _finding_b(
 
 def _finding_c(
     scanner: BaseScanner, url: str, path: str, label: str, stack: str,
+    inventory_evidence: dict[str, str] | None = None,
 ) -> Finding:
     desc = (
         f"{label} endpoint returns 429 but does not include a Retry-After header. "
@@ -323,6 +374,7 @@ def _finding_c(
             "label": label,
             "response_code": 429,
             "expected_behavior": "429 response must include Retry-After: <seconds>",
+            **(inventory_evidence or {}),
         },
         llm_prompt=scanner.build_llm_prompt(
             title=f"429 response missing Retry-After header on {label} endpoint",

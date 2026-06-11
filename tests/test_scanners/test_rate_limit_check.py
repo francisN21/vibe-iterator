@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+from vibe_iterator.api_inventory import ApiEndpoint, ApiInventory
 from vibe_iterator.scanners.base import Severity
 from vibe_iterator.scanners.rate_limit_check import Scanner, _find_active_path
 
@@ -318,3 +319,39 @@ def test_backend_url_routes_probes_with_frontend_origin():
         "http://localhost:4001/api/auth/login",
         "http://localhost:3000",
     )
+
+
+def test_rate_limit_uses_inventory_auth_post_endpoint(monkeypatch) -> None:
+    inv = ApiInventory(
+        generated_at="now",
+        mode="auto",
+        resolved_mode="safe",
+        target="http://localhost:3000",
+        endpoints=[
+            ApiEndpoint(
+                method="POST",
+                url="http://localhost:3000/api/auth/login",
+                origin="http://localhost:3000",
+                path="/api/auth/login",
+                normalized_path="/api/auth/login",
+                sources=["route_wordlist"],
+                risk_tags=["auth", "state_changing"],
+                confidence="confirmed",
+            )
+        ],
+        summary={"endpoints": 1},
+        warnings=[],
+    )
+
+    monkeypatch.setattr(
+        "vibe_iterator.scanners.rate_limit_check._post_full",
+        lambda *args, **kwargs: (401, {}, '{"error":"invalid credentials"}'),
+    )
+
+    findings = Scanner().run(
+        session=None,
+        listeners={"network": _make_network([]), "api_inventory": inv},
+        config=_make_config(),
+    )
+
+    assert any(f.evidence.get("inventory_endpoint") == "POST /api/auth/login" for f in findings)

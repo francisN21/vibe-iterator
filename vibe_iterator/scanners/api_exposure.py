@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import ssl
 import urllib.request
+from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
 
@@ -50,6 +51,20 @@ _SECURITY_HEADERS = {
     "x-frame-options": None,  # DENY or SAMEORIGIN
     "strict-transport-security": None,
 }
+
+
+@dataclass
+class _InventoryRequest:
+    url: str
+    method: str
+    headers: dict[str, str]
+    response_headers: dict[str, str] | None
+    status_code: int | None
+    response_body: str
+    response_mime_type: str
+    inventory_source: str
+    inventory_confidence: str
+    inventory_endpoint: str
 
 
 def _fetch_without_auth(
@@ -135,6 +150,85 @@ def _is_auth_rate_limit_candidate(method: str, path: str) -> bool:
     return any(action in lowered for action in _AUTH_RATE_LIMIT_ACTIONS)
 
 
+def _request_key(method: str, url: str) -> str:
+    parsed = urlparse(url)
+    return f"{method.upper()}:{parsed.netloc}{parsed.path}"
+
+
+def _inventory_evidence(req: Any) -> dict[str, str]:
+    endpoint = getattr(req, "inventory_endpoint", None)
+    if not endpoint:
+        return {}
+    return {
+        "inventory_source": getattr(req, "inventory_source", "") or "",
+        "inventory_confidence": getattr(req, "inventory_confidence", "") or "",
+        "inventory_endpoint": endpoint,
+    }
+
+
+def _inventory_requests(inventory: Any, target: str, backend_url: str | None) -> list[_InventoryRequest]:
+    if inventory is None:
+        return []
+
+    requests: list[_InventoryRequest] = []
+    for endpoint in getattr(inventory, "endpoints", []):
+        method = str(getattr(endpoint, "method", "")).upper()
+        url = getattr(endpoint, "url", "")
+        if not isinstance(url, str) or not method or not _is_api_url(url, target, backend_url):
+            continue
+
+        risk_tags = {str(tag).lower() for tag in getattr(endpoint, "risk_tags", [])}
+        auth_observed = bool(getattr(endpoint, "auth_observed", False))
+        auth_hint = bool(getattr(endpoint, "response_auth_required_hint", False))
+        if not (auth_observed or auth_hint or "auth" in risk_tags):
+            continue
+
+        requests.append(_InventoryRequest(
+            url=url,
+            method=method,
+            headers={"Authorization": "(observed by api inventory)"},
+            response_headers=None,
+            status_code=(getattr(endpoint, "status_codes", []) or [None])[0],
+            response_body="",
+            response_mime_type="",
+            inventory_source=",".join(getattr(endpoint, "sources", [])),
+            inventory_confidence=getattr(endpoint, "confidence", "") or "",
+            inventory_endpoint=f"{method} {getattr(endpoint, 'normalized_path', getattr(endpoint, 'path', url))}",
+        ))
+
+    return requests
+
+
+def _requests_with_inventory(
+    requests: list[Any],
+    inventory: Any,
+    target: str,
+    backend_url: str | None,
+) -> list[Any]:
+    merged: dict[str, Any] = {_request_key(req.method, req.url): req for req in requests}
+
+    for inv_req in _inventory_requests(inventory, target, backend_url):
+        key = _request_key(inv_req.method, inv_req.url)
+        existing = merged.get(key)
+        if existing is None:
+            merged[key] = inv_req
+            continue
+
+        _attach_inventory_metadata(existing, inv_req)
+        if not _has_auth_header(existing):
+            headers = dict(existing.headers or {})
+            headers["Authorization"] = inv_req.headers["Authorization"]
+            existing.headers = headers
+
+    return list(merged.values())
+
+
+def _attach_inventory_metadata(req: Any, inv_req: _InventoryRequest) -> None:
+    req.inventory_source = inv_req.inventory_source
+    req.inventory_confidence = inv_req.inventory_confidence
+    req.inventory_endpoint = inv_req.inventory_endpoint
+
+
 class Scanner(BaseScanner):
     """Discovers and tests API endpoints for auth gaps and missing security headers."""
 
@@ -154,6 +248,7 @@ class Scanner(BaseScanner):
         origin = frontend_origin(config)
 
         requests = [r for r in network.get_requests() if _is_api_url(r.url, target, backend_url)]
+        requests = _requests_with_inventory(requests, listeners.get("api_inventory"), target, backend_url)
 
         self._check_security_headers(requests, target, stack, findings, origin)
         self._check_unauth_access(requests, target, stack, findings, config, origin)
@@ -355,6 +450,7 @@ class Scanner(BaseScanner):
                     "response_codes_seen": status_codes,
                     "result": f"No 429 response after {_RATE_LIMIT_PROBE_COUNT} rapid requests",
                     "expected_response": "429 Too Many Requests after repeated attempts",
+                    **_inventory_evidence(req),
                 },
                 llm_prompt=self.build_llm_prompt(
                     title=f"Rate limiting not enforced: {parsed.path}",
@@ -438,6 +534,7 @@ class Scanner(BaseScanner):
                         "proof_quality": proof_quality,
                         "expected_response": "401 Unauthorized or 403 Forbidden",
                         "actual_response": f"{status} OK — endpoint accessible without auth",
+                        **_inventory_evidence(req),
                     },
                     llm_prompt=self.build_llm_prompt(
                         title=f"Unauthenticated access: {req.method} {base_parsed.path}",

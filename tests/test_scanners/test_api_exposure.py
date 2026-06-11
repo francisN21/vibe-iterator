@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+from vibe_iterator.api_inventory import ApiEndpoint, ApiInventory
 from vibe_iterator.scanners.api_exposure import Scanner
 from vibe_iterator.scanners.base import Severity
 
@@ -150,6 +151,45 @@ def test_backend_url_direct_api_origin_is_discovered_for_unauth_probe() -> None:
 
     assert [f for f in findings if "unauthenticated" in f.title.lower()] == []
     assert probes == [("https://api.example.com/api/admin", "https://app.example.com")]
+
+
+def test_api_exposure_uses_inventory_auth_endpoint(monkeypatch) -> None:
+    inv = ApiInventory(
+        generated_at="now",
+        mode="auto",
+        resolved_mode="safe",
+        target="https://example.com",
+        endpoints=[
+            ApiEndpoint(
+                method="GET",
+                url="https://example.com/api/account",
+                origin="https://example.com",
+                path="/api/account",
+                normalized_path="/api/account",
+                auth_observed=True,
+                sources=["network"],
+                risk_tags=["auth"],
+                confidence="confirmed",
+            )
+        ],
+        summary={"endpoints": 1},
+        warnings=[],
+    )
+
+    monkeypatch.setattr(
+        "vibe_iterator.scanners.api_exposure._fetch_without_auth",
+        lambda *args, **kwargs: (200, {}),
+    )
+    net = MagicMock()
+    net.get_requests.return_value = []
+
+    findings = Scanner().run(
+        session=None,
+        listeners={"network": net, "api_inventory": inv},
+        config=_make_config(),
+    )
+
+    assert any(f.evidence.get("inventory_endpoint") == "GET /api/account" for f in findings)
 
 
 # --------------------------------------------------------------------------- #
