@@ -49,6 +49,17 @@ Defines what pages to crawl, which scanners to run per stage, and technology det
 ```yaml
 target: ${VIBE_ITERATOR_TARGET}
 
+api_intelligence:
+  mode: auto # auto | safe | aggressive | off
+  max_route_candidates: 200
+  max_methods_per_route: 6
+  max_hidden_params_per_endpoint: 20
+  request_timeout_seconds: 3
+  total_timeout_seconds: 45
+  wordlists:
+    routes: builtin
+    params: builtin
+
 # Pages to crawl (order matters — login page should come first if auth is needed)
 pages:
   - /
@@ -156,6 +167,38 @@ spider:
   max_pages: 50
   max_depth: 4
 ```
+
+---
+
+### `api_intelligence` (optional)
+
+Configures API inventory generation and scanner expansion.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `mode` | string | `auto` | One of `auto`, `safe`, `aggressive`, or `off`. |
+| `max_route_candidates` | int | `200` | Maximum candidate routes considered during aggressive expansion. |
+| `max_methods_per_route` | int | `6` | Maximum HTTP methods tested per aggressive route candidate. |
+| `max_hidden_params_per_endpoint` | int | `20` | Maximum inferred or hidden parameters attached to each endpoint. |
+| `request_timeout_seconds` | int | `3` | Per-request timeout for bounded API intelligence probes. |
+| `total_timeout_seconds` | int | `45` | Overall time budget for aggressive API inventory expansion. |
+| `wordlists.routes` | string | `builtin` | Route wordlist source. |
+| `wordlists.params` | string | `builtin` | Parameter wordlist source. |
+
+Mode behavior:
+
+| Mode | Behavior |
+|------|----------|
+| `auto` | Resolves public domains to `safe`; resolves localhost, loopback, private IPs, and `.local` hosts to `aggressive`. |
+| `safe` | Builds inventory from observed browser traffic and inferred parameters without route brute forcing. |
+| `aggressive` | Adds bounded route, method, and hidden-parameter probing. Use on local or isolated targets you own. |
+| `off` | Skips API inventory generation and inventory-fed scanner expansion. |
+
+Aggressive mode can generate extra HTTP requests against candidate API routes and methods. Do not use it on production domains unless you have permission, test accounts, and rate-limit headroom.
+
+Inventory output includes method, URL, normalized path, status codes, content types, auth hints, source, confidence, risk tags, and parameters. It appears in the dashboard results, scan history, and exported HTML report.
+
+Inventory-fed scanners currently include `api_exposure`, `rate_limit_check`, `mass_assignment`, `idor_check`, `ssrf_check`, `path_traversal_check`, `open_redirect_check`, and `graphql_check`.
 
 ---
 

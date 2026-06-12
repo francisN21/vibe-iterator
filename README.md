@@ -248,6 +248,7 @@ Phase 6 tightened the scanners around runtime proof instead of loose pattern mat
 | WebSockets | Raw WebSocket upgrade probes report only when unauthenticated or untrusted-Origin handshakes return `101 Switching Protocols`. |
 | Unsafe payloads | Harmless SSTI and malformed parser markers report only on evaluated output or known unsafe parser signatures. |
 | File upload | Generic upload probes cover executable extensions, dangerous MIME types, SVG/HTML polyglots, and EICAR strings, reporting only on accepted/stored evidence. |
+| API Intelligence | Endpoint inventory now feeds API exposure, rate-limit, mass assignment, IDOR, SSRF, path traversal, open redirect, and GraphQL scanners while preserving active proof requirements. |
 
 Current validation snapshot for this branch:
 
@@ -347,10 +348,36 @@ VIBE_ITERATOR_PORT=3001                       # dashboard port (default: 3001)
 
 When `BACKEND_URL` is set, Vibe Iterator uses `TARGET` as the `Origin` header in API probes — so your backend's origin gate passes without disabling it.
 
+### API Intelligence
+
+API Intelligence builds a method-aware inventory of your app's API surface before scanners run. It combines browser network traffic, discovered routes, inferred hidden parameters, and bounded method checks so scanners can test endpoints that a normal crawl might miss.
+
+| Mode | Behavior |
+|---|---|
+| `auto` | Public targets resolve to `safe`; localhost, private IPs, and `.local` targets resolve to `aggressive`. |
+| `safe` | Uses observed API traffic and inferred parameters without route brute forcing. Best for production or shared environments. |
+| `aggressive` | Adds bounded route/method probing and hidden parameter expansion. Best for local apps you own. |
+| `off` | Disables API inventory generation and inventory-fed scanner expansion. |
+
+Aggressive mode sends extra HTTP requests to candidate API routes and methods. Use it on localhost or isolated staging unless you have permission and rate-limit headroom on the target.
+
+The dashboard exposes this as the **API Intelligence** selector. The results view and exported HTML report include an API Inventory with method, path, status codes, content types, auth hints, source, confidence, risk tags, and inferred parameters.
+
 ### `vibe-iterator.config.yaml`
 
 ```yaml
 target: ${VIBE_ITERATOR_TARGET}
+
+api_intelligence:
+  mode: auto # auto | safe | aggressive | off
+  max_route_candidates: 200
+  max_methods_per_route: 6
+  max_hidden_params_per_endpoint: 20
+  request_timeout_seconds: 3
+  total_timeout_seconds: 45
+  wordlists:
+    routes: builtin
+    params: builtin
 
 pages:
   - /

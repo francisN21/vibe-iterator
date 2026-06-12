@@ -90,6 +90,7 @@ Common values include:
 | Value | Meaning |
 | ----- | ------- |
 | `protected_api_path_replayed_without_auth` | A protected API request was replayed without auth and still returned protected data. |
+| `inventory_auth_endpoint_replayed_without_auth` | An API inventory endpoint tagged as auth-required was replayed without auth and still returned 200. |
 | `protected_route_path_loaded_without_auth` | A protected route loaded after auth was removed and showed protected-page signals. |
 | `structured_api_response_contains_tampered_tier` | A structured JSON API response accepted a tampered tier/plan value. |
 | `structured_api_response_contains_tampered_authorization_value` | A structured JSON API response accepted a tampered role/admin/permission value. |
@@ -171,6 +172,30 @@ Not a scanner — a module of helper functions used by `rls_bypass`, `tier_escal
 *`xss_check` is intentionally excluded from `post-deploy` — see `xss_check` Stage Coverage Note section.
 
 **`requires_second_account` nuance for `rls_bypass` and `auth_check`:** These scanners run in full even without a second account — only the specific cross-user/concurrent-session checks are skipped. The scanner emits a `scanner_progress` info message when skipping those sub-checks.
+
+### API Intelligence Inventory
+
+API Intelligence builds a method-aware `ApiInventory` before scanners run. Inventory records include URL, method, normalized path, status codes, content types, auth hints, source, confidence, risk tags, and parameters. Sources can include browser network traffic, built-in route candidates, method probes, or inferred hidden parameters.
+
+| Mode | Scanner impact |
+|------|----------------|
+| `auto` | Uses `safe` for public targets and `aggressive` for localhost/private targets. |
+| `safe` | Feeds scanners from observed traffic and inferred parameters only. |
+| `aggressive` | Also feeds scanners from bounded route/method/hidden-parameter probing. |
+| `off` | Scanners fall back to their pre-inventory discovery paths. |
+
+Inventory expansion does not lower reporting standards. Scanners still require active proof such as unauth replay success, accepted mass-assignment fields, IDOR response mismatch with ID evidence, SSRF callback receipt, traversal file signatures, external redirect `Location` headers, or GraphQL JSON proof.
+
+| Scanner | Inventory use |
+|---------|---------------|
+| `api_exposure` | Replays inventory auth endpoints without auth and records inventory provenance. |
+| `rate_limit_check` | Burst-probes inventory auth POST endpoints before built-in variants and avoids duplicate discovery probes. |
+| `mass_assignment` | Uses inventory write endpoints and sensitive parameters as candidate fields. |
+| `idor_check` | Uses numeric inventory endpoints while preferring matching network auth context when available. |
+| `ssrf_check` | Tests inventory URL-like query parameters tagged `ssrf`. |
+| `path_traversal_check` | Tests inventory file/path query parameters tagged `file`. |
+| `open_redirect_check` | Tests inventory redirect query parameters tagged `redirect`. |
+| `graphql_check` | Tests inventory GraphQL endpoints for introspection, unauth data, and bounded depth. |
 
 ### Special Stages
 
