@@ -34,6 +34,18 @@ _AUTH_ROUTE_BODY_SIGNALS = (
     "too many attempts",
     "locked",
 )
+_ROUTE_ECHO_BODY_SIGNALS = (
+    "cannot get",
+    "cannot post",
+    "cannot put",
+    "cannot patch",
+    "cannot delete",
+    "not found",
+    "no route",
+    "route not found",
+    "unknown endpoint",
+    "endpoint not found",
+)
 
 _AUTH_ENDPOINTS: list[tuple[list[str], str]] = [
     (["/api/auth/login", "/api/login", "/auth/login"], "Login"),
@@ -143,20 +155,55 @@ def _find_active_path(base: str, variants: list[str], origin: str) -> str | None
     for path in variants:
         code, _headers, body = _post_full(base + path, origin)
         if code not in (404, 405, 501, None):
-            if code in (401, 403) and not _has_auth_route_evidence(body):
+            if _needs_route_specific_body_evidence(code) and not _has_auth_route_evidence(body, path):
                 continue
             return path
     return None
 
 
-def _has_auth_route_evidence(body: str) -> bool:
+def _needs_route_specific_body_evidence(code: int | None) -> bool:
+    return code is not None and 400 <= code < 500 and code != 429
+
+
+def _has_auth_route_evidence(body: str, path: str) -> bool:
     """Return whether a 401/403 body looks route-specific instead of catch-all auth middleware."""
     body_lower = body.lower()
     if not body_lower:
         return False
     if body_lower.strip() in {"unauthorized", '{"error": "unauthorized"}', '{"error":"unauthorized"}'}:
         return False
-    return any(signal in body_lower for signal in _AUTH_ROUTE_BODY_SIGNALS)
+    if _looks_like_route_echo(body_lower, path):
+        return False
+    return any(signal in _body_without_requested_path(body_lower, path) for signal in _AUTH_ROUTE_BODY_SIGNALS)
+
+
+def _looks_like_route_echo(body_lower: str, path: str) -> bool:
+    """Return whether an error body appears to be a generic router fallback for this path."""
+    if not any(signal in body_lower for signal in _ROUTE_ECHO_BODY_SIGNALS):
+        return False
+
+    path_lower = path.lower()
+    path_segments = [segment for segment in path_lower.split("/") if segment]
+    path_needles = {path_lower, path_lower.strip("/"), " ".join(path_segments)}
+    if path_segments:
+        path_needles.add(path_segments[-1])
+
+    return any(needle and needle in body_lower for needle in path_needles)
+
+
+def _body_without_requested_path(body_lower: str, path: str) -> str:
+    path_lower = path.lower()
+    stripped_path = path_lower.strip("/")
+    spaced_path = " ".join(segment for segment in path_lower.split("/") if segment)
+    path_segments = [segment for segment in path_lower.split("/") if segment]
+    leaf_segment = path_segments[-1] if path_segments else ""
+    leaf_phrase = leaf_segment.replace("-", " ").replace("_", " ")
+    without_api_prefix = "/" + "/".join(path_segments[1:]) if path_segments[:1] == ["api"] else ""
+    cleaned = body_lower
+    for needle in (path_lower, stripped_path, spaced_path, without_api_prefix, leaf_segment, leaf_phrase):
+        if needle:
+            cleaned = cleaned.replace(needle, " ")
+    return cleaned
 
 
 def _probe_endpoint(

@@ -119,6 +119,51 @@ def test_find_active_path_accepts_auth_specific_invalid_credentials() -> None:
 
 # ── Finding B ────────────────────────────────────────────────────────────────
 
+def test_find_active_path_skips_route_echo_for_unknown_verify_endpoint() -> None:
+    """A generic catch-all that echoes the requested path must not prove the route exists."""
+    with patch(
+        "vibe_iterator.scanners.rate_limit_check._post_full",
+        return_value=(401, {}, '{"error": "Cannot POST /api/auth/verify"}'),
+    ):
+        assert _find_active_path("https://example.com", ["/api/auth/verify"], "https://app.example.com") is None
+
+
+def test_find_active_path_skips_generic_auth_problem_json_with_instance_echo() -> None:
+    """Auth middleware problem JSON that only echoes the route instance is not route proof."""
+    body = (
+        '{"type":"https://api.example.com/problems/authentication-required",'
+        '"title":"Unauthorized","status":401,'
+        '"detail":"Authentication is required to access this resource.",'
+        '"instance":"/auth/verify"}'
+    )
+    with patch(
+        "vibe_iterator.scanners.rate_limit_check._post_full",
+        return_value=(401, {}, body),
+    ):
+        assert _find_active_path("https://example.com", ["/api/auth/verify"], "https://app.example.com") is None
+
+
+def test_find_active_path_skips_generic_bad_request_without_route_evidence() -> None:
+    """Generic 400 responses should not prove an auth route exists."""
+    with patch(
+        "vibe_iterator.scanners.rate_limit_check._post_full",
+        return_value=(400, {}, '{"error": "bad request"}'),
+    ):
+        assert _find_active_path("https://example.com", ["/api/auth/otp"], "https://app.example.com") is None
+
+
+def test_find_active_path_accepts_verification_specific_error() -> None:
+    """Route-specific verification errors are still enough to prove a real endpoint."""
+    with patch(
+        "vibe_iterator.scanners.rate_limit_check._post_full",
+        return_value=(401, {}, '{"error": "invalid verification code"}'),
+    ):
+        assert (
+            _find_active_path("https://example.com", ["/api/auth/verify"], "https://app.example.com")
+            == "/api/auth/verify"
+        )
+
+
 def test_lockout_detected_code_shift():
     """Attempts 1-4 return 401, attempt 5 returns 403 → Finding B, LOW."""
     responses = [(401, {}, '{"error": "invalid"}')
