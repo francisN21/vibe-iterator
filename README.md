@@ -50,6 +50,17 @@ Probably not. That's where Vibe Iterator comes in.
 
 It then gives you a **copy-paste prompt** you can feed right back to your AI coding assistant to fix every issue it finds.
 
+## What's New in the Current Build
+
+The latest Phase 9 work turns Vibe Iterator into a stronger API security intelligence layer, not just a collection of individual runtime scanners.
+
+- **API Intelligence Foundation** builds a method-aware inventory of your app's API surface from browser traffic, configured pages, bounded route discovery, method probing, and hidden parameter inference.
+- **Safe-by-default discovery** uses safe API inventory mode for public domains and aggressive mode for localhost/private apps, with a dashboard toggle so users can choose the right scan intensity.
+- **Inventory-fed scanners** now share discovered endpoints and parameters with API exposure, rate limiting, mass assignment, IDOR, SSRF, path traversal, open redirect, and GraphQL checks.
+- **API Inventory reports** appear in the dashboard and exported HTML report with method, path, status, content type, auth hints, source, confidence, risk tags, and inferred parameters.
+- **Login automation is more resilient**: cookie/privacy banners are dismissed when they block submit buttons, same-route session creation is detected, and CSP script-blocking errors are surfaced with actionable diagnostics.
+- **False-positive controls are stricter** across the newer scanner families: findings are biased toward runtime proof, structured evidence, replay evidence, accepted mutation proof, callback proof, or protocol handshakes instead of weak text matches.
+
 > 🔍 **Static scanners** read your code and say _"this pattern looks risky."_
 >
 > ⚡ **Vibe Iterator** runs your app and says _"I just bypassed your subscription tier. Here's the proof."_
@@ -79,9 +90,10 @@ It then gives you a **copy-paste prompt** you can feed right back to your AI cod
 1. **You configure** — Point it at your app with a `.env` file (target URL, test credentials)
 2. **You choose a stage** — Dev (quick), Safe Live (reduced-risk smoke), Pre-Deploy (full), or Post-Deploy (production)
 3. **It launches your app** — Selenium opens a real browser, logs in, crawls your pages
-4. **It attacks your app** — Tampers with tokens, spoofs tiers, injects SQL, checks what leaks in devtools
-5. **It streams results live** — Watch the hacker-themed dashboard as findings roll in
-6. **It tells you how to fix it** — Every finding includes a copy-paste prompt for your AI assistant
+4. **It maps your API surface** — API Intelligence inventories observed endpoints, safe route candidates, methods, auth hints, and hidden parameters
+5. **It attacks your app** — Tampers with tokens, spoofs tiers, injects SQL, checks what leaks in devtools, and feeds discovered endpoints into deeper scanners
+6. **It streams results live** — Watch the hacker-themed dashboard as findings roll in
+7. **It tells you how to fix it** — Every finding includes a copy-paste prompt for your AI assistant
 
 ---
 
@@ -144,6 +156,10 @@ Split-panel view: a live terminal feed on the left streaming every action in rea
 ### 📊 Results — Explore & Fix
 
 Security score, severity breakdown, findings grouped by category. Every finding expands to show evidence, a plain-English explanation, and a **COPY FIX PROMPT** button that copies a ready-to-paste prompt for your AI assistant.
+
+### API Inventory — Know What Was Tested
+
+API Intelligence results list discovered endpoints, methods, status codes, content types, auth hints, source, confidence, risk tags, and inferred parameters. This helps you audit both the attack surface and the scanner coverage behind each run.
 
 ### 📄 Export — Share the Report
 
@@ -224,7 +240,7 @@ One click exports a self-contained HTML report file — same data, same aestheti
 
 ## Scanner Hardening
 
-Phase 6 tightened the scanners around runtime proof instead of loose pattern matches. The goal is fewer false positives, clearer evidence, and findings that map directly to exploitable full-stack security issues.
+Phase 6 through Phase 9 tightened the scanners around runtime proof instead of loose pattern matches. The goal is fewer false positives, clearer evidence, broader full-stack coverage, and findings that map directly to exploitable security issues.
 
 | Area | Latest hardening |
 | ---- | ---------------- |
@@ -249,13 +265,14 @@ Phase 6 tightened the scanners around runtime proof instead of loose pattern mat
 | Unsafe payloads | Harmless SSTI and malformed parser markers report only on evaluated output or known unsafe parser signatures. |
 | File upload | Generic upload probes cover executable extensions, dangerous MIME types, SVG/HTML polyglots, and EICAR strings, reporting only on accepted/stored evidence. |
 | API Intelligence | Endpoint inventory now feeds API exposure, rate-limit, mass assignment, IDOR, SSRF, path traversal, open redirect, and GraphQL scanners while preserving active proof requirements. |
+| Login diagnostics | Browser login automation now handles blocking cookie/privacy banners, detects same-page session creation, and reports CSP script-blocking failures with the blocked script and directive. |
 
 Current validation snapshot for this branch:
 
-- `python -m pytest -q`: 613 passed, 4 skipped
-- `python -m pytest --cov=vibe_iterator --cov-report=term-missing`: 613 passed, 4 skipped, 84% coverage
+- `python -m pytest -q`: 688 passed, 4 skipped
+- `python -m ruff check vibe_iterator tests`: passed
 - Scanner exposure matrix: 30 registered scanners, 30 preset-visible scanners, no missing config/server metadata/module mappings
-- Fresh wheel build/install smoke passed, including installed `vibe-iterator --help`
+- Recent wheel build/install smoke passed, including installed `vibe-iterator --help`
 
 ---
 
@@ -551,7 +568,7 @@ See `docs/ADDING_SCANNERS.md` for the full guide.
 
 ## Status
 
-> **v0.1.0 -- Phase 7B verification depth complete. 517 tests passing, 4 skipped, 82% coverage.**
+> **v0.1.0 -- Phase 9 API Intelligence and product hardening complete. 688 tests passing, 4 skipped.**
 
 | Phase | What                                                                                                   | Status  |
 | ----- | ------------------------------------------------------------------------------------------------------ | ------- |
@@ -562,6 +579,8 @@ See `docs/ADDING_SCANNERS.md` for the full guide.
 | 5     | Polish, finding deep-dive, CLI flags, PyPI packaging                                                   | ✅ Done |
 | 6     | False positive hardening, split-origin support, proof quality gates, CI/CD integration                 | ✅ Done |
 | 7B    | Verification depth: Firebase coverage, edge fixtures, opt-in Selenium/CDP e2e matrix                  | ✅ Done |
+| 8     | Expanded exploit-family coverage: SSRF, traversal, CSRF, GraphQL, webhooks, WebSockets, unsafe payloads, file upload | ✅ Done |
+| 9     | API Intelligence Foundation, inventory-fed scanners, safe/aggressive discovery controls, login diagnostics | ✅ Done |
 
 ---
 
@@ -582,6 +601,10 @@ See `docs/ADDING_SCANNERS.md` for the full guide.
 - [x] Scanner marketplace (community-contributed scanners)
 - [x] Team reports and historical comparison
 - [x] Phase 7B verification depth: Firebase helper coverage, edge fixtures, opt-in Selenium/CDP e2e matrix
+- [x] Phase 8 exploit-family expansion: SSRF, traversal, CSRF, GraphQL, webhooks, WebSockets, unsafe payloads, generic file upload
+- [x] API Intelligence Foundation: endpoint inventory, method-aware discovery, hidden parameter inference, dashboard/report inventory
+- [x] Inventory-fed scanners: discovered endpoints and parameters expand runtime checks without weakening proof gates
+- [x] Login diagnostics: consent-banner recovery, same-route auth-state detection, CSP script-blocking explanations
 
 ---
 
