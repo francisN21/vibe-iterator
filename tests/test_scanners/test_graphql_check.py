@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from tests.fixtures.vulnerable_app.app import VulnerableApp
+from vibe_iterator.api_inventory import ApiEndpoint, ApiInventory
 from vibe_iterator.scanners.base import Severity
 from vibe_iterator.scanners.graphql_check import (
     Scanner,
@@ -117,6 +118,48 @@ def test_backend_url_routes_graphql_probe_without_auth_headers(monkeypatch: pyte
     assert calls
     assert calls[0][0] == "http://localhost:4001/graphql"
     assert calls[0][2] == {"Content-Type": "application/json"}
+
+
+def test_graphql_uses_inventory_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    scanner = Scanner()
+    config = _make_config("https://example.com")
+    inv = ApiInventory(
+        generated_at="now",
+        mode="auto",
+        resolved_mode="safe",
+        target="https://example.com",
+        endpoints=[
+            ApiEndpoint(
+                method="POST",
+                url="https://example.com/graphql",
+                origin="https://example.com",
+                path="/graphql",
+                normalized_path="/graphql",
+                sources=["route_wordlist"],
+                risk_tags=["graphql"],
+                confidence="confirmed",
+            )
+        ],
+        summary={"endpoints": 1},
+        warnings=[],
+    )
+
+    def fake_post(url, query, headers=None, timeout=5):
+        return 200, {"content-type": "application/json"}, (
+            '{"data":{"__schema":{"queryType":{"name":"Query"},"types":[{"name":"Query"}]}}}'
+        )
+
+    monkeypatch.setattr("vibe_iterator.scanners.graphql_check._post_graphql", fake_post)
+
+    findings = scanner.run(
+        session=None,
+        listeners={"network": _make_network([]), "api_inventory": inv},
+        config=config,
+    )
+
+    assert any(f.evidence.get("inventory_endpoint") == "POST /graphql" for f in findings)
+    assert findings[0].evidence["inventory_source"] == "route_wordlist"
+    assert findings[0].evidence["inventory_parameters_used"] == []
 
 
 def test_discovery_filters_static_non_graphql_third_party_and_duplicates() -> None:

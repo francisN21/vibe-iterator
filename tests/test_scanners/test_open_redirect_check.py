@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from tests.fixtures.vulnerable_app.app import VulnerableApp
+from vibe_iterator.api_inventory import ApiEndpoint, ApiInventory, ApiParameter
 from vibe_iterator.scanners.base import Severity
 from vibe_iterator.scanners.open_redirect_check import (
     Scanner,
@@ -118,6 +119,46 @@ def test_backend_url_routes_redirect_probe_with_frontend_origin(monkeypatch: pyt
     assert calls
     assert calls[0][0] == "http://localhost:4001/api/redirect?next=https%3A%2F%2Fevil.example%2Fvibe-redirect-proof"
     assert calls[0][1] == "http://localhost:3000"
+
+
+def test_open_redirect_uses_inventory_parameter(monkeypatch: pytest.MonkeyPatch) -> None:
+    scanner = Scanner()
+    config = _make_config("https://example.com")
+    inv = ApiInventory(
+        generated_at="now",
+        mode="auto",
+        resolved_mode="safe",
+        target="https://example.com",
+        endpoints=[
+            ApiEndpoint(
+                method="GET",
+                url="https://example.com/api/redirect",
+                origin="https://example.com",
+                path="/api/redirect",
+                normalized_path="/api/redirect",
+                parameters=[ApiParameter("next", "query", [], "inferred", "needs_review", False)],
+                sources=["network"],
+                risk_tags=["redirect"],
+            )
+        ],
+        summary={"endpoints": 1, "hidden_parameters": 1},
+        warnings=[],
+    )
+
+    monkeypatch.setattr(
+        "vibe_iterator.scanners.open_redirect_check._fetch_no_redirect",
+        lambda *args, **kwargs: (302, {"location": "https://evil.example/vibe-redirect-proof"}),
+    )
+
+    findings = scanner.run(
+        session=None,
+        listeners={"network": _make_network([]), "api_inventory": inv},
+        config=config,
+    )
+
+    assert any(f.evidence.get("inventory_parameters_used") == ["next"] for f in findings)
+    assert findings[0].evidence["inventory_endpoint"] == "GET /api/redirect"
+    assert findings[0].evidence["inventory_source"] == "network"
 
 
 def test_no_finding_for_static_asset() -> None:

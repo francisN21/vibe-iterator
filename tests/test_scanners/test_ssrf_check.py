@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from tests.fixtures.vulnerable_app.app import VulnerableApp
+from vibe_iterator.api_inventory import ApiEndpoint, ApiInventory, ApiParameter
 from vibe_iterator.scanners.base import Severity
 from vibe_iterator.scanners.ssrf_check import (
     Scanner,
@@ -141,6 +142,61 @@ def test_backend_url_routes_ssrf_probe_with_frontend_origin(monkeypatch: pytest.
     assert calls
     assert calls[0][0] == "http://localhost:4001/api/fetch?url=http%3A%2F%2F127.0.0.1%3A7777%2Fvibe-ssrf-proof"
     assert calls[0][1] == "http://localhost:3000"
+
+
+def test_ssrf_uses_inventory_parameter(monkeypatch: pytest.MonkeyPatch) -> None:
+    scanner = Scanner()
+    config = _make_config("https://example.com")
+    inv = ApiInventory(
+        generated_at="now",
+        mode="auto",
+        resolved_mode="safe",
+        target="https://example.com",
+        endpoints=[
+            ApiEndpoint(
+                method="GET",
+                url="https://example.com/api/fetch",
+                origin="https://example.com",
+                path="/api/fetch",
+                normalized_path="/api/fetch",
+                parameters=[ApiParameter("url", "query", [], "inferred", "needs_review", False)],
+                sources=["network"],
+                risk_tags=["ssrf"],
+            )
+        ],
+        summary={"endpoints": 1, "hidden_parameters": 1},
+        warnings=[],
+    )
+
+    class FakeCallback:
+        url = "http://127.0.0.1:7777/vibe-ssrf-proof"
+        received_path = "/vibe-ssrf-proof"
+        received_headers = {}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return None
+
+        def wait(self, timeout=0.4):
+            return True
+
+    monkeypatch.setattr("vibe_iterator.scanners.ssrf_check._start_callback_server", FakeCallback)
+    monkeypatch.setattr(
+        "vibe_iterator.scanners.ssrf_check._fetch_no_redirect",
+        lambda *args, **kwargs: (200, {}, "ok"),
+    )
+
+    findings = scanner.run(
+        session=None,
+        listeners={"network": _make_network([]), "api_inventory": inv},
+        config=config,
+    )
+
+    assert any(f.evidence.get("inventory_parameters_used") == ["url"] for f in findings)
+    assert findings[0].evidence["inventory_endpoint"] == "GET /api/fetch"
+    assert findings[0].evidence["inventory_source"] == "network"
 
 
 def test_discovery_filters_static_non_get_unknown_and_duplicate_params() -> None:

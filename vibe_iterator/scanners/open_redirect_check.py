@@ -45,7 +45,9 @@ class Scanner(BaseScanner):
         origin = frontend_origin(config)
 
         seen: set[str] = set()
-        for url, param in _discover_redirect_targets(network, target, backend_url):
+        for url, param, inventory_evidence in _redirect_candidates(
+            listeners.get("api_inventory"), network, target, backend_url,
+        ):
             if len(seen) >= _MAX_ENDPOINTS:
                 break
             probe_frontend_url = _replace_param(url, param, _EVIL_URL)
@@ -83,6 +85,7 @@ class Scanner(BaseScanner):
                     "expected_response": "Reject external absolute URLs or normalize to a same-origin path",
                     "proof_quality": proof_quality,
                     "network_events": [],
+                    **inventory_evidence,
                 },
                 llm_prompt=self.build_llm_prompt(
                     title=f"Open redirect via `{param}` parameter",
@@ -130,6 +133,72 @@ def _discover_redirect_targets(network: Any, target: str, backend_url: str | Non
             seen.add(key)
             discovered.append((url, param))
     return discovered
+
+
+def _redirect_candidates(
+    inventory: Any,
+    network: Any,
+    target: str,
+    backend_url: str | None = None,
+) -> list[tuple[str, str, dict[str, Any]]]:
+    candidates: list[tuple[str, str, dict[str, Any]]] = []
+    seen: set[tuple[str, str]] = set()
+
+    for candidate in _inventory_redirect_targets(inventory, target, backend_url):
+        url, param, _evidence = candidate
+        parsed = urlparse(url)
+        key = (f"{parsed.scheme}://{parsed.netloc}{parsed.path}", param)
+        if key in seen:
+            continue
+        seen.add(key)
+        candidates.append(candidate)
+
+    for url, param in _discover_redirect_targets(network, target, backend_url):
+        parsed = urlparse(url)
+        key = (f"{parsed.scheme}://{parsed.netloc}{parsed.path}", param)
+        if key in seen:
+            continue
+        seen.add(key)
+        candidates.append((url, param, {}))
+
+    return candidates
+
+
+def _inventory_redirect_targets(
+    inventory: Any,
+    target: str,
+    backend_url: str | None = None,
+) -> list[tuple[str, str, dict[str, Any]]]:
+    if inventory is None:
+        return []
+
+    candidates: list[tuple[str, str, dict[str, Any]]] = []
+    for endpoint in getattr(inventory, "endpoints", []):
+        method = str(getattr(endpoint, "method", "")).upper()
+        url = getattr(endpoint, "url", "")
+        risk_tags = {str(tag).lower() for tag in getattr(endpoint, "risk_tags", [])}
+        if method != "GET" or "redirect" not in risk_tags:
+            continue
+        if not isinstance(url, str) or not _is_same_app_url(url, target, backend_url):
+            continue
+
+        for parameter in getattr(endpoint, "parameters", []):
+            param = str(getattr(parameter, "name", ""))
+            location = str(getattr(parameter, "location", "")).lower()
+            if location != "query" or param.lower() not in _REDIRECT_PARAMS:
+                continue
+            candidates.append((url, param, _inventory_evidence(endpoint, method, [param])))
+
+    return candidates
+
+
+def _inventory_evidence(endpoint: Any, method: str, params: list[str]) -> dict[str, Any]:
+    return {
+        "inventory_source": ",".join(getattr(endpoint, "sources", [])),
+        "inventory_confidence": getattr(endpoint, "confidence", "") or "",
+        "inventory_endpoint": f"{method} {getattr(endpoint, 'normalized_path', getattr(endpoint, 'path', ''))}",
+        "inventory_parameters_used": params,
+    }
 
 
 def _is_same_app_url(url: str, target: str, backend_url: str | None = None) -> bool:

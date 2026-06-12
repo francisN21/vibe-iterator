@@ -7,6 +7,7 @@ import re
 import urllib.error
 import urllib.parse
 import urllib.request
+from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
 
@@ -24,6 +25,16 @@ _SENSITIVE_QUERY = (
     "}"
 )
 _SENSITIVE_FIELD_RE = re.compile(r"(email|token|secret|role|permission|admin)", re.IGNORECASE)
+
+
+@dataclass
+class _InventoryGraphQLRequest:
+    url: str
+    method: str
+    headers: dict[str, str]
+    inventory_source: str
+    inventory_confidence: str
+    inventory_endpoint: str
 
 
 class Scanner(BaseScanner):
@@ -44,7 +55,7 @@ class Scanner(BaseScanner):
         backend_url = backend_url if isinstance(backend_url, str) and backend_url else None
 
         seen: set[str] = set()
-        for req in _discover_graphql_endpoints(network, target, backend_url):
+        for req in _graphql_candidates(listeners.get("api_inventory"), network, target, backend_url):
             if len(seen) >= _MAX_ENDPOINTS:
                 break
             endpoint = rewrite_to_backend_url(str(req.url).split("?", 1)[0], config)
@@ -53,13 +64,20 @@ class Scanner(BaseScanner):
             seen.add(endpoint)
 
             headers = _probe_headers(dict(getattr(req, "headers", {}) or {}))
-            findings.extend(self._probe_introspection(endpoint, headers, stack))
-            findings.extend(self._probe_unauth_data(endpoint, headers, stack))
-            findings.extend(self._probe_depth(endpoint, headers, stack))
+            inventory_evidence = _inventory_evidence(req)
+            findings.extend(self._probe_introspection(endpoint, headers, stack, inventory_evidence))
+            findings.extend(self._probe_unauth_data(endpoint, headers, stack, inventory_evidence))
+            findings.extend(self._probe_depth(endpoint, headers, stack, inventory_evidence))
 
         return findings
 
-    def _probe_introspection(self, endpoint: str, headers: dict[str, str], stack: str) -> list[Finding]:
+    def _probe_introspection(
+        self,
+        endpoint: str,
+        headers: dict[str, str],
+        stack: str,
+        inventory_evidence: dict[str, Any] | None = None,
+    ) -> list[Finding]:
         status, response_headers, body = _post_graphql(endpoint, _INTROSPECTION_QUERY, headers=headers)
         proof = _has_introspection_schema(body)
         if status != 200 or proof is None:
@@ -83,6 +101,7 @@ class Scanner(BaseScanner):
                 "expected_response": "Disable public introspection or require admin authentication outside trusted development environments",
                 "proof_quality": "unauthenticated_graphql_introspection",
                 "network_events": [],
+                **(inventory_evidence or {}),
             },
             llm_prompt=self.build_llm_prompt(
                 title="Unauthenticated GraphQL introspection is enabled",
@@ -104,7 +123,13 @@ class Scanner(BaseScanner):
             page=endpoint,
         )]
 
-    def _probe_unauth_data(self, endpoint: str, headers: dict[str, str], stack: str) -> list[Finding]:
+    def _probe_unauth_data(
+        self,
+        endpoint: str,
+        headers: dict[str, str],
+        stack: str,
+        inventory_evidence: dict[str, Any] | None = None,
+    ) -> list[Finding]:
         status, response_headers, body = _post_graphql(endpoint, _SENSITIVE_QUERY, headers=headers)
         proof = _has_sensitive_graphql_data(body)
         if status != 200 or proof is None:
@@ -128,6 +153,7 @@ class Scanner(BaseScanner):
                 "expected_response": "Require resolver-level authentication and authorization for sensitive fields",
                 "proof_quality": "unauthenticated_graphql_sensitive_data",
                 "network_events": [],
+                **(inventory_evidence or {}),
             },
             llm_prompt=self.build_llm_prompt(
                 title="Unauthenticated GraphQL query returned sensitive data",
@@ -149,7 +175,13 @@ class Scanner(BaseScanner):
             page=endpoint,
         )]
 
-    def _probe_depth(self, endpoint: str, headers: dict[str, str], stack: str) -> list[Finding]:
+    def _probe_depth(
+        self,
+        endpoint: str,
+        headers: dict[str, str],
+        stack: str,
+        inventory_evidence: dict[str, Any] | None = None,
+    ) -> list[Finding]:
         query = _build_depth_query(depth=5)
         status, response_headers, body = _post_graphql(endpoint, query, headers=headers)
         depth = _has_depth_accepted(body)
@@ -173,6 +205,7 @@ class Scanner(BaseScanner):
                 "expected_response": "Reject excessive nested GraphQL queries with depth or complexity limits",
                 "proof_quality": "graphql_depth_query_accepted",
                 "network_events": [],
+                **(inventory_evidence or {}),
             },
             llm_prompt=self.build_llm_prompt(
                 title=f"GraphQL depth-{depth} query accepted without complexity guard",
@@ -211,6 +244,65 @@ def _discover_graphql_endpoints(network: Any, target: str, backend_url: str | No
         seen.add(endpoint)
         discovered.append(req)
     return discovered
+
+
+def _graphql_candidates(inventory: Any, network: Any, target: str, backend_url: str | None = None) -> list[Any]:
+    candidates: list[Any] = []
+    seen: set[str] = set()
+
+    for req in _inventory_graphql_endpoints(inventory, target, backend_url):
+        endpoint = str(req.url).split("?", 1)[0]
+        if endpoint in seen:
+            continue
+        seen.add(endpoint)
+        candidates.append(req)
+
+    for req in _discover_graphql_endpoints(network, target, backend_url):
+        endpoint = str(req.url).split("?", 1)[0]
+        if endpoint in seen:
+            continue
+        seen.add(endpoint)
+        candidates.append(req)
+
+    return candidates
+
+
+def _inventory_graphql_endpoints(inventory: Any, target: str, backend_url: str | None = None) -> list[Any]:
+    if inventory is None:
+        return []
+
+    candidates: list[Any] = []
+    for endpoint in getattr(inventory, "endpoints", []):
+        method = str(getattr(endpoint, "method", "")).upper()
+        url = getattr(endpoint, "url", "")
+        risk_tags = {str(tag).lower() for tag in getattr(endpoint, "risk_tags", [])}
+        if method != "POST" or "graphql" not in risk_tags:
+            continue
+        if not isinstance(url, str) or not _is_same_app_url(url, target, backend_url):
+            continue
+
+        candidates.append(_InventoryGraphQLRequest(
+            url=url,
+            method=method,
+            headers={"Content-Type": "application/json"},
+            inventory_source=",".join(getattr(endpoint, "sources", [])),
+            inventory_confidence=getattr(endpoint, "confidence", "") or "",
+            inventory_endpoint=f"{method} {getattr(endpoint, 'normalized_path', getattr(endpoint, 'path', url))}",
+        ))
+
+    return candidates
+
+
+def _inventory_evidence(req: Any) -> dict[str, Any]:
+    endpoint = getattr(req, "inventory_endpoint", None)
+    if not endpoint:
+        return {}
+    return {
+        "inventory_source": getattr(req, "inventory_source", "") or "",
+        "inventory_confidence": getattr(req, "inventory_confidence", "") or "",
+        "inventory_endpoint": endpoint,
+        "inventory_parameters_used": [],
+    }
 
 
 def _is_same_app_url(url: str, target: str, backend_url: str | None = None) -> bool:
