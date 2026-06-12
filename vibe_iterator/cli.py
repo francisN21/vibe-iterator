@@ -11,7 +11,6 @@ import click
 
 from vibe_iterator.config import _DEFAULT_STAGES
 
-
 _SCAN_STAGE_CHOICES = list(_DEFAULT_STAGES)
 
 

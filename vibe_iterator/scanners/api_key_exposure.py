@@ -13,7 +13,7 @@ import re
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from vibe_iterator.scanners.base import BaseScanner, Severity
+from vibe_iterator.scanners.base import BaseScanner, Finding, Severity
 from vibe_iterator.utils.supabase_helpers import truncate
 
 # (compiled_pattern, label, severity)

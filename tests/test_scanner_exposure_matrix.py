@@ -11,7 +11,6 @@ from vibe_iterator.config import _DEFAULT_STAGES, _VALID_SCANNER_NAMES
 from vibe_iterator.engine.runner import _SCANNER_MODULE_MAP
 from vibe_iterator.server.routes import _SCANNER_META
 
-
 REQUIRED_META_FIELDS = {
     "label",
     "category",

@@ -4,11 +4,9 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-import pytest
-
+from vibe_iterator.listeners.storage import StorageSnapshot
 from vibe_iterator.scanners.api_key_exposure import Scanner
 from vibe_iterator.scanners.base import Severity
-from vibe_iterator.listeners.storage import StorageSnapshot
 
 
 def _make_config(target: str = "http://localhost:3000") -> MagicMock:
@@ -151,7 +149,7 @@ class TestResponseBodies:
         assert any("GitHub personal access token" in f.title for f in findings)
 
     def test_slack_token_in_js_response(self) -> None:
-        body = f'var token = "xoxb-123456789012-1234567890123-abcdefghijklmnopqrstuvwx";'
+        body = 'var token = "xoxb-123456789012-1234567890123-abcdefghijklmnopqrstuvwx";'
         req = _make_req(body=body, mime="application/javascript")
         findings = _run([req])
         assert any("Slack bot token" in f.title for f in findings)

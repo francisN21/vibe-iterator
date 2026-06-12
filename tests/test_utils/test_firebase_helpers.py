@@ -5,9 +5,9 @@ import io
 from unittest.mock import MagicMock, patch
 
 from vibe_iterator.utils.firebase_helpers import (
+    _CLOSED_LOCAL_ENDPOINTS,
     PROBE_PREFIX,
     REQUEST_TIMEOUT,
-    _CLOSED_LOCAL_ENDPOINTS,
     _from_firestore_fields,
     _to_firestore_fields,
     build_firebase_llm_prompt,

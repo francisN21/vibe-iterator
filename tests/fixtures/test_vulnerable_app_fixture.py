@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import socket
 import urllib.error
 import urllib.parse
 import urllib.request
-import socket
 
 from tests.fixtures.vulnerable_app.app import VulnerableApp
 

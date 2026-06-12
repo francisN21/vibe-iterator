@@ -25,9 +25,9 @@ Vulnerabilities baked in (all deliberate, local-only):
 
 from __future__ import annotations
 
-import json
 import base64
 import hashlib
+import json
 import re
 import threading
 import urllib.parse

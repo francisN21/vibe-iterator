@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-
 STATIC_DIR = Path("vibe_iterator/server/static")
 
 
