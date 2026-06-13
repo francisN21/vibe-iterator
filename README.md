@@ -269,7 +269,7 @@ Phase 6 through Phase 9 tightened the scanners around runtime proof instead of l
 
 Current validation snapshot for this branch:
 
-- `python -m pytest -q`: 688 passed, 4 skipped
+- `python -m pytest -q`: 696 passed, 4 skipped
 - `python -m ruff check vibe_iterator tests`: passed
 - Scanner exposure matrix: 30 registered scanners, 30 preset-visible scanners, no missing config/server metadata/module mappings
 - Recent wheel build/install smoke passed, including installed `vibe-iterator --help`
@@ -568,7 +568,7 @@ See `docs/ADDING_SCANNERS.md` for the full guide.
 
 ## Status
 
-> **v0.1.0 -- Phase 9 API Intelligence and product hardening complete. 688 tests passing, 4 skipped.**
+> **v0.1.0 -- Phase 9 API Intelligence and product hardening complete. 696 tests passing, 4 skipped.**
 
 | Phase | What                                                                                                   | Status  |
 | ----- | ------------------------------------------------------------------------------------------------------ | ------- |
