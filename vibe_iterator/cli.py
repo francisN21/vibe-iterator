@@ -9,6 +9,10 @@ from pathlib import Path
 
 import click
 
+from vibe_iterator.config import _DEFAULT_STAGES
+
+_SCAN_STAGE_CHOICES = list(_DEFAULT_STAGES)
+
 
 @click.group(invoke_without_command=True)
 @click.option("--target", default=None, help="Target app URL (overrides .env)")
@@ -39,7 +43,7 @@ def cli(
 
 
 @cli.command()
-@click.option("--stage", default="dev", type=click.Choice(["dev", "pre-deploy", "post-deploy", "all"]), help="Scan stage to run")
+@click.option("--stage", default="dev", type=click.Choice(_SCAN_STAGE_CHOICES), help="Scan stage to run")
 @click.option("--target", default=None, help="Target app URL (overrides .env)")
 @click.option("--output", default=None, help="Write an HTML report to this path after the scan")
 @click.option("--verbose", is_flag=True, default=False, help="Stream all events to stdout")

@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
 import urllib.error
+from unittest.mock import MagicMock
 
 import pytest
 
 from tests.fixtures.vulnerable_app.app import VulnerableApp
-from vibe_iterator.scanners.info_disclosure import Scanner, _MAX_CONSECUTIVE_PROBE_FAILURES
 from vibe_iterator.scanners.base import Severity
+from vibe_iterator.scanners.info_disclosure import _MAX_CONSECUTIVE_PROBE_FAILURES, Scanner
 
 
 @pytest.fixture(scope="module")

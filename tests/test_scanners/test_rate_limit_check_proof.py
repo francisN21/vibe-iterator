@@ -7,8 +7,8 @@ from unittest.mock import MagicMock
 import pytest
 
 from tests.fixtures.vulnerable_app.app import VulnerableApp
-from vibe_iterator.scanners.rate_limit_check import Scanner
 from vibe_iterator.scanners.base import Severity
+from vibe_iterator.scanners.rate_limit_check import Scanner
 
 
 @pytest.fixture(scope="function")

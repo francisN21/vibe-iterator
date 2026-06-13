@@ -6,6 +6,7 @@ import json
 import time
 import urllib.error
 import urllib.request
+from dataclasses import dataclass
 from typing import Any
 
 from vibe_iterator.scanners.base import BaseScanner, Finding, Severity
@@ -33,6 +34,18 @@ _PRIVILEGE_FIELDS: list[tuple[str, Any, bool]] = [
 _WRITE_METHODS = {"POST", "PUT", "PATCH"}
 
 
+@dataclass(frozen=True)
+class _MassAssignmentCandidate:
+    method: str
+    url: str
+    original_body: dict[str, Any]
+    privilege_fields: tuple[tuple[str, Any, bool], ...]
+    inventory_source: str | None = None
+    inventory_confidence: str | None = None
+    inventory_endpoint: str | None = None
+    inventory_parameters_used: tuple[str, ...] = ()
+
+
 class Scanner(BaseScanner):
     """Replays write endpoints with injected privilege fields to detect mass assignment."""
 
@@ -46,40 +59,25 @@ class Scanner(BaseScanner):
         findings: list[Finding] = []
         stack = config.stack.backend if hasattr(config, "stack") else "unknown"
         network = listeners["network"]
+        inventory = listeners.get("api_inventory")
         token = _get_auth_headers(config)
 
         tested: set[str] = set()
 
-        for req in network.get_requests():
-            if req.method not in _WRITE_METHODS:
-                continue
-            if not req.post_data:
-                continue
-            if not req.url.startswith("http"):
-                continue
-            if any(skip in req.url for skip in ["/static/", ".js", ".css", "/auth/", "/login"]):
-                continue
-
-            endpoint_key = f"{req.method}:{req.url}"
+        for candidate in [*_inventory_candidates(inventory), *_network_candidates(network)]:
+            endpoint_key = f"{candidate.method}:{candidate.url}"
             if endpoint_key in tested:
                 continue
             tested.add(endpoint_key)
 
-            try:
-                original_body = json.loads(req.post_data)
-                if not isinstance(original_body, dict):
-                    continue
-            except (json.JSONDecodeError, TypeError):
-                continue
-
-            for field_name, field_value, is_financial in _PRIVILEGE_FIELDS:
-                if field_name in original_body:
+            for field_name, field_value, is_financial in candidate.privilege_fields:
+                if field_name in candidate.original_body:
                     continue
 
-                injected_body = {**original_body, field_name: field_value}
-                probe_url = rewrite_to_backend_url(req.url, config)
+                injected_body = {**candidate.original_body, field_name: field_value}
+                probe_url = rewrite_to_backend_url(candidate.url, config)
                 resp_body, status, _ = _make_request(
-                    probe_url, req.method,
+                    probe_url, candidate.method,
                     json.dumps(injected_body).encode(),
                     token,
                 )
@@ -108,7 +106,7 @@ class Scanner(BaseScanner):
 
                 sev = Severity.CRITICAL if is_financial else Severity.HIGH
                 desc = (
-                    f"The endpoint `{req.method} {probe_url}` accepted the injected field "
+                    f"The endpoint `{candidate.method} {probe_url}` accepted the injected field "
                     f"`{field_name}={field_value}` and returned it from `{response_field_path}` "
                     "in a resource write response. "
                     "The server does not filter unexpected fields from the request body. "
@@ -118,11 +116,11 @@ class Scanner(BaseScanner):
                 findings.append(self.new_finding(
                     scanner=self.name,
                     severity=sev,
-                    title=f"Mass assignment: server accepted `{field_name}` in {req.method} {req.url}",
+                    title=f"Mass assignment: server accepted `{field_name}` in {candidate.method} {candidate.url}",
                     description=desc,
                     evidence={
                         "request": {
-                            "method": req.method,
+                            "method": candidate.method,
                             "url": probe_url,
                             "body": truncate(json.dumps(injected_body), 300),
                         },
@@ -145,7 +143,7 @@ class Scanner(BaseScanner):
                         category=self.category,
                         description=desc,
                         evidence_summary=(
-                            f"{req.method} {probe_url}\n"
+                            f"{candidate.method} {probe_url}\n"
                             f"Injected: {field_name}={field_value}\n"
                             f"Resource response returned {response_field_path}={returned_val}"
                         ),
@@ -164,8 +162,139 @@ class Scanner(BaseScanner):
                     category=self.category,
                     page=probe_url,
                 ))
+                if candidate.inventory_endpoint:
+                    findings[-1].evidence.update({
+                        "inventory_source": candidate.inventory_source or "",
+                        "inventory_confidence": candidate.inventory_confidence or "",
+                        "inventory_endpoint": candidate.inventory_endpoint,
+                        "inventory_parameters_used": list(candidate.inventory_parameters_used),
+                    })
 
         return findings
+
+
+def _inventory_candidates(inventory: Any) -> list[_MassAssignmentCandidate]:
+    if inventory is None:
+        return []
+
+    candidates: list[_MassAssignmentCandidate] = []
+    for endpoint in getattr(inventory, "endpoints", []):
+        method = str(getattr(endpoint, "method", "")).upper()
+        url = getattr(endpoint, "url", "")
+        if method not in _WRITE_METHODS:
+            continue
+        if not isinstance(url, str) or not url.startswith("http"):
+            continue
+        if any(skip in url for skip in ["/static/", ".js", ".css", "/auth/", "/login"]):
+            continue
+
+        body_params = [
+            param for param in getattr(endpoint, "parameters", [])
+            if getattr(param, "location", "") == "body"
+        ]
+        if not body_params:
+            continue
+
+        privileged_params = [
+            param for param in body_params
+            if _privilege_field_for_param(param) is not None
+            and (
+                bool(getattr(param, "sensitive_hint", False))
+                or getattr(param, "source", "") != "observed"
+                or getattr(param, "confidence", "") != "confirmed"
+            )
+        ]
+        if not privileged_params:
+            privileged_params = [
+                param for param in body_params
+                if _privilege_field_for_param(param) is not None
+            ]
+
+        selected_params = privileged_params or body_params
+
+        original_body = _body_from_observed_params(body_params)
+        privilege_fields = _privilege_fields_for_params(selected_params) or tuple(_PRIVILEGE_FIELDS)
+        candidates.append(_MassAssignmentCandidate(
+            method=method,
+            url=url,
+            original_body=original_body,
+            privilege_fields=privilege_fields,
+            inventory_source=",".join(getattr(endpoint, "sources", [])),
+            inventory_confidence=getattr(endpoint, "confidence", ""),
+            inventory_endpoint=f"{method} {getattr(endpoint, 'normalized_path', getattr(endpoint, 'path', url))}",
+            inventory_parameters_used=tuple(getattr(param, "name", "") for param in selected_params),
+        ))
+
+    return candidates
+
+
+def _network_candidates(network: Any) -> list[_MassAssignmentCandidate]:
+    candidates: list[_MassAssignmentCandidate] = []
+    for req in network.get_requests():
+        if req.method not in _WRITE_METHODS:
+            continue
+        if not req.post_data:
+            continue
+        if not req.url.startswith("http"):
+            continue
+        if any(skip in req.url for skip in ["/static/", ".js", ".css", "/auth/", "/login"]):
+            continue
+
+        try:
+            original_body = json.loads(req.post_data)
+            if not isinstance(original_body, dict):
+                continue
+        except (json.JSONDecodeError, TypeError):
+            continue
+
+        candidates.append(_MassAssignmentCandidate(
+            method=req.method,
+            url=req.url,
+            original_body=original_body,
+            privilege_fields=tuple(_PRIVILEGE_FIELDS),
+        ))
+
+    return candidates
+
+
+def _privilege_field_for_param(param: Any) -> tuple[str, Any, bool] | None:
+    name = getattr(param, "name", "")
+    if not isinstance(name, str) or not name:
+        return None
+
+    for field_name, field_value, is_financial in _PRIVILEGE_FIELDS:
+        if field_name.lower() == name.lower():
+            return name, field_value, is_financial
+
+    return None
+
+
+def _privilege_fields_for_params(params: list[Any]) -> tuple[tuple[str, Any, bool], ...]:
+    return tuple(
+        field for param in params
+        if (field := _privilege_field_for_param(param)) is not None
+    )
+
+
+def _body_from_observed_params(params: list[Any]) -> dict[str, Any]:
+    body: dict[str, Any] = {}
+    for param in params:
+        values = getattr(param, "observed_values", [])
+        if not values:
+            continue
+        name = getattr(param, "name", "")
+        if isinstance(name, str) and name:
+            body[name] = _coerce_observed_value(values[0])
+    return body
+
+
+def _coerce_observed_value(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    try:
+        return json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        return value
 
 
 def _make_request(

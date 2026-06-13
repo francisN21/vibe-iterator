@@ -50,6 +50,17 @@ Probably not. That's where Vibe Iterator comes in.
 
 It then gives you a **copy-paste prompt** you can feed right back to your AI coding assistant to fix every issue it finds.
 
+## What's New in the Current Build
+
+The latest Phase 9 work turns Vibe Iterator into a stronger API security intelligence layer, not just a collection of individual runtime scanners.
+
+- **API Intelligence Foundation** builds a method-aware inventory of your app's API surface from browser traffic, configured pages, bounded route discovery, method probing, and hidden parameter inference.
+- **Safe-by-default discovery** uses safe API inventory mode for public domains and aggressive mode for localhost/private apps, with a dashboard toggle so users can choose the right scan intensity.
+- **Inventory-fed scanners** now share discovered endpoints and parameters with API exposure, rate limiting, mass assignment, IDOR, SSRF, path traversal, open redirect, and GraphQL checks.
+- **API Inventory reports** appear in the dashboard and exported HTML report with method, path, status, content type, auth hints, source, confidence, risk tags, and inferred parameters.
+- **Login automation is more resilient**: cookie/privacy banners are dismissed when they block submit buttons, same-route session creation is detected, and CSP script-blocking errors are surfaced with actionable diagnostics.
+- **False-positive controls are stricter** across the newer scanner families: findings are biased toward runtime proof, structured evidence, replay evidence, accepted mutation proof, callback proof, or protocol handshakes instead of weak text matches.
+
 > 🔍 **Static scanners** read your code and say _"this pattern looks risky."_
 >
 > ⚡ **Vibe Iterator** runs your app and says _"I just bypassed your subscription tier. Here's the proof."_
@@ -77,11 +88,12 @@ It then gives you a **copy-paste prompt** you can feed right back to your AI cod
 ```
 
 1. **You configure** — Point it at your app with a `.env` file (target URL, test credentials)
-2. **You choose a stage** — Dev (quick), Pre-Deploy (full), or Post-Deploy (production)
+2. **You choose a stage** — Dev (quick), Safe Live (reduced-risk smoke), Pre-Deploy (full), or Post-Deploy (production)
 3. **It launches your app** — Selenium opens a real browser, logs in, crawls your pages
-4. **It attacks your app** — Tampers with tokens, spoofs tiers, injects SQL, checks what leaks in devtools
-5. **It streams results live** — Watch the hacker-themed dashboard as findings roll in
-6. **It tells you how to fix it** — Every finding includes a copy-paste prompt for your AI assistant
+4. **It maps your API surface** — API Intelligence inventories observed endpoints, safe route candidates, methods, auth hints, and hidden parameters
+5. **It attacks your app** — Tampers with tokens, spoofs tiers, injects SQL, checks what leaks in devtools, and feeds discovered endpoints into deeper scanners
+6. **It streams results live** — Watch the hacker-themed dashboard as findings roll in
+7. **It tells you how to fix it** — Every finding includes a copy-paste prompt for your AI assistant
 
 ---
 
@@ -117,6 +129,7 @@ Your browser opens to `http://localhost:3001` — select a scan stage, hit **STA
 
 ```bash
 vibe-iterator scan --stage pre-deploy
+vibe-iterator scan --stage safe-live
 ```
 
 **Separate frontend and backend?** If your API runs on a different port or domain than your frontend, add one more line:
@@ -134,7 +147,7 @@ Vibe Iterator ships with a **hacker-themed control center** on `localhost:3001` 
 
 ### 🏠 Home — Pick Your Stage
 
-Select **DEV**, **PRE-DEPLOY**, or **POST-DEPLOY**. Each stage runs a different set of scanners tuned for that phase of your project.
+Select **DEV**, **SAFE LIVE**, **PRE-DEPLOY**, or **POST-DEPLOY**. Each stage runs a different set of scanners tuned for that phase of your project.
 
 ### 📡 Live Scan — Watch It Happen
 
@@ -143,6 +156,10 @@ Split-panel view: a live terminal feed on the left streaming every action in rea
 ### 📊 Results — Explore & Fix
 
 Security score, severity breakdown, findings grouped by category. Every finding expands to show evidence, a plain-English explanation, and a **COPY FIX PROMPT** button that copies a ready-to-paste prompt for your AI assistant.
+
+### API Inventory — Know What Was Tested
+
+API Intelligence results list discovered endpoints, methods, status codes, content types, auth hints, source, confidence, risk tags, and inferred parameters. This helps you audit both the attack surface and the scanner coverage behind each run.
 
 ### 📄 Export — Share the Report
 
@@ -190,6 +207,7 @@ One click exports a self-contained HTML report file — same data, same aestheti
 | Bucket limits    | File uploads exceed plan limits without server rejection                       |
 | Client tampering | Roles, permissions, or feature flags in localStorage trusted by server         |
 | IDOR             | User A can access User B's data by swapping IDs                                |
+| Path traversal   | File/path parameters expose local `.env` or OS file signatures                 |
 
 ### 🔍 Data Leakage
 
@@ -208,6 +226,13 @@ One click exports a self-contained HTML report file — same data, same aestheti
 | XSS (reflected/stored/DOM) | Script injection payloads execute in the browser                        |
 | CORS misconfiguration      | Wildcard origins or credentials with `*` allowed                        |
 | API exposure               | Protected endpoints accessible without auth                             |
+| SSRF                       | URL-like parameters trigger server-side callback fetches                 |
+| CSRF                       | Cookie-auth state changes accept cross-site requests without valid proof |
+| GraphQL                    | Public introspection, unauth data queries, or missing depth guards       |
+| Webhooks                   | Missing or invalid signature headers still process provider events       |
+| WebSockets                 | Missing auth or untrusted Origins still complete socket handshakes       |
+| Unsafe payloads            | SSTI markers evaluate or malformed parser inputs expose unsafe parsers   |
+| File upload                | Dangerous extensions, MIME types, polyglots, or EICAR strings are stored |
 | Mass assignment            | API accepts fields it shouldn't (role escalation via extra JSON fields) |
 | Missing security headers   | No CSP, no `X-Frame-Options`, no `Strict-Transport-Security`            |
 
@@ -215,7 +240,7 @@ One click exports a self-contained HTML report file — same data, same aestheti
 
 ## Scanner Hardening
 
-Phase 6 tightened the scanners around runtime proof instead of loose pattern matches. The goal is fewer false positives, clearer evidence, and findings that map directly to exploitable full-stack security issues.
+Phase 6 through Phase 9 tightened the scanners around runtime proof instead of loose pattern matches. The goal is fewer false positives, clearer evidence, broader full-stack coverage, and findings that map directly to exploitable security issues.
 
 | Area | Latest hardening |
 | ---- | ---------------- |
@@ -230,12 +255,24 @@ Phase 6 tightened the scanners around runtime proof instead of loose pattern mat
 | CORS | Wildcard, reflected, null-origin, preflight, and credentialed CORS cases now receive clearer severity and proof labels. |
 | Info disclosure | SPA fallback noise and unrelated route text are filtered out before reporting sensitive-path findings. |
 | IDOR, SQLi, XSS, method tampering | Proof quality metadata was added or tightened so reports distinguish runtime exploit evidence from weaker probes. |
+| Open redirect | Redirect-like query parameters are probed for actual external `Location` headers before reporting. |
+| Path traversal | File-like query parameters are probed with traversal payloads and only reported when sensitive file signatures are returned. |
+| SSRF | URL-like parameters are probed with a scanner-controlled local callback and only reported when the callback receives a server-side request. |
+| CSRF | Cookie-authenticated unsafe requests are replayed with CSRF headers stripped and cross-site Origin/Referer, then require mutation success evidence before reporting. |
+| GraphQL | Introspection, unauthenticated sensitive data, and bounded depth probes produce separate findings only when JSON proof is present. |
+| Webhooks | Captured webhook deliveries are replayed with missing or invalid signature headers and only reported when processing evidence is returned. |
+| WebSockets | Raw WebSocket upgrade probes report only when unauthenticated or untrusted-Origin handshakes return `101 Switching Protocols`. |
+| Unsafe payloads | Harmless SSTI and malformed parser markers report only on evaluated output or known unsafe parser signatures. |
+| File upload | Generic upload probes cover executable extensions, dangerous MIME types, SVG/HTML polyglots, and EICAR strings, reporting only on accepted/stored evidence. |
+| API Intelligence | Endpoint inventory now feeds API exposure, rate-limit, mass assignment, IDOR, SSRF, path traversal, open redirect, and GraphQL scanners while preserving active proof requirements. |
+| Login diagnostics | Browser login automation now handles blocking cookie/privacy banners, detects same-page session creation, and reports CSP script-blocking failures with the blocked script and directive. |
 
 Current validation snapshot for this branch:
 
-- `python -m pytest`: 491 passed, 2 skipped
-- `python -m pytest --cov=vibe_iterator --cov-report=term-missing`: 81% coverage
-- Fresh wheel build/install smoke passed, including installed `vibe-iterator --help`
+- `python -m pytest -q`: 696 passed, 4 skipped
+- `python -m ruff check vibe_iterator tests`: passed
+- Scanner exposure matrix: 30 registered scanners, 30 preset-visible scanners, no missing config/server metadata/module mappings
+- Recent wheel build/install smoke passed, including installed `vibe-iterator --help`
 
 ---
 
@@ -243,9 +280,11 @@ Current validation snapshot for this branch:
 
 | Stage              | Scanners                                                                                                                                                 | When to Use                                  |
 | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
-| **🔧 DEV**         | `data_leakage` · `auth_check` · `client_tampering`                                                                                                       | During development — quick feedback loop     |
-| **🚀 PRE-DEPLOY**  | `data_leakage` · `auth_check` · `client_tampering` · `rls_bypass` · `tier_escalation` · `bucket_limits` · `sql_injection` · `xss_check` · `api_exposure` | Before going live — full audit               |
-| **🌍 POST-DEPLOY** | `cors_check` · `data_leakage` · `auth_check` · `api_exposure` · `bucket_limits` · `sql_injection`                                                        | Against production — external attack surface |
+| **🔧 DEV**         | `data_leakage` · `auth_check` · `client_tampering` · `firebase_auth`                                                                                     | During development — quick feedback loop     |
+| **SAFE LIVE**      | `data_leakage` · `api_key_exposure` · `cors_check` · `info_disclosure` · `open_redirect_check` · `websocket_check`                                      | Shared/live smoke scan with reduced side effects |
+| **🚀 PRE-DEPLOY**  | Generic pre-deploy scanners plus all five Firebase scanners                                                                                              | Before going live — full audit               |
+| **🌍 POST-DEPLOY** | Generic post-deploy scanners plus all five Firebase scanners                                                                                             | Against production — external attack surface |
+| **FIREBASE**       | `firebase_firestore` · `firebase_rtdb` · `firebase_storage` · `firebase_auth` · `firebase_functions`                                                     | Focused Firebase stack audit                  |
 
 ---
 
@@ -326,10 +365,36 @@ VIBE_ITERATOR_PORT=3001                       # dashboard port (default: 3001)
 
 When `BACKEND_URL` is set, Vibe Iterator uses `TARGET` as the `Origin` header in API probes — so your backend's origin gate passes without disabling it.
 
+### API Intelligence
+
+API Intelligence builds a method-aware inventory of your app's API surface before scanners run. It combines browser network traffic, discovered routes, inferred hidden parameters, and bounded method checks so scanners can test endpoints that a normal crawl might miss.
+
+| Mode | Behavior |
+|---|---|
+| `auto` | Public targets resolve to `safe`; localhost, private IPs, and `.local` targets resolve to `aggressive`. |
+| `safe` | Uses observed API traffic and inferred parameters without route brute forcing. Best for production or shared environments. |
+| `aggressive` | Adds bounded route/method probing and hidden parameter expansion. Best for local apps you own. |
+| `off` | Disables API inventory generation and inventory-fed scanner expansion. |
+
+Aggressive mode sends extra HTTP requests to candidate API routes and methods. Use it on localhost or isolated staging unless you have permission and rate-limit headroom on the target.
+
+The dashboard exposes this as the **API Intelligence** selector. The results view and exported HTML report include an API Inventory with method, path, status codes, content types, auth hints, source, confidence, risk tags, and inferred parameters.
+
 ### `vibe-iterator.config.yaml`
 
 ```yaml
 target: ${VIBE_ITERATOR_TARGET}
+
+api_intelligence:
+  mode: auto # auto | safe | aggressive | off
+  max_route_candidates: 200
+  max_methods_per_route: 6
+  max_hidden_params_per_endpoint: 20
+  request_timeout_seconds: 3
+  total_timeout_seconds: 45
+  wordlists:
+    routes: builtin
+    params: builtin
 
 pages:
   - /
@@ -341,7 +406,9 @@ pages:
 
 stages:
   dev:
-    scanners: [data_leakage, auth_check, client_tampering]
+    scanners: [data_leakage, auth_check, client_tampering, firebase_auth]
+  safe-live:
+    scanners: [data_leakage, api_key_exposure, cors_check, info_disclosure, open_redirect_check, websocket_check]
   pre-deploy:
     scanners:
       [
@@ -354,6 +421,25 @@ stages:
         sql_injection,
         xss_check,
         api_exposure,
+        mass_assignment,
+        info_disclosure,
+        idor_check,
+        http_method_tampering,
+        rate_limit_check,
+        open_redirect_check,
+        path_traversal_check,
+        ssrf_check,
+        csrf_check,
+        graphql_check,
+        webhook_check,
+        websocket_check,
+        unsafe_payload_check,
+        file_upload_check,
+        firebase_firestore,
+        firebase_rtdb,
+        firebase_storage,
+        firebase_auth,
+        firebase_functions,
       ]
   post-deploy:
     scanners:
@@ -362,8 +448,28 @@ stages:
         data_leakage,
         auth_check,
         api_exposure,
+        api_key_exposure,
         bucket_limits,
         sql_injection,
+        mass_assignment,
+        info_disclosure,
+        idor_check,
+        http_method_tampering,
+        rate_limit_check,
+        firebase_firestore,
+        firebase_rtdb,
+        firebase_storage,
+        firebase_auth,
+        firebase_functions,
+      ]
+  firebase:
+    scanners:
+      [
+        firebase_firestore,
+        firebase_rtdb,
+        firebase_storage,
+        firebase_auth,
+        firebase_functions,
       ]
 
 stack:
@@ -462,7 +568,7 @@ See `docs/ADDING_SCANNERS.md` for the full guide.
 
 ## Status
 
-> **v0.1.0 -- Phase 7B verification depth complete. 517 tests passing, 4 skipped, 82% coverage.**
+> **v0.1.0 -- Phase 9 API Intelligence and product hardening complete. 696 tests passing, 4 skipped.**
 
 | Phase | What                                                                                                   | Status  |
 | ----- | ------------------------------------------------------------------------------------------------------ | ------- |
@@ -473,6 +579,8 @@ See `docs/ADDING_SCANNERS.md` for the full guide.
 | 5     | Polish, finding deep-dive, CLI flags, PyPI packaging                                                   | ✅ Done |
 | 6     | False positive hardening, split-origin support, proof quality gates, CI/CD integration                 | ✅ Done |
 | 7B    | Verification depth: Firebase coverage, edge fixtures, opt-in Selenium/CDP e2e matrix                  | ✅ Done |
+| 8     | Expanded exploit-family coverage: SSRF, traversal, CSRF, GraphQL, webhooks, WebSockets, unsafe payloads, file upload | ✅ Done |
+| 9     | API Intelligence Foundation, inventory-fed scanners, safe/aggressive discovery controls, login diagnostics | ✅ Done |
 
 ---
 
@@ -493,6 +601,10 @@ See `docs/ADDING_SCANNERS.md` for the full guide.
 - [x] Scanner marketplace (community-contributed scanners)
 - [x] Team reports and historical comparison
 - [x] Phase 7B verification depth: Firebase helper coverage, edge fixtures, opt-in Selenium/CDP e2e matrix
+- [x] Phase 8 exploit-family expansion: SSRF, traversal, CSRF, GraphQL, webhooks, WebSockets, unsafe payloads, generic file upload
+- [x] API Intelligence Foundation: endpoint inventory, method-aware discovery, hidden parameter inference, dashboard/report inventory
+- [x] Inventory-fed scanners: discovered endpoints and parameters expand runtime checks without weakening proof gates
+- [x] Login diagnostics: consent-banner recovery, same-route auth-state detection, CSP script-blocking explanations
 
 ---
 

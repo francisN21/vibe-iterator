@@ -21,6 +21,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+_API_INTELLIGENCE_MODES = {"auto", "safe", "aggressive", "off"}
+
 # --------------------------------------------------------------------------- #
 # Static scanner metadata — avoids importing all scanner modules per request  #
 # --------------------------------------------------------------------------- #
@@ -122,13 +124,135 @@ _SCANNER_META: dict[str, dict] = {
         "category": "Misconfiguration", "est_seconds": 15,
         "description": "Sends DELETE/PUT/PATCH to endpoints expecting GET/POST — checks if method overrides bypass access controls.",
     },
+    "open_redirect_check": {
+        "label": "Open Redirect",
+        "requires_stack": ["any"], "requires_second_account": False,
+        "category": "Misconfiguration", "est_seconds": 15,
+        "description": "Probes redirect parameters for external Location headers that can send users to attacker-controlled sites.",
+    },
+    "path_traversal_check": {
+        "label": "Path Traversal",
+        "requires_stack": ["any"], "requires_second_account": False,
+        "category": "Access Control", "est_seconds": 20,
+        "description": "Probes file/path parameters for traversal payloads that disclose local configuration or system files.",
+    },
+    "ssrf_check": {
+        "label": "SSRF",
+        "requires_stack": ["any"], "requires_second_account": False,
+        "category": "API Security", "est_seconds": 25,
+        "description": "Probes URL-like parameters with a local callback and reports only when the server fetches it.",
+    },
+    "csrf_check": {
+        "label": "CSRF",
+        "requires_stack": ["any"], "requires_second_account": False,
+        "category": "API Security", "est_seconds": 25,
+        "description": "Replays cookie-authenticated unsafe requests with cross-site Origin after stripping CSRF headers.",
+    },
+    "graphql_check": {
+        "label": "GraphQL",
+        "requires_stack": ["any"], "requires_second_account": False,
+        "category": "API Security", "est_seconds": 30,
+        "description": "Probes GraphQL endpoints for public introspection, unauthenticated sensitive data, and missing depth guards.",
+    },
+    "webhook_check": {
+        "label": "Webhooks",
+        "requires_stack": ["any"], "requires_second_account": False,
+        "category": "API Security", "est_seconds": 25,
+        "description": "Replays webhook deliveries without valid signatures and reports only when events are processed.",
+    },
+    "websocket_check": {
+        "label": "WebSockets",
+        "requires_stack": ["any"], "requires_second_account": False,
+        "category": "API Security", "est_seconds": 25,
+        "description": "Probes WebSocket upgrades for missing auth and untrusted Origin acceptance.",
+    },
+    "unsafe_payload_check": {
+        "label": "Unsafe Payloads",
+        "requires_stack": ["any"], "requires_second_account": False,
+        "category": "Injection", "est_seconds": 25,
+        "description": "Probes render/parser endpoints for harmless SSTI marker evaluation and unsafe parser error signatures.",
+    },
+    "file_upload_check": {
+        "label": "File Upload",
+        "requires_stack": ["any"], "requires_second_account": False,
+        "category": "File Upload", "est_seconds": 30,
+        "description": "Probes upload endpoints for dangerous extensions, MIME types, polyglots, and EICAR test strings.",
+    },
+    "firebase_firestore": {
+        "label": "Firestore Rules",
+        "requires_stack": ["firebase"], "requires_second_account": False,
+        "category": "Access Control", "est_seconds": 45,
+        "description": "Tests Firestore security rules for unauthenticated reads, writes, IDOR, and mass assignment.",
+    },
+    "firebase_rtdb": {
+        "label": "Realtime Database",
+        "requires_stack": ["firebase"], "requires_second_account": False,
+        "category": "Access Control", "est_seconds": 35,
+        "description": "Tests Realtime Database rules for open reads, writes, deletes, and sensitive data exposure.",
+    },
+    "firebase_storage": {
+        "label": "Storage Rules",
+        "requires_stack": ["firebase"], "requires_second_account": False,
+        "category": "Access Control", "est_seconds": 40,
+        "description": "Tests Firebase Storage rules for public downloads, uploads, object listing, and cross-user access.",
+    },
+    "firebase_auth": {
+        "label": "Firebase Auth",
+        "requires_stack": ["firebase"], "requires_second_account": False,
+        "category": "Authentication", "est_seconds": 30,
+        "description": "Tests Firebase Auth configuration for anonymous signup, account enumeration, and token leakage.",
+    },
+    "firebase_functions": {
+        "label": "Cloud Functions",
+        "requires_stack": ["firebase"], "requires_second_account": False,
+        "category": "API Security", "est_seconds": 35,
+        "description": "Tests Firebase Cloud Functions for unauthenticated access, token leakage, and permissive CORS.",
+    },
 }
+
+_SCANNER_RISK_META: dict[str, dict[str, bool | str]] = {
+    "data_leakage": {"mutates_state": False, "risk_level": "low"},
+    "rls_bypass": {"mutates_state": False, "risk_level": "medium"},
+    "tier_escalation": {"mutates_state": True, "risk_level": "high"},
+    "bucket_limits": {"mutates_state": True, "risk_level": "high"},
+    "auth_check": {"mutates_state": False, "risk_level": "medium"},
+    "client_tampering": {"mutates_state": True, "risk_level": "high"},
+    "sql_injection": {"mutates_state": True, "risk_level": "high"},
+    "cors_check": {"mutates_state": False, "risk_level": "low"},
+    "xss_check": {"mutates_state": True, "risk_level": "high"},
+    "api_exposure": {"mutates_state": False, "risk_level": "medium"},
+    "mass_assignment": {"mutates_state": True, "risk_level": "high"},
+    "info_disclosure": {"mutates_state": False, "risk_level": "low"},
+    "idor_check": {"mutates_state": False, "risk_level": "medium"},
+    "http_method_tampering": {"mutates_state": True, "risk_level": "high"},
+    "api_key_exposure": {"mutates_state": False, "risk_level": "low"},
+    "rate_limit_check": {"mutates_state": False, "risk_level": "medium"},
+    "open_redirect_check": {"mutates_state": False, "risk_level": "low"},
+    "path_traversal_check": {"mutates_state": False, "risk_level": "medium"},
+    "ssrf_check": {"mutates_state": False, "risk_level": "high"},
+    "csrf_check": {"mutates_state": True, "risk_level": "high"},
+    "graphql_check": {"mutates_state": False, "risk_level": "low"},
+    "webhook_check": {"mutates_state": True, "risk_level": "high"},
+    "websocket_check": {"mutates_state": False, "risk_level": "low"},
+    "unsafe_payload_check": {"mutates_state": True, "risk_level": "high"},
+    "file_upload_check": {"mutates_state": True, "risk_level": "high"},
+    "firebase_firestore": {"mutates_state": True, "risk_level": "high"},
+    "firebase_rtdb": {"mutates_state": True, "risk_level": "high"},
+    "firebase_storage": {"mutates_state": True, "risk_level": "high"},
+    "firebase_auth": {"mutates_state": False, "risk_level": "medium"},
+    "firebase_functions": {"mutates_state": False, "risk_level": "medium"},
+}
+
+for _scanner_name, _risk_meta in _SCANNER_RISK_META.items():
+    _SCANNER_META[_scanner_name].update(_risk_meta)
 
 _STAGE_LABELS = {
     "dev":         {"label": "DEV",         "tag": "Quick scan",    "icon": "⟨/⟩", "est_minutes": 2},
+    "safe-live":   {"label": "SAFE LIVE",   "tag": "Smoke-safe",    "icon": "OK",  "est_minutes": 2},
     "pre-deploy":  {"label": "PRE-DEPLOY",  "tag": "Recommended",   "icon": "🚀",  "est_minutes": 8},
     "post-deploy": {"label": "POST-DEPLOY", "tag": "Production",     "icon": "🌍",  "est_minutes": 5},
     "all":         {"label": "ALL",         "tag": "Full Audit",     "icon": "⊞",   "est_minutes": 15},
+    "firebase":    {"label": "FIREBASE",    "tag": "Stack-specific", "icon": "FB",  "est_minutes": 4},
 }
 
 
@@ -139,6 +263,7 @@ _STAGE_LABELS = {
 class StartScanRequest(BaseModel):
     stage: str
     scanner_overrides: list[str] | None = None
+    api_intelligence_mode: str | None = None
 
 
 class MarkItem(BaseModel):
@@ -201,6 +326,8 @@ def _scanner_availability(scanner_name: str, config: Any) -> dict:
         "category": meta.get("category", ""),
         "est_seconds": meta.get("est_seconds", 30),
         "description": meta.get("description", ""),
+        "mutates_state": meta.get("mutates_state", False),
+        "risk_level": meta.get("risk_level", "medium"),
     }
 
 
@@ -240,6 +367,15 @@ async def start_scan(body: StartScanRequest, request: Request) -> dict:
                         f"Valid names: {stage_scanners}"
                     ),
                 )
+
+    if body.api_intelligence_mode is not None:
+        if body.api_intelligence_mode not in _API_INTELLIGENCE_MODES:
+            valid = ", ".join(sorted(_API_INTELLIGENCE_MODES))
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid api_intelligence_mode: '{body.api_intelligence_mode}'. Valid modes: {valid}.",
+            )
+        config.api_intelligence.mode = body.api_intelligence_mode
 
     loop = asyncio.get_event_loop()
     scan_id = str(uuid.uuid4())

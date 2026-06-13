@@ -6,6 +6,7 @@ import json
 import urllib.error
 import urllib.request
 from typing import Any
+from urllib.parse import urlparse
 
 from vibe_iterator.scanners.base import BaseScanner, Finding, Severity
 
@@ -17,6 +18,34 @@ _REQUEST_TIMEOUT = 3
 _BURST_COUNT = 10
 _DEEP_SCAN_CAP = 20
 _LOCKOUT_BODY_SIGNALS = ("locked", "suspended", "too many attempts", "too many requests")
+_AUTH_ROUTE_BODY_SIGNALS = (
+    "invalid credentials",
+    "invalid password",
+    "invalid email",
+    "bad credentials",
+    "registered",
+    "password",
+    "email",
+    "otp",
+    "magic link",
+    "verification",
+    "verify",
+    "rate limit",
+    "too many attempts",
+    "locked",
+)
+_ROUTE_ECHO_BODY_SIGNALS = (
+    "cannot get",
+    "cannot post",
+    "cannot put",
+    "cannot patch",
+    "cannot delete",
+    "not found",
+    "no route",
+    "route not found",
+    "unknown endpoint",
+    "endpoint not found",
+)
 
 _AUTH_ENDPOINTS: list[tuple[list[str], str]] = [
     (["/api/auth/login", "/api/login", "/auth/login"], "Login"),
@@ -46,8 +75,17 @@ class Scanner(BaseScanner):
         origin = target
 
         probed_paths: set[str] = set()
+        for path, label, inventory_evidence in _inventory_auth_paths(listeners.get("api_inventory")):
+            if path in probed_paths:
+                continue
+            probed_paths.add(path)
+            _probe_endpoint(backend_base, path, label, stack, findings, self, origin, inventory_evidence)
+
         for path_variants, label in _AUTH_ENDPOINTS:
-            path = _find_active_path(backend_base, path_variants, origin)
+            unprobed_variants = [path for path in path_variants if path not in probed_paths]
+            if not unprobed_variants:
+                continue
+            path = _find_active_path(backend_base, unprobed_variants, origin)
             if path is None or path in probed_paths:
                 continue
             probed_paths.add(path)
@@ -75,13 +113,97 @@ class Scanner(BaseScanner):
         return findings
 
 
+def _inventory_auth_paths(inventory: Any) -> list[tuple[str, str, dict[str, str]]]:
+    if inventory is None:
+        return []
+
+    paths: list[tuple[str, str, dict[str, str]]] = []
+    for endpoint in getattr(inventory, "endpoints", []):
+        method = str(getattr(endpoint, "method", "")).upper()
+        if method != "POST":
+            continue
+
+        risk_tags = {str(tag).lower() for tag in getattr(endpoint, "risk_tags", [])}
+        path = getattr(endpoint, "path", "") or urlparse(getattr(endpoint, "url", "")).path
+        if not path or ("auth" not in risk_tags and not _is_auth_path(path)):
+            continue
+        if "state_changing" not in risk_tags and not _is_auth_path(path):
+            continue
+
+        normalized = getattr(endpoint, "normalized_path", path)
+        label = path.rstrip("/").split("/")[-1].replace("-", " ").replace("_", " ").title() or "Auth"
+        paths.append((
+            path,
+            label,
+            {
+                "inventory_source": ",".join(getattr(endpoint, "sources", [])),
+                "inventory_confidence": getattr(endpoint, "confidence", "") or "",
+                "inventory_endpoint": f"{method} {normalized}",
+            },
+        ))
+
+    return paths
+
+
+def _is_auth_path(path: str) -> bool:
+    lowered = path.lower().rstrip("/")
+    return any(fragment in lowered for variants, _label in _AUTH_ENDPOINTS for fragment in variants)
+
+
 def _find_active_path(base: str, variants: list[str], origin: str) -> str | None:
-    """Return first path variant that does not 404/405/501, or None."""
+    """Return first path variant with route-specific evidence, or None."""
     for path in variants:
-        code = _post_once(base + path, origin)
+        code, _headers, body = _post_full(base + path, origin)
         if code not in (404, 405, 501, None):
+            if _needs_route_specific_body_evidence(code) and not _has_auth_route_evidence(body, path):
+                continue
             return path
     return None
+
+
+def _needs_route_specific_body_evidence(code: int | None) -> bool:
+    return code is not None and 400 <= code < 500 and code != 429
+
+
+def _has_auth_route_evidence(body: str, path: str) -> bool:
+    """Return whether a 401/403 body looks route-specific instead of catch-all auth middleware."""
+    body_lower = body.lower()
+    if not body_lower:
+        return False
+    if body_lower.strip() in {"unauthorized", '{"error": "unauthorized"}', '{"error":"unauthorized"}'}:
+        return False
+    if _looks_like_route_echo(body_lower, path):
+        return False
+    return any(signal in _body_without_requested_path(body_lower, path) for signal in _AUTH_ROUTE_BODY_SIGNALS)
+
+
+def _looks_like_route_echo(body_lower: str, path: str) -> bool:
+    """Return whether an error body appears to be a generic router fallback for this path."""
+    if not any(signal in body_lower for signal in _ROUTE_ECHO_BODY_SIGNALS):
+        return False
+
+    path_lower = path.lower()
+    path_segments = [segment for segment in path_lower.split("/") if segment]
+    path_needles = {path_lower, path_lower.strip("/"), " ".join(path_segments)}
+    if path_segments:
+        path_needles.add(path_segments[-1])
+
+    return any(needle and needle in body_lower for needle in path_needles)
+
+
+def _body_without_requested_path(body_lower: str, path: str) -> str:
+    path_lower = path.lower()
+    stripped_path = path_lower.strip("/")
+    spaced_path = " ".join(segment for segment in path_lower.split("/") if segment)
+    path_segments = [segment for segment in path_lower.split("/") if segment]
+    leaf_segment = path_segments[-1] if path_segments else ""
+    leaf_phrase = leaf_segment.replace("-", " ").replace("_", " ")
+    without_api_prefix = "/" + "/".join(path_segments[1:]) if path_segments[:1] == ["api"] else ""
+    cleaned = body_lower
+    for needle in (path_lower, stripped_path, spaced_path, without_api_prefix, leaf_segment, leaf_phrase):
+        if needle:
+            cleaned = cleaned.replace(needle, " ")
+    return cleaned
 
 
 def _probe_endpoint(
@@ -92,6 +214,7 @@ def _probe_endpoint(
     findings: list[Finding],
     scanner: BaseScanner,
     origin: str,
+    inventory_evidence: dict[str, str] | None = None,
 ) -> None:
     """Phase 1 burst + Phase 2 Retry-After check for one endpoint."""
     url = base + path
@@ -133,18 +256,19 @@ def _probe_endpoint(
 
     if found_429:
         if not retry_after:
-            findings.append(_finding_c(scanner, url, path, label, stack))
+            findings.append(_finding_c(scanner, url, path, label, stack, inventory_evidence))
         return
 
     if lockout_at is not None:
         findings.append(_finding_b(
             scanner, url, path, label, stack,
             lockout_at, lockout_code_before or 0, lockout_code_after or 0, lockout_body,
+            inventory_evidence,
         ))
         return
 
     if len(codes) >= _BURST_COUNT and not all(c == 403 for c in codes):
-        findings.append(_finding_a(scanner, url, path, label, stack, codes))
+        findings.append(_finding_a(scanner, url, path, label, stack, codes, inventory_evidence))
 
 
 def _post_once(url: str, origin: str) -> int | None:
@@ -182,6 +306,7 @@ def _post_full(url: str, origin: str) -> tuple[int | None, dict, str]:
 def _finding_a(
     scanner: BaseScanner, url: str, path: str,
     label: str, stack: str, codes: list[int],
+    inventory_evidence: dict[str, str] | None = None,
 ) -> Finding:
     desc = (
         f"{label} endpoint has no rate limiting — "
@@ -203,6 +328,7 @@ def _finding_a(
             "attempts_sent": len(codes),
             "response_codes_seen": codes,
             "expected_behavior": "Endpoint should return 429 by attempt 6 with a Retry-After header",
+            **(inventory_evidence or {}),
         },
         llm_prompt=scanner.build_llm_prompt(
             title=f"No rate limiting on {label} endpoint",
@@ -223,6 +349,7 @@ def _finding_a(
 def _finding_b(
     scanner: BaseScanner, url: str, path: str, label: str, stack: str,
     lockout_at: int, code_before: int, code_after: int, body_excerpt: str,
+    inventory_evidence: dict[str, str] | None = None,
 ) -> Finding:
     desc = (
         f"{label} endpoint locks accounts after {lockout_at} failed attempts "
@@ -249,6 +376,7 @@ def _finding_b(
             "code_after": code_after,
             "body_excerpt": body_excerpt,
             "expected_behavior": "Endpoint should return 429 + Retry-After, not lock the account",
+            **(inventory_evidence or {}),
         },
         llm_prompt=scanner.build_llm_prompt(
             title=f"Account lockout on {label} endpoint — DoS risk",
@@ -276,6 +404,7 @@ def _finding_b(
 
 def _finding_c(
     scanner: BaseScanner, url: str, path: str, label: str, stack: str,
+    inventory_evidence: dict[str, str] | None = None,
 ) -> Finding:
     desc = (
         f"{label} endpoint returns 429 but does not include a Retry-After header. "
@@ -295,6 +424,7 @@ def _finding_c(
             "label": label,
             "response_code": 429,
             "expected_behavior": "429 response must include Retry-After: <seconds>",
+            **(inventory_evidence or {}),
         },
         llm_prompt=scanner.build_llm_prompt(
             title=f"429 response missing Retry-After header on {label} endpoint",

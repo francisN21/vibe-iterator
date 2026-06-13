@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from vibe_iterator.scanners.base import Severity
 from vibe_iterator.scanners.xss_check import Scanner
@@ -47,19 +47,49 @@ def _run(
 
 def test_missing_x_content_type_options_is_low() -> None:
     req = _make_req("https://example.com/api/data", {"content-type": "application/json"})
-    findings = _run([req])
+    with patch("vibe_iterator.scanners.xss_check._fetch_headers", return_value=(200, {})):
+        findings = _run([req])
     titles = [f.title for f in findings]
     assert any("x-content-type-options" in t.lower() for t in titles)
     header_findings = [f for f in findings if "x-content-type-options" in f.title.lower()]
     assert header_findings[0].severity == Severity.LOW
+    assert header_findings[0].evidence["proof_quality"] == "direct_header_revalidation_missing"
+    assert header_findings[0].evidence["confidence"] == "confirmed"
 
 
 def test_missing_x_frame_options_is_low() -> None:
     req = _make_req("https://example.com/", {"content-type": "text/html"})
-    findings = _run([req])
+    with patch("vibe_iterator.scanners.xss_check._fetch_headers", return_value=(200, {})):
+        findings = _run([req])
     frame_findings = [f for f in findings if "x-frame-options" in f.title.lower()]
     assert len(frame_findings) >= 1
     assert frame_findings[0].severity == Severity.LOW
+
+
+def test_direct_revalidation_suppresses_stale_xss_header_observation() -> None:
+    req = _make_req("https://example.com/", {"content-type": "text/html"})
+    live_headers = {
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "DENY",
+    }
+
+    with patch("vibe_iterator.scanners.xss_check._fetch_headers", return_value=(200, live_headers)):
+        findings = _run([req])
+
+    header_findings = [f for f in findings if "missing security header" in f.title.lower()]
+    assert header_findings == []
+
+
+def test_inconclusive_xss_header_revalidation_uses_sanity_check_message() -> None:
+    req = _make_req("https://example.com/", {"content-type": "text/html"})
+
+    with patch("vibe_iterator.scanners.xss_check._fetch_headers", return_value=None):
+        findings = _run([req])
+
+    sanity = [f for f in findings if f.title.startswith("Sanity check:")]
+    assert sanity
+    assert all(f.severity == Severity.INFO for f in sanity)
+    assert all(f.evidence["confidence"] == "needs_review" for f in sanity)
 
 
 def test_present_headers_no_header_finding() -> None:

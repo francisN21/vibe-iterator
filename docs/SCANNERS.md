@@ -90,6 +90,7 @@ Common values include:
 | Value | Meaning |
 | ----- | ------- |
 | `protected_api_path_replayed_without_auth` | A protected API request was replayed without auth and still returned protected data. |
+| `inventory_auth_endpoint_replayed_without_auth` | An API inventory endpoint tagged as auth-required was replayed without auth and still returned 200. |
 | `protected_route_path_loaded_without_auth` | A protected route loaded after auth was removed and showed protected-page signals. |
 | `structured_api_response_contains_tampered_tier` | A structured JSON API response accepted a tampered tier/plan value. |
 | `structured_api_response_contains_tampered_authorization_value` | A structured JSON API response accepted a tampered role/admin/permission value. |
@@ -100,6 +101,23 @@ Common values include:
 | `wildcard_origin_without_credentials` | CORS allowed wildcard origin without credentials. |
 | `api_documentation_response` | A sensitive documentation endpoint returned API schema content. |
 | `env_file_key_value_response` | A sensitive path returned environment-style key/value secrets. |
+| `env_file_disclosed_via_traversal` | A traversal payload returned environment-style key/value secrets. |
+| `passwd_file_disclosed_via_traversal` | A traversal payload returned `/etc/passwd`-style account records. |
+| `ssrf_callback_received` | A scanner-controlled callback URL received a server-side request from the target app. |
+| `cross_site_state_change_accepted` | A cookie-authenticated unsafe request accepted a cross-site Origin without valid CSRF proof. |
+| `unauthenticated_graphql_introspection` | A GraphQL endpoint returned `__schema` data without authentication. |
+| `unauthenticated_graphql_sensitive_data` | A GraphQL endpoint returned sensitive user data without authentication. |
+| `graphql_depth_query_accepted` | A GraphQL endpoint accepted a bounded nested query without depth or complexity rejection. |
+| `unsigned_webhook_accepted` | A webhook endpoint processed a delivery after signature headers were removed. |
+| `invalid_webhook_signature_accepted` | A webhook endpoint processed a delivery with an intentionally invalid signature. |
+| `unauthenticated_websocket_accepted` | A WebSocket endpoint accepted an upgrade after auth headers were removed. |
+| `untrusted_origin_websocket_accepted` | A WebSocket endpoint accepted an upgrade from an attacker-controlled Origin. |
+| `ssti_marker_evaluated` | A harmless SSTI arithmetic marker such as `{{7*7}}` was evaluated server-side. |
+| `unsafe_parser_error_signature` | A harmless malformed parser marker exposed an unsafe deserialization/parser error signature. |
+| `executable_extension_upload_accepted` | Upload storage accepted a file with an executable extension. |
+| `dangerous_mime_upload_accepted` | Upload storage accepted a dangerous executable MIME type. |
+| `polyglot_svg_html_upload_accepted` | Upload storage accepted SVG/HTML polyglot content. |
+| `eicar_test_string_upload_accepted` | Upload storage accepted the harmless EICAR antivirus test string. |
 
 ---
 
@@ -141,10 +159,43 @@ Not a scanner — a module of helper functions used by `rls_bypass`, `tier_escal
 | `info_disclosure` | Misconfiguration | pre-deploy, post-deploy | `['any']` | `False` | 7a |
 | `idor_check` | Access Control | pre-deploy, post-deploy | `['any']` | `False` | 7a |
 | `http_method_tampering` | Misconfiguration | pre-deploy, post-deploy | `['any']` | `False` | 7a |
+| `open_redirect_check` | Misconfiguration | pre-deploy | `['any']` | `False` | 8 |
+| `path_traversal_check` | Access Control | pre-deploy | `['any']` | `False` | 8 |
+| `ssrf_check` | API Security | pre-deploy | `['any']` | `False` | 8 |
+| `csrf_check` | API Security | pre-deploy | `['any']` | `False` | 8 |
+| `graphql_check` | API Security | pre-deploy | `['any']` | `False` | 8 |
+| `webhook_check` | API Security | pre-deploy | `['any']` | `False` | 8 |
+| `websocket_check` | API Security | pre-deploy | `['any']` | `False` | 8 |
+| `unsafe_payload_check` | Injection | pre-deploy | `['any']` | `False` | 8 |
+| `file_upload_check` | File Upload | pre-deploy | `['any']` | `False` | 8 |
 
 *`xss_check` is intentionally excluded from `post-deploy` — see `xss_check` Stage Coverage Note section.
 
 **`requires_second_account` nuance for `rls_bypass` and `auth_check`:** These scanners run in full even without a second account — only the specific cross-user/concurrent-session checks are skipped. The scanner emits a `scanner_progress` info message when skipping those sub-checks.
+
+### API Intelligence Inventory
+
+API Intelligence builds a method-aware `ApiInventory` before scanners run. Inventory records include URL, method, normalized path, status codes, content types, auth hints, source, confidence, risk tags, and parameters. Sources can include browser network traffic, built-in route candidates, method probes, or inferred hidden parameters.
+
+| Mode | Scanner impact |
+|------|----------------|
+| `auto` | Uses `safe` for public targets and `aggressive` for localhost/private targets. |
+| `safe` | Feeds scanners from observed traffic and inferred parameters only. |
+| `aggressive` | Also feeds scanners from bounded route/method/hidden-parameter probing. |
+| `off` | Scanners fall back to their pre-inventory discovery paths. |
+
+Inventory expansion does not lower reporting standards. Scanners still require active proof such as unauth replay success, accepted mass-assignment fields, IDOR response mismatch with ID evidence, SSRF callback receipt, traversal file signatures, external redirect `Location` headers, or GraphQL JSON proof.
+
+| Scanner | Inventory use |
+|---------|---------------|
+| `api_exposure` | Replays inventory auth endpoints without auth and records inventory provenance. |
+| `rate_limit_check` | Burst-probes inventory auth POST endpoints before built-in variants and avoids duplicate discovery probes. |
+| `mass_assignment` | Uses inventory write endpoints and sensitive parameters as candidate fields. |
+| `idor_check` | Uses numeric inventory endpoints while preferring matching network auth context when available. |
+| `ssrf_check` | Tests inventory URL-like query parameters tagged `ssrf`. |
+| `path_traversal_check` | Tests inventory file/path query parameters tagged `file`. |
+| `open_redirect_check` | Tests inventory redirect query parameters tagged `redirect`. |
+| `graphql_check` | Tests inventory GraphQL endpoints for introspection, unauth data, and bounded depth. |
 
 ### Special Stages
 
@@ -319,6 +370,69 @@ The scanner uses a layered approach:
 - **What it does:** Discovers and tests API endpoints for authentication and authorization gaps
 - **Checks:** Unauthenticated access to protected endpoints, mass assignment (sending extra fields the API shouldn't accept), rate limiting on sensitive endpoints (auth, AI, email), HTTP verb tampering, response header security (`X-Frame-Options`, `Strict-Transport-Security`, `X-Content-Type-Options`)
 - **How:** Captures API endpoints from network traffic, replays without auth, tests with extra fields, checks response headers
+
+### `open_redirect_check.py`
+- **Category:** Misconfiguration
+- **Stages:** pre-deploy
+- **What it does:** Tests redirect parameters such as `next`, `redirect_url`, `return_to`, and `continue` for attacker-controlled external redirects.
+- **Checks:** Replaces redirect-like query parameters with a harmless external proof URL and confirms whether the response returns a 3xx `Location` header to an untrusted origin.
+- **How:** Uses captured network requests to find same-app URLs with redirect-like parameters, rewrites probes to `backend_url` when configured, sends a no-follow GET request, and reports only when the actual `Location` header points outside the target/backend origins.
+
+### `path_traversal_check.py`
+- **Category:** Access Control
+- **Stages:** pre-deploy
+- **What it does:** Tests file/path parameters such as `path`, `file`, `filename`, `template`, and `download` for traversal-based local file disclosure.
+- **Checks:** Replaces file-like query parameters with traversal payloads for `.env` and `/etc/passwd` style reads, then requires sensitive file signatures in a 200 response before reporting.
+- **How:** Uses captured GET requests to find same-app file parameters, rewrites probes to `backend_url` when configured, sends frontend `Origin` headers, ignores SPA fallbacks/static assets, and reports only on high-confidence sensitive file disclosure evidence.
+
+### `ssrf_check.py`
+- **Category:** API Security
+- **Stages:** pre-deploy
+- **What it does:** Tests URL-like parameters such as `url`, `target`, `callback_url`, `webhook_url`, `image_url`, and `feed_url` for server-side request forgery.
+- **Checks:** Starts a local callback listener with a unique proof URL, injects that URL into discovered parameters, and reports only if the callback server receives a request from the target application.
+- **How:** Sends no-follow probes so open redirects cannot fake the proof, rewrites probes to `backend_url` when configured, sends frontend `Origin` headers, and records callback path/header evidence.
+
+### `csrf_check.py`
+- **Category:** API Security
+- **Stages:** pre-deploy
+- **What it does:** Tests cookie-authenticated state-changing requests for missing CSRF defenses.
+- **Checks:** Replays captured `POST`, `PUT`, `PATCH`, and `DELETE` requests with session cookies preserved, CSRF/XSRF headers stripped, and `Origin`/`Referer` set to an attacker-controlled site.
+- **How:** Reports only when the cross-site probe returns a successful mutation signal such as `updated: true`, `created: true`, or `deleted: true`; rejected probes and preview/dry-run echoes are suppressed.
+
+### `graphql_check.py`
+- **Category:** API Security
+- **Stages:** pre-deploy
+- **What it does:** Tests discovered GraphQL endpoints for public introspection, unauthenticated sensitive data, and missing depth/complexity controls.
+- **Checks:** Sends unauthenticated introspection, unauthenticated `viewer`/`me`/`currentUser` data probes, and a bounded nested depth query.
+- **How:** Reports separate findings only when JSON proof is present: `__schema` returned, sensitive fields such as email/role/token returned without auth, or a nested depth-5 response is accepted without GraphQL errors.
+
+### `webhook_check.py`
+- **Category:** API Security
+- **Stages:** pre-deploy
+- **What it does:** Tests webhook endpoints for missing or invalid signature verification.
+- **Checks:** Replays captured webhook deliveries after removing provider signature headers; if missing signatures are rejected, sends an intentionally invalid signature.
+- **How:** Reports only when the endpoint returns a successful processing signal such as `received: true`, `processed: true`, or `accepted: true`; rejected probes and preview/dry-run responses are suppressed.
+
+### `websocket_check.py`
+- **Category:** API Security
+- **Stages:** pre-deploy
+- **What it does:** Tests WebSocket endpoints for missing handshake authentication and weak Origin enforcement.
+- **Checks:** Sends raw RFC6455 upgrade handshakes after removing auth headers, then repeats with an attacker-controlled Origin.
+- **How:** Reports only when the server returns `101 Switching Protocols`; rejected handshakes and unreachable sockets are suppressed.
+
+### `unsafe_payload_check.py`
+- **Category:** Injection
+- **Stages:** pre-deploy
+- **What it does:** Tests render/template/parser endpoints for harmless SSTI marker evaluation and unsafe parser/deserialization error signatures.
+- **Checks:** Injects `{{7*7}}` into template-like JSON fields and sends malformed parser markers such as `__vibe_invalid_pickle__` into payload-like fields.
+- **How:** Reports only when the response evaluates the arithmetic marker to `49` or exposes known unsafe parser signatures such as `pickle.UnpicklingError`; literal reflection and generic validation errors are suppressed.
+
+### `file_upload_check.py`
+- **Category:** File Upload
+- **Stages:** pre-deploy
+- **What it does:** Tests generic upload endpoints for dangerous file acceptance beyond Supabase/Firebase storage-specific checks.
+- **Checks:** Uploads tiny harmless probes for executable extensions, dangerous MIME types, SVG/HTML polyglot content, and the EICAR antivirus test string.
+- **How:** Reports only when the endpoint returns an accepted/stored/uploaded success signal; rejected uploads, preview responses, dry-run responses, and validation-only echoes are suppressed.
 
 ---
 

@@ -60,7 +60,7 @@ def test_missing_required_fields_raises(monkeypatch, tmp_path) -> None:
 # --------------------------------------------------------------------------- #
 
 def test_dev_stage_has_correct_scanners() -> None:
-    expected = {"data_leakage", "auth_check", "client_tampering"}
+    expected = {"data_leakage", "auth_check", "client_tampering", "firebase_auth"}
     assert set(_DEFAULT_STAGES["dev"]) == expected
 
 
@@ -78,9 +78,60 @@ def test_post_deploy_includes_cors() -> None:
     assert "cors_check" in _DEFAULT_STAGES["post-deploy"]
 
 
-def test_all_stage_contains_every_scanner() -> None:
+def test_all_stage_contains_every_valid_scanner() -> None:
     all_scanners = set(_DEFAULT_STAGES["all"])
+    assert "firebase_auth" in all_scanners
     assert all_scanners == _VALID_SCANNER_NAMES
+
+
+def test_firebase_stage_contains_firebase_scanners_only() -> None:
+    assert _DEFAULT_STAGES["firebase"] == [
+        "firebase_firestore",
+        "firebase_rtdb",
+        "firebase_storage",
+        "firebase_auth",
+        "firebase_functions",
+    ]
+
+
+def test_safe_live_stage_contains_only_reduced_risk_smoke_scanners() -> None:
+    assert _DEFAULT_STAGES["safe-live"] == [
+        "data_leakage",
+        "api_key_exposure",
+        "cors_check",
+        "info_disclosure",
+        "open_redirect_check",
+        "websocket_check",
+    ]
+
+
+def test_safe_live_stage_excludes_active_or_cross_user_scanners() -> None:
+    safe_live = set(_DEFAULT_STAGES["safe-live"])
+
+    excluded = {
+        "auth_check",
+        "api_exposure",
+        "rls_bypass",
+        "idor_check",
+        "rate_limit_check",
+        "path_traversal_check",
+        "ssrf_check",
+        "graphql_check",
+        "csrf_check",
+        "webhook_check",
+        "unsafe_payload_check",
+        "file_upload_check",
+    }
+    assert safe_live.isdisjoint(excluded)
+
+
+def test_valid_scanner_names_include_all_default_stage_scanners() -> None:
+    stage_scanners = {
+        scanner
+        for scanner_list in _DEFAULT_STAGES.values()
+        for scanner in scanner_list
+    }
+    assert stage_scanners == _VALID_SCANNER_NAMES
 
 
 def test_dev_is_subset_of_pre_deploy() -> None:
@@ -115,6 +166,20 @@ def test_yaml_stage_override(monkeypatch, tmp_path) -> None:
     )
     cfg = load_config(yaml_path=yaml_file)
     assert cfg.stages["dev"] == ["data_leakage", "auth_check"]
+
+
+def test_yaml_stage_override_accepts_firebase_scanners(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("VIBE_ITERATOR_TEST_EMAIL", "t@e.com")
+    monkeypatch.setenv("VIBE_ITERATOR_TEST_PASSWORD", "pw")
+    monkeypatch.setenv("VIBE_ITERATOR_TARGET", "http://localhost:3000")
+
+    yaml_file = tmp_path / "vibe-iterator.config.yaml"
+    yaml_file.write_text(
+        "stages:\n  firebase:\n    scanners: [firebase_auth, firebase_storage]\n",
+        encoding="utf-8",
+    )
+    cfg = load_config(yaml_path=yaml_file)
+    assert cfg.stages["firebase"] == ["firebase_auth", "firebase_storage"]
 
 
 def test_yaml_invalid_scanner_raises(monkeypatch, tmp_path) -> None:
@@ -234,3 +299,101 @@ def test_rate_limit_check_not_in_dev_stage(tmp_path):
     env.write_text("VIBE_ITERATOR_TEST_EMAIL=t@e.com\nVIBE_ITERATOR_TEST_PASSWORD=pw\nVIBE_ITERATOR_TARGET=http://localhost:3000\n")
     cfg = load_config(env_path=str(env))
     assert "rate_limit_check" not in cfg.scanners_for_stage("dev")
+
+
+# --------------------------------------------------------------------------- #
+# API intelligence config                                                       #
+# --------------------------------------------------------------------------- #
+
+def test_api_intelligence_defaults(tmp_path, monkeypatch):
+    cfg_path = tmp_path / "vibe-iterator.config.yaml"
+    cfg_path.write_text("target: http://localhost:3000\npages: ['/']\n", encoding="utf-8")
+    monkeypatch.setenv("VIBE_ITERATOR_TEST_EMAIL", "a@example.com")
+    monkeypatch.setenv("VIBE_ITERATOR_TEST_PASSWORD", "pw")
+    cfg = load_config(yaml_path=cfg_path)
+    assert cfg.api_intelligence.mode == "auto"
+    assert cfg.api_intelligence.max_route_candidates == 200
+
+
+def test_api_intelligence_yaml_overrides(tmp_path, monkeypatch):
+    cfg_path = tmp_path / "vibe-iterator.config.yaml"
+    cfg_path.write_text(
+        """
+target: http://localhost:3000
+pages: ['/']
+api_intelligence:
+  mode: safe
+  max_route_candidates: 25
+  max_methods_per_route: 4
+  max_hidden_params_per_endpoint: 7
+  request_timeout_seconds: 2
+  total_timeout_seconds: 11
+  wordlists:
+    routes: builtin
+    params: builtin
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("VIBE_ITERATOR_TEST_EMAIL", "a@example.com")
+    monkeypatch.setenv("VIBE_ITERATOR_TEST_PASSWORD", "pw")
+    cfg = load_config(yaml_path=cfg_path)
+    assert cfg.api_intelligence.mode == "safe"
+    assert cfg.api_intelligence.max_route_candidates == 25
+    assert cfg.api_intelligence.max_methods_per_route == 4
+    assert cfg.api_intelligence.max_hidden_params_per_endpoint == 7
+    assert cfg.api_intelligence.request_timeout_seconds == 2
+    assert cfg.api_intelligence.total_timeout_seconds == 11
+
+
+def test_api_intelligence_non_dict_uses_defaults(tmp_path, monkeypatch):
+    cfg_path = tmp_path / "vibe-iterator.config.yaml"
+    cfg_path.write_text(
+        """
+target: http://localhost:3000
+pages: ['/']
+api_intelligence: bad
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("VIBE_ITERATOR_TEST_EMAIL", "a@example.com")
+    monkeypatch.setenv("VIBE_ITERATOR_TEST_PASSWORD", "pw")
+    cfg = load_config(yaml_path=cfg_path)
+    assert cfg.api_intelligence.mode == "auto"
+    assert cfg.api_intelligence.max_route_candidates == 200
+
+
+def test_api_intelligence_non_dict_wordlists_uses_builtin_defaults(tmp_path, monkeypatch):
+    cfg_path = tmp_path / "vibe-iterator.config.yaml"
+    cfg_path.write_text(
+        """
+target: http://localhost:3000
+pages: ['/']
+api_intelligence:
+  wordlists: bad
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("VIBE_ITERATOR_TEST_EMAIL", "a@example.com")
+    monkeypatch.setenv("VIBE_ITERATOR_TEST_PASSWORD", "pw")
+    cfg = load_config(yaml_path=cfg_path)
+    assert cfg.api_intelligence.route_wordlist == "builtin"
+    assert cfg.api_intelligence.param_wordlist == "builtin"
+
+
+def test_api_intelligence_null_numeric_raises_config_error(tmp_path, monkeypatch):
+    from vibe_iterator.config import ConfigError
+
+    cfg_path = tmp_path / "vibe-iterator.config.yaml"
+    cfg_path.write_text(
+        """
+target: http://localhost:3000
+pages: ['/']
+api_intelligence:
+  max_route_candidates:
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("VIBE_ITERATOR_TEST_EMAIL", "a@example.com")
+    monkeypatch.setenv("VIBE_ITERATOR_TEST_PASSWORD", "pw")
+    with pytest.raises(ConfigError, match="api_intelligence"):
+        load_config(yaml_path=cfg_path)

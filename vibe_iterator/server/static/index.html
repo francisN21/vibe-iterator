@@ -45,6 +45,18 @@
       <p style="color:var(--text-muted);font-size:12px;padding:0.5rem 0">
         Uncheck scanners to skip them in this run. Session-only — does not modify your config file.
       </p>
+      <div class="api-intel-control">
+        <label for="api-intel-mode">API Intelligence</label>
+        <select id="api-intel-mode" class="api-intel-select">
+          <option value="auto" selected>auto</option>
+          <option value="safe">safe</option>
+          <option value="aggressive">aggressive</option>
+          <option value="off">off</option>
+        </select>
+      </div>
+      <div class="api-intel-warning hidden" id="api-intel-warning">
+        Aggressive sends extra HTTP requests beyond normal browsing and may trigger logs, rate limits, analytics events, emails, audit alerts, or WAF rules. Use only on localhost, staging, or authorized targets.
+      </div>
       <div id="override-checkboxes" style="display:flex;flex-wrap:wrap;gap:0.5rem;padding:0.25rem 0"></div>
     </div>
   </details>
@@ -82,7 +94,7 @@
       <span class="firebase-panel__icon">&#x26A1;</span>
       <h2>FIREBASE SECURITY SCAN</h2>
       <p class="firebase-panel__detected">
-        Detected: <span id="fb-project-id">&#x2014;</span> &middot; firebaseio.com
+        Project: <span id="fb-project-id">&#x2014;</span>
       </p>
     </header>
 

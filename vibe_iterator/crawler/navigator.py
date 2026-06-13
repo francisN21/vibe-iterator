@@ -14,7 +14,7 @@ from vibe_iterator.config import Config
 from vibe_iterator.crawler.browser import BrowserSession
 
 if TYPE_CHECKING:
-    from vibe_iterator.listeners.network import NetworkListener
+    pass
 
 logger = logging.getLogger(__name__)
 

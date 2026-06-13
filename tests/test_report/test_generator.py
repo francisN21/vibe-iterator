@@ -6,6 +6,8 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+from vibe_iterator.api_inventory import ApiEndpoint, ApiInventory
+from vibe_iterator.engine.discover_runner import DiscoveryResult
 from vibe_iterator.engine.runner import ScannerResult, ScanResult
 from vibe_iterator.report.generator import default_filename, generate
 from vibe_iterator.scanners.base import Finding, Severity
@@ -184,3 +186,40 @@ def test_scanner_results_in_report() -> None:
     html = generate(result)
     assert "cors_check" in html
     assert "xss_check" in html
+
+
+def test_api_inventory_in_report() -> None:
+    inventory = ApiInventory(
+        generated_at="2026-01-01T00:00:00Z",
+        mode="auto",
+        resolved_mode="safe",
+        target="https://example.com",
+        endpoints=[
+            ApiEndpoint(
+                method="GET",
+                url="https://example.com/api/users",
+                origin="https://example.com",
+                path="/api/users",
+                normalized_path="/api/users",
+                status_codes=[200],
+                content_types=["application/json"],
+                auth_observed=True,
+                sources=["network:https://example.com/api/users"],
+                risk_tags=["admin"],
+            ),
+        ],
+        summary={"endpoints": 1, "auth_observed": 1},
+        warnings=["Safe mode may miss endpoints that were not observed."],
+    )
+    result = _make_result()
+    result.discovered_surface = DiscoveryResult(
+        pages=["/"],
+        api_endpoints=["GET /api/users"],
+        discovered_at="2026-01-01T00:00:00Z",
+        api_inventory=inventory,
+    )
+
+    html = generate(result)
+
+    assert "API Inventory" in html
+    assert "/api/users" in html

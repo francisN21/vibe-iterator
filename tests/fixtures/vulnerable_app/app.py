@@ -11,6 +11,8 @@ Vulnerabilities baked in (all deliberate, local-only):
   - /swagger.json   — exposed API docs (info disclosure)
   - /.env           — exposed env file (info disclosure)
   - /api/resource   — GET-only resource but accepts DELETE (method tampering)
+  - /api/redirect   — redirects to attacker-controlled absolute URLs (open redirect)
+  - /api/file       — reads path parameter and exposes local-file signatures (path traversal)
   - /login          — permissive test login form for e2e scan runner
   - /               — page with innerHTML DOM sink + no security headers
   - /pricing, /application, /api/protected-401 — negative controls for auth bypass
@@ -23,10 +25,13 @@ Vulnerabilities baked in (all deliberate, local-only):
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import re
 import threading
 import urllib.parse
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 # Module-level attempt counter — reset by VulnerableApp.start()
@@ -39,7 +44,17 @@ class VulnerableHandler(BaseHTTPRequestHandler):
         path = parsed.path
         query = urllib.parse.parse_qs(parsed.query)
 
-        if path == "/api/data":
+        if path == "/socket" and self.headers.get("Upgrade", "").lower() == "websocket":
+            key = self.headers.get("Sec-WebSocket-Key", "")
+            accept = base64.b64encode(
+                hashlib.sha1((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode("ascii")).digest()
+            ).decode("ascii")
+            self.send_response(101, "Switching Protocols")
+            self.send_header("Upgrade", "websocket")
+            self.send_header("Connection", "Upgrade")
+            self.send_header("Sec-WebSocket-Accept", accept)
+            self.end_headers()
+        elif path == "/api/data":
             self._respond_json(
                 200,
                 {"items": [{"id": 1, "value": "secret"}]},
@@ -77,6 +92,45 @@ class VulnerableHandler(BaseHTTPRequestHandler):
             self._respond_json(200, {"id": int(item_id), "owner_id": 1, "data": "sensitive-value"})
         elif path == "/api/resource":
             self._respond_json(200, {"resource": "data"})
+        elif path == "/api/redirect":
+            target = query.get("next", ["/"])[0]
+            self.send_response(302)
+            self.send_header("Location", target)
+            self.end_headers()
+        elif path == "/api/file":
+            requested = query.get("path", [""])[0]
+            if ".." in requested and ".env" in requested:
+                data = b"DATABASE_URL=postgresql://admin:s3cr3t@localhost/db\nSECRET_KEY=super-secret-key-12345\n"
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+            elif ".." in requested and "passwd" in requested:
+                data = b"root:x:0:0:root:/root:/bin/bash\n"
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+            else:
+                self._respond_json(200, {"file": requested or "default.txt", "public": True})
+        elif path == "/api/fetch":
+            target = query.get("url", [""])[0]
+            try:
+                req = urllib.request.Request(target, headers={"User-Agent": "vulnerable-fixture-fetch"})
+                with urllib.request.urlopen(req, timeout=2) as resp:
+                    fetched = resp.read(2048).decode("utf-8", errors="replace")
+                    self._respond_json(
+                        200,
+                        {
+                            "target": target,
+                            "fetched_status": resp.status,
+                            "fetched_body": fetched,
+                        },
+                    )
+            except Exception as exc:
+                self._respond_json(502, {"target": target, "error": str(exc)})
         elif path == "/swagger.json":
             # Info disclosure: exposed API docs
             self._respond_json(200, {
@@ -141,6 +195,81 @@ class VulnerableHandler(BaseHTTPRequestHandler):
             except Exception:
                 submitted = {}
             self._respond_json(201, {"id": 42, **submitted})
+
+        elif path == "/api/csrf-profile":
+            try:
+                submitted = json.loads(body_bytes.decode("utf-8"))
+            except Exception:
+                submitted = {}
+            self._respond_json(200, {"updated": True, "profile": submitted})
+
+        elif path == "/graphql":
+            try:
+                submitted = json.loads(body_bytes.decode("utf-8"))
+            except Exception:
+                submitted = {}
+            query = str(submitted.get("query", ""))
+            if "__schema" in query:
+                self._respond_json(200, {
+                    "data": {
+                        "__schema": {
+                            "queryType": {"name": "Query"},
+                            "types": [{"name": "Query"}, {"name": "User"}, {"name": "Node"}],
+                        }
+                    }
+                })
+            elif "viewer" in query or "me" in query or "currentUser" in query:
+                self._respond_json(200, {
+                    "data": {
+                        "viewer": {"id": "user-42", "email": "victim@example.com", "role": "admin"}
+                    }
+                })
+            elif query.count("node") >= 5:
+                self._respond_json(200, {
+                    "data": {"node": {"node": {"node": {"node": {"node": {"id": "leaf"}}}}}},
+                    "extensions": {"depth": 5},
+                })
+            else:
+                self._respond_json(200, {"data": {"ok": True}})
+
+        elif path == "/api/webhooks/stripe":
+            try:
+                submitted = json.loads(body_bytes.decode("utf-8"))
+            except Exception:
+                submitted = {}
+            self._respond_json(200, {
+                "received": True,
+                "event_type": submitted.get("type"),
+                "event_id": submitted.get("id"),
+            })
+
+        elif path == "/api/render":
+            try:
+                submitted = json.loads(body_bytes.decode("utf-8"))
+            except Exception:
+                submitted = {}
+            template = str(submitted.get("template", ""))
+            payload = str(submitted.get("payload", ""))
+            if payload == "__vibe_invalid_pickle__":
+                self._respond_json(500, {"error": "pickle.UnpicklingError: invalid load key"})
+            elif "{{7*7}}" in template:
+                self._respond_json(200, {"rendered": template.replace("{{7*7}}", "49")})
+            else:
+                self._respond_json(200, {"rendered": template})
+
+        elif path == "/api/upload":
+            body_text = body_bytes.decode("utf-8", errors="replace")
+            filename_match = re.search(r'filename="([^"]+)"', body_text)
+            type_match = re.search(r"Content-Type:\s*([^\r\n]+)", body_text, re.IGNORECASE)
+            filename = filename_match.group(1) if filename_match else "upload.bin"
+            content_type = type_match.group(1) if type_match else self.headers.get("Content-Type", "application/octet-stream")
+            self._respond_json(201, {
+                "accepted": True,
+                "stored": True,
+                "filename": filename,
+                "content_type": content_type,
+                "size": len(body_bytes),
+            })
 
         elif path == "/api/auth/login":
             # No rate limiting — always 401 (triggers Finding A)

@@ -1,4 +1,4 @@
-"""IDOR check scanner — tests numeric-ID URL parameters for insecure direct object reference."""
+"""IDOR check scanner - tests numeric-ID URL parameters for insecure direct object reference."""
 
 from __future__ import annotations
 
@@ -6,13 +6,14 @@ import json
 import re
 import urllib.error
 import urllib.request
+from dataclasses import dataclass
 from typing import Any
 
 from vibe_iterator.scanners.base import BaseScanner, Finding, Severity
 from vibe_iterator.scanners.request_targets import add_frontend_origin, rewrite_to_backend_url
 from vibe_iterator.utils.supabase_helpers import truncate
 
-# Matches paths like /api/users/42 or /api/items/7 — captures the numeric segment
+# Matches paths like /api/users/42 or /api/items/7 - captures the numeric segment.
 _NUMERIC_ID_RE = re.compile(r"^(https?://[^/]+)(.*/)(\d+)(/.*)?$")
 
 _STATIC_EXTS = {".js", ".css", ".png", ".svg", ".ico", ".woff", ".jpg", ".gif", ".map"}
@@ -22,6 +23,21 @@ _ID_KEYS = {"id", "item_id", "user_id", "resource_id", "record_id", "profile_id"
 
 def _is_static(url: str) -> bool:
     return any(url.endswith(ext) for ext in _STATIC_EXTS)
+
+
+@dataclass(frozen=True)
+class _IdorCandidate:
+    original_url: str
+    base: str
+    prefix: str
+    numeric_id: int
+    suffix: str
+    pattern_key: str
+    auth_headers: dict[str, Any]
+    original_body: str = ""
+    inventory_source: str | None = None
+    inventory_confidence: str | None = None
+    inventory_endpoint: str | None = None
 
 
 class Scanner(BaseScanner):
@@ -37,50 +53,30 @@ class Scanner(BaseScanner):
         findings: list[Finding] = []
         stack = config.stack.backend if hasattr(config, "stack") else "unknown"
         network = listeners["network"]
+        inventory = listeners.get("api_inventory")
 
         tested_patterns: set[str] = set()
 
-        for req in network.get_requests():
-            if req.method != "GET":
+        for candidate in _merged_candidates(inventory, network, config):
+            if candidate.pattern_key in tested_patterns:
                 continue
-            if _is_static(req.url):
-                continue
-            m = _NUMERIC_ID_RE.match(req.url)
-            if not m:
-                continue
+            tested_patterns.add(candidate.pattern_key)
 
-            base, prefix, numeric_id_str, suffix = m.group(1), m.group(2), m.group(3), m.group(4) or ""
-            pattern_key = f"{base}{prefix}*{suffix}"
-            if pattern_key in tested_patterns:
-                continue
-            tested_patterns.add(pattern_key)
-
-            numeric_id = int(numeric_id_str)
-            # Probe: try id+1 and id+2 (or id-1 if id > 1)
-            probe_ids = [numeric_id + 1, numeric_id + 2]
-            if numeric_id > 1:
-                probe_ids.append(numeric_id - 1)
-
-            # Extract auth token from original request headers
-            auth_header = {}
-            orig_headers = req.headers or {}
-            if isinstance(orig_headers, dict):
-                for k, v in orig_headers.items():
-                    if k.lower() in ("authorization", "cookie", "x-api-key"):
-                        auth_header[k] = v
-            auth_header = add_frontend_origin(auth_header, config)
-
-            original_body = req.response_body or ""
+            probe_ids = [candidate.numeric_id + 1, candidate.numeric_id + 2]
+            if candidate.numeric_id > 1:
+                probe_ids.append(candidate.numeric_id - 1)
 
             for probe_id in probe_ids:
-                probe_url = rewrite_to_backend_url(f"{base}{prefix}{probe_id}{suffix}", config)
-                resp_body, status = _fetch(probe_url, auth_header)
+                probe_url = rewrite_to_backend_url(
+                    f"{candidate.base}{candidate.prefix}{probe_id}{candidate.suffix}",
+                    config,
+                )
+                resp_body, status = _fetch(probe_url, candidate.auth_headers)
 
                 if status != 200 or not resp_body:
                     continue
 
-                # Verify it's not the same response as the original
-                if resp_body.strip() == original_body.strip():
+                if resp_body.strip() == candidate.original_body.strip():
                     continue
 
                 try:
@@ -96,53 +92,192 @@ class Scanner(BaseScanner):
 
                 desc = (
                     f"Accessing `{probe_url}` (ID={probe_id}) with the same auth credentials "
-                    f"as `{req.url}` (ID={numeric_id}) returned HTTP 200 with data. "
+                    f"as `{candidate.original_url}` (ID={candidate.numeric_id}) returned HTTP 200 with data. "
                     "The server does not validate that the requested resource belongs to the authenticated user. "
                     "Any user can enumerate other users' records by changing the ID in the URL."
                 )
+                evidence = {
+                    "original_url": candidate.original_url,
+                    "original_id": candidate.numeric_id,
+                    "probed_url": probe_url,
+                    "probed_id": probe_id,
+                    "request": {"method": "GET", "url": probe_url, "headers": candidate.auth_headers},
+                    "response": {"status": status, "body_excerpt": truncate(resp_body, 300)},
+                    "proof_quality": proof_quality,
+                    "payload_used": str(probe_id),
+                    "payload_type": "idor_id_enumeration",
+                    "injection_point": "url_path:numeric_id",
+                    "network_events": [],
+                }
+                if candidate.inventory_endpoint:
+                    evidence.update({
+                        "inventory_source": candidate.inventory_source or "",
+                        "inventory_confidence": candidate.inventory_confidence or "",
+                        "inventory_endpoint": candidate.inventory_endpoint,
+                    })
+
                 findings.append(self.new_finding(
-                    scanner=self.name, severity=Severity.HIGH,
-                    title=f"IDOR: resource {prefix}{{id}} accessible across users (tested ID={probe_id})",
+                    scanner=self.name,
+                    severity=Severity.HIGH,
+                    title=(
+                        f"IDOR: resource {candidate.prefix}{{id}} accessible across users "
+                        f"(tested ID={probe_id})"
+                    ),
                     description=desc,
-                    evidence={
-                        "original_url": req.url,
-                        "original_id": numeric_id,
-                        "probed_url": probe_url,
-                        "probed_id": probe_id,
-                        "request": {"method": "GET", "url": probe_url, "headers": auth_header},
-                        "response": {"status": status, "body_excerpt": truncate(resp_body, 300)},
-                        "proof_quality": proof_quality,
-                        "payload_used": str(probe_id),
-                        "payload_type": "idor_id_enumeration",
-                        "injection_point": "url_path:numeric_id",
-                        "network_events": [],
-                    },
+                    evidence=evidence,
                     llm_prompt=self.build_llm_prompt(
-                        title=f"IDOR: {prefix}{{id}} accessible across users",
-                        severity=Severity.HIGH, scanner=self.name,
-                        page=probe_url, category=self.category, description=desc,
+                        title=f"IDOR: {candidate.prefix}{{id}} accessible across users",
+                        severity=Severity.HIGH,
+                        scanner=self.name,
+                        page=probe_url,
+                        category=self.category,
+                        description=desc,
                         evidence_summary=(
-                            f"Original: GET {req.url} (ID={numeric_id})\n"
-                            f"Probed:   GET {probe_url} (ID={probe_id}) → HTTP {status} with data\n"
-                            f"Conclusion: any authenticated user can access any resource by ID."
+                            f"Original: GET {candidate.original_url} (ID={candidate.numeric_id})\n"
+                            f"Probed:   GET {probe_url} (ID={probe_id}) -> HTTP {status} with data\n"
+                            "Conclusion: any authenticated user can access any resource by ID."
                         ),
                         stack=stack,
                     ),
                     remediation=(
-                        f"**What to fix:** The endpoint `{prefix}{{id}}` does not verify resource ownership.\n\n"
-                        "**How to fix:** Before returning a resource, check that it belongs to the authenticated user:\n"
+                        f"**What to fix:** The endpoint `{candidate.prefix}{{id}}` does not verify "
+                        "resource ownership.\n\n"
+                        "**How to fix:** Before returning a resource, check that it belongs to the "
+                        "authenticated user:\n"
                         "```js\n"
                         "const item = await db.items.findUnique({ where: { id, userId: session.user.id } });\n"
                         "if (!item) return res.status(403).json({ error: 'Forbidden' });\n"
                         "```\n"
                         "For Supabase: use RLS policy `USING (auth.uid() = user_id)`.\n\n"
-                        "**Verify the fix:** Re-run idor_check — probed ID must return 403 or 404."
+                        "**Verify the fix:** Re-run idor_check - probed ID must return 403 or 404."
                     ),
-                    category=self.category, page=probe_url,
+                    category=self.category,
+                    page=probe_url,
                 ))
-                break  # one finding per path pattern is enough
+                break
 
         return findings
+
+
+def _inventory_candidates(inventory: Any, config: Any) -> list[_IdorCandidate]:
+    if inventory is None:
+        return []
+
+    candidates: list[_IdorCandidate] = []
+    for endpoint in getattr(inventory, "endpoints", []):
+        method = str(getattr(endpoint, "method", "")).upper()
+        url = getattr(endpoint, "url", "")
+        if method != "GET":
+            continue
+        if not isinstance(url, str) or _is_static(url):
+            continue
+
+        candidate = _candidate_from_url(
+            url=url,
+            auth_headers=add_frontend_origin({}, config),
+            original_body="",
+            inventory_source=",".join(getattr(endpoint, "sources", [])),
+            inventory_confidence=getattr(endpoint, "confidence", ""),
+            inventory_endpoint=f"{method} {getattr(endpoint, 'normalized_path', getattr(endpoint, 'path', url))}",
+        )
+        if candidate is not None:
+            candidates.append(candidate)
+
+    return candidates
+
+
+def _merged_candidates(inventory: Any, network: Any, config: Any) -> list[_IdorCandidate]:
+    candidates_by_pattern: dict[str, _IdorCandidate] = {
+        candidate.pattern_key: candidate for candidate in _inventory_candidates(inventory, config)
+    }
+
+    for network_candidate in _network_candidates(network, config):
+        inventory_candidate = candidates_by_pattern.get(network_candidate.pattern_key)
+        if inventory_candidate is None:
+            candidates_by_pattern[network_candidate.pattern_key] = network_candidate
+            continue
+
+        candidates_by_pattern[network_candidate.pattern_key] = _merge_candidate_context(
+            inventory_candidate=inventory_candidate,
+            network_candidate=network_candidate,
+        )
+
+    return list(candidates_by_pattern.values())
+
+
+def _merge_candidate_context(
+    *,
+    inventory_candidate: _IdorCandidate,
+    network_candidate: _IdorCandidate,
+) -> _IdorCandidate:
+    return _IdorCandidate(
+        original_url=network_candidate.original_url,
+        base=network_candidate.base,
+        prefix=network_candidate.prefix,
+        numeric_id=network_candidate.numeric_id,
+        suffix=network_candidate.suffix,
+        pattern_key=network_candidate.pattern_key,
+        auth_headers=network_candidate.auth_headers,
+        original_body=network_candidate.original_body,
+        inventory_source=inventory_candidate.inventory_source,
+        inventory_confidence=inventory_candidate.inventory_confidence,
+        inventory_endpoint=inventory_candidate.inventory_endpoint,
+    )
+
+
+def _network_candidates(network: Any, config: Any) -> list[_IdorCandidate]:
+    candidates: list[_IdorCandidate] = []
+    for req in network.get_requests():
+        if req.method != "GET":
+            continue
+        if _is_static(req.url):
+            continue
+
+        auth_header: dict[str, Any] = {}
+        orig_headers = req.headers or {}
+        if isinstance(orig_headers, dict):
+            for key, value in orig_headers.items():
+                if key.lower() in ("authorization", "cookie", "x-api-key"):
+                    auth_header[key] = value
+
+        candidate = _candidate_from_url(
+            url=req.url,
+            auth_headers=add_frontend_origin(auth_header, config),
+            original_body=req.response_body or "",
+        )
+        if candidate is not None:
+            candidates.append(candidate)
+
+    return candidates
+
+
+def _candidate_from_url(
+    *,
+    url: str,
+    auth_headers: dict[str, Any],
+    original_body: str,
+    inventory_source: str | None = None,
+    inventory_confidence: str | None = None,
+    inventory_endpoint: str | None = None,
+) -> _IdorCandidate | None:
+    m = _NUMERIC_ID_RE.match(url)
+    if not m:
+        return None
+
+    base, prefix, numeric_id_str, suffix = m.group(1), m.group(2), m.group(3), m.group(4) or ""
+    return _IdorCandidate(
+        original_url=url,
+        base=base,
+        prefix=prefix,
+        numeric_id=int(numeric_id_str),
+        suffix=suffix,
+        pattern_key=f"{base}{prefix}*{suffix}",
+        auth_headers=auth_headers,
+        original_body=original_body,
+        inventory_source=inventory_source,
+        inventory_confidence=inventory_confidence,
+        inventory_endpoint=inventory_endpoint,
+    )
 
 
 def _fetch(url: str, headers: dict, timeout: int = 5) -> tuple[str, int | None]:

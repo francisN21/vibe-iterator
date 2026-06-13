@@ -107,6 +107,7 @@ def test_x_content_type_options_missing(vuln_app) -> None:
 def test_rate_limit_probe_no_429_detected(vuln_app) -> None:
     reqs = [_make_req(
         vuln_app.base_url + "/api/login",
+        method="POST",
         response_headers={"content-type": "application/json"},
     )]
     findings = _run(vuln_app, reqs)

@@ -53,6 +53,7 @@ def _run(vuln_app, network_requests) -> list:
 # Group 1 — Passive analysis detects SQL error already in captured response
 # ---------------------------------------------------------------------------
 
+
 def test_passive_sql_error_in_response_detected(vuln_app) -> None:
     # Pre-bake the captured response with a SQL error body (as if the app already
     # leaked it during crawl). Group 1 passive scan should flag it.
@@ -65,12 +66,18 @@ def test_passive_sql_error_in_response_detected(vuln_app) -> None:
     findings = _run(vuln_app, [req])
     sql_findings = [f for f in findings if "sql" in f.title.lower() or "error" in f.title.lower()]
     assert len(sql_findings) >= 1
-    assert any(f.severity in (Severity.MEDIUM, Severity.HIGH, Severity.CRITICAL) for f in sql_findings)
+    assert any(
+        f.severity in (Severity.MEDIUM, Severity.HIGH, Severity.CRITICAL) for f in sql_findings
+    )
+    passive = next(f for f in sql_findings if f.evidence.get("payload_type") == "passive_analysis")
+    assert passive.evidence["proof_quality"] == "passive_database_error_signature"
+    assert passive.evidence["confidence"] == "confirmed"
 
 
 # ---------------------------------------------------------------------------
 # Group 3 — Active injection: scanner replays /api/search with SQLi payloads
 # ---------------------------------------------------------------------------
+
 
 def test_active_sqli_url_param_detected(vuln_app) -> None:
     # Mock a clean captured request to /api/search?q=test.
@@ -91,6 +98,7 @@ def test_active_sqli_url_param_detected(vuln_app) -> None:
 # Negative — endpoint with no query params produces no injection finding
 # ---------------------------------------------------------------------------
 
+
 def test_no_sqli_finding_for_paramless_endpoint(vuln_app) -> None:
     req = _make_req(
         url=vuln_app.base_url + "/api/data",
@@ -102,7 +110,9 @@ def test_no_sqli_finding_for_paramless_endpoint(vuln_app) -> None:
     assert sqli == []
 
 
-def test_expired_deadline_prevents_active_group_http_requests(monkeypatch: pytest.MonkeyPatch, vuln_app) -> None:
+def test_expired_deadline_prevents_active_group_http_requests(
+    monkeypatch: pytest.MonkeyPatch, vuln_app
+) -> None:
     scanner = Scanner()
     config = _make_config(vuln_app.base_url)
     deadline = 0.0
@@ -131,7 +141,9 @@ def test_expired_deadline_prevents_active_group_http_requests(monkeypatch: pytes
     assert findings == []
 
 
-def test_active_sqli_rewrites_frontend_api_request_to_backend_url(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_active_sqli_rewrites_frontend_api_request_to_backend_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     scanner = Scanner()
     config = _make_config("http://localhost:3000")
     config.backend_url = "http://localhost:4001"

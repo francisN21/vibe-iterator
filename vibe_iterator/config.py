@@ -9,34 +9,66 @@ from pathlib import Path
 import yaml
 from dotenv import load_dotenv
 
+from vibe_iterator.api_inventory import ApiIntelligenceConfig
+
 # Default stage → scanner mapping (mirrors vibe-iterator.config.yaml)
+_FIREBASE_SCANNERS: list[str] = [
+    "firebase_firestore",
+    "firebase_rtdb",
+    "firebase_storage",
+    "firebase_auth",
+    "firebase_functions",
+]
+
+_SAFE_LIVE_SCANNERS: list[str] = [
+    "data_leakage",
+    "api_key_exposure",
+    "cors_check",
+    "info_disclosure",
+    "open_redirect_check",
+    "websocket_check",
+]
+
 _DEFAULT_STAGES: dict[str, list[str]] = {
-    "dev": ["data_leakage", "auth_check", "client_tampering"],
+    "dev": ["data_leakage", "auth_check", "client_tampering", "firebase_auth"],
+    "safe-live": list(_SAFE_LIVE_SCANNERS),
     "pre-deploy": [
         "data_leakage", "auth_check", "client_tampering",
         "rls_bypass", "tier_escalation", "bucket_limits",
         "sql_injection", "xss_check", "api_exposure",
         "mass_assignment", "info_disclosure", "idor_check",
-        "http_method_tampering", "rate_limit_check",
+        "http_method_tampering", "rate_limit_check", "open_redirect_check",
+        "path_traversal_check", "ssrf_check", "csrf_check", "graphql_check", "webhook_check",
+        "websocket_check", "unsafe_payload_check", "file_upload_check",
+        *_FIREBASE_SCANNERS,
     ],
     "post-deploy": [
         "cors_check", "data_leakage", "auth_check",
         "api_exposure", "api_key_exposure", "bucket_limits",
         "sql_injection", "mass_assignment", "info_disclosure",
         "idor_check", "http_method_tampering", "rate_limit_check",
+        *_FIREBASE_SCANNERS,
     ],
     "all": [
         "data_leakage", "rls_bypass", "tier_escalation", "bucket_limits",
         "auth_check", "client_tampering", "sql_injection",
         "cors_check", "xss_check", "api_exposure", "api_key_exposure",
         "mass_assignment", "info_disclosure", "idor_check",
-        "http_method_tampering", "rate_limit_check",
+        "http_method_tampering", "rate_limit_check", "open_redirect_check",
+        "path_traversal_check", "ssrf_check", "csrf_check", "graphql_check", "webhook_check",
+        "websocket_check", "unsafe_payload_check", "file_upload_check",
+        *_FIREBASE_SCANNERS,
     ],
+    "firebase": list(_FIREBASE_SCANNERS),
 }
 
 _DEFAULT_PAGES: list[str] = ["/", "/login", "/dashboard", "/profile"]
 
-_VALID_SCANNER_NAMES: frozenset[str] = frozenset(_DEFAULT_STAGES["all"])
+_VALID_SCANNER_NAMES: frozenset[str] = frozenset(
+    scanner
+    for scanner_list in _DEFAULT_STAGES.values()
+    for scanner in scanner_list
+)
 
 
 @dataclass
@@ -85,6 +117,9 @@ class Config:
 
     # Rate limit scanner
     rate_limit_deep_scan: bool = False
+
+    # API intelligence scanner foundation
+    api_intelligence: ApiIntelligenceConfig = field(default_factory=ApiIntelligenceConfig)
 
     # Optional separate backend API URL (when frontend and backend run on different ports)
     backend_url: str | None = None
@@ -222,6 +257,31 @@ def load_config(
     backend_url = (os.getenv("VIBE_ITERATOR_BACKEND_URL") or "").rstrip("/") or None
 
     # ------------------------------------------------------------------ #
+    # API intelligence                                                     #
+    # ------------------------------------------------------------------ #
+    api_intelligence_raw = yaml_data.get("api_intelligence", {}) or {}
+    if not isinstance(api_intelligence_raw, dict):
+        api_intelligence_raw = {}
+    wordlists_raw = api_intelligence_raw.get("wordlists", {}) or {}
+    if not isinstance(wordlists_raw, dict):
+        wordlists_raw = {}
+    try:
+        api_intelligence = ApiIntelligenceConfig(
+            mode=api_intelligence_raw.get("mode", "auto"),
+            max_route_candidates=int(api_intelligence_raw.get("max_route_candidates", 200)),
+            max_methods_per_route=int(api_intelligence_raw.get("max_methods_per_route", 6)),
+            max_hidden_params_per_endpoint=int(
+                api_intelligence_raw.get("max_hidden_params_per_endpoint", 20)
+            ),
+            request_timeout_seconds=int(api_intelligence_raw.get("request_timeout_seconds", 3)),
+            total_timeout_seconds=int(api_intelligence_raw.get("total_timeout_seconds", 45)),
+            route_wordlist=wordlists_raw.get("routes", "builtin"),
+            param_wordlist=wordlists_raw.get("params", "builtin"),
+        )
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(f"api_intelligence configuration is invalid: {exc}") from exc
+
+    # ------------------------------------------------------------------ #
     # Pages                                                               #
     # ------------------------------------------------------------------ #
     pages_raw = yaml_data.get("pages", _DEFAULT_PAGES)
@@ -299,6 +359,7 @@ def load_config(
         spider_max_pages=spider_max_pages,
         spider_max_depth=spider_max_depth,
         rate_limit_deep_scan=rate_limit_deep_scan,
+        api_intelligence=api_intelligence,
         backend_url=backend_url,
         results_dir=results_dir,
     )

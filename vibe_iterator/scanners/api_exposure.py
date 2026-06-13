@@ -5,15 +5,16 @@ from __future__ import annotations
 import re
 import ssl
 import urllib.request
+from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
+
+from vibe_iterator.scanners.base import BaseScanner, Finding, Severity
+from vibe_iterator.scanners.request_targets import frontend_origin, rewrite_to_backend_url
 
 # Path segments that are 12+ contiguous hex chars signal third-party embed IDs
 # (Intercom workspace IDs, CDN chunk hashes, etc.) — these aren't app pages.
 _THIRD_PARTY_EMBED_RE = re.compile(r"/[0-9a-f]{12,}(?:/|$)", re.I)
-
-from vibe_iterator.scanners.base import BaseScanner, Finding, Severity
-from vibe_iterator.scanners.request_targets import frontend_origin, rewrite_to_backend_url
 
 _STATIC_EXTS = {".js", ".css", ".png", ".svg", ".ico", ".woff", ".woff2", ".jpg", ".gif", ".map"}
 _AUTH_INDICATORS = {"authorization", "x-api-key", "cookie"}
@@ -28,6 +29,19 @@ _SENSITIVE_BODY_TERMS = {
 }
 _RATE_LIMIT_HEADERS = {"x-ratelimit-limit", "x-rate-limit-limit", "ratelimit-limit", "retry-after"}
 _AUTH_PATHS = ["/auth", "/login", "/signin", "/token", "/api/auth", "/api/login"]
+_AUTH_RATE_LIMIT_ACTIONS = (
+    "/login",
+    "/signin",
+    "/token",
+    "/signup",
+    "/register",
+    "/forgot-password",
+    "/reset-password",
+    "/otp",
+    "/magic-link",
+    "/verify",
+    "/resend",
+)
 _MAX_ENDPOINTS = 15
 _RATE_LIMIT_PROBE_COUNT = 8  # bounded burst to check for 429 response
 
@@ -37,6 +51,21 @@ _SECURITY_HEADERS = {
     "x-frame-options": None,  # DENY or SAMEORIGIN
     "strict-transport-security": None,
 }
+
+
+@dataclass
+class _InventoryRequest:
+    url: str
+    method: str
+    headers: dict[str, str]
+    response_headers: dict[str, str] | None
+    status_code: int | None
+    response_body: str
+    response_mime_type: str
+    inventory_source: str
+    inventory_confidence: str
+    inventory_endpoint: str
+    inventory_risk_tags: set[str]
 
 
 def _fetch_without_auth(
@@ -52,6 +81,22 @@ def _fetch_without_auth(
             url, data=body, method=method,
             headers=headers,
         )
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+            return resp.status, {k.lower(): v for k, v in resp.headers.items()}
+    except urllib.error.HTTPError as e:
+        return e.code, {k.lower(): v for k, v in e.headers.items()}
+    except Exception:
+        return None
+
+
+def _fetch_headers(url: str, origin: str | None = None, timeout: int = 5) -> tuple[int, dict[str, str]] | None:
+    """Re-fetch response headers directly so passive CDP observations can be verified."""
+    try:
+        ctx = ssl._create_unverified_context()
+        headers = {"User-Agent": "vibe-iterator/header-check", "Accept": "*/*"}
+        if origin:
+            headers["Origin"] = origin
+        req = urllib.request.Request(url, method="GET", headers=headers)
         with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
             return resp.status, {k.lower(): v for k, v in resp.headers.items()}
     except urllib.error.HTTPError as e:
@@ -90,12 +135,104 @@ def _unauth_access_proof_quality(req: Any, url: str) -> str | None:
     if any(frag in lowered_url for frag in _PROTECTED_PATH_FRAGMENTS):
         return "protected_path_replayed_without_auth"
 
+    if "auth" in getattr(req, "inventory_risk_tags", set()):
+        return "inventory_auth_endpoint_replayed_without_auth"
+
     raw_body = getattr(req, "response_body", "")
     body = raw_body.lower() if isinstance(raw_body, str) else ""
     if body and any(term in body for term in _SENSITIVE_BODY_TERMS):
         return "authenticated_response_body_contains_sensitive_terms"
 
     return None
+
+
+def _is_auth_rate_limit_candidate(method: str, path: str) -> bool:
+    """Return whether this path is a credential/action endpoint worth brute-force probing."""
+    if method.upper() != "POST":
+        return False
+    lowered = path.lower().rstrip("/")
+    return any(action in lowered for action in _AUTH_RATE_LIMIT_ACTIONS)
+
+
+def _request_key(method: str, url: str) -> str:
+    parsed = urlparse(url)
+    return f"{method.upper()}:{parsed.netloc}{parsed.path}"
+
+
+def _inventory_evidence(req: Any) -> dict[str, str]:
+    endpoint = getattr(req, "inventory_endpoint", None)
+    if not endpoint:
+        return {}
+    return {
+        "inventory_source": getattr(req, "inventory_source", "") or "",
+        "inventory_confidence": getattr(req, "inventory_confidence", "") or "",
+        "inventory_endpoint": endpoint,
+    }
+
+
+def _inventory_requests(inventory: Any, target: str, backend_url: str | None) -> list[_InventoryRequest]:
+    if inventory is None:
+        return []
+
+    requests: list[_InventoryRequest] = []
+    for endpoint in getattr(inventory, "endpoints", []):
+        method = str(getattr(endpoint, "method", "")).upper()
+        url = getattr(endpoint, "url", "")
+        if not isinstance(url, str) or not method or not _is_api_url(url, target, backend_url):
+            continue
+
+        risk_tags = {str(tag).lower() for tag in getattr(endpoint, "risk_tags", [])}
+        auth_observed = bool(getattr(endpoint, "auth_observed", False))
+        auth_hint = bool(getattr(endpoint, "response_auth_required_hint", False))
+        if not (auth_observed or auth_hint or "auth" in risk_tags):
+            continue
+
+        requests.append(_InventoryRequest(
+            url=url,
+            method=method,
+            headers={"Authorization": "(observed by api inventory)"},
+            response_headers=None,
+            status_code=(getattr(endpoint, "status_codes", []) or [None])[0],
+            response_body="",
+            response_mime_type="",
+            inventory_source=",".join(getattr(endpoint, "sources", [])),
+            inventory_confidence=getattr(endpoint, "confidence", "") or "",
+            inventory_endpoint=f"{method} {getattr(endpoint, 'normalized_path', getattr(endpoint, 'path', url))}",
+            inventory_risk_tags=risk_tags,
+        ))
+
+    return requests
+
+
+def _requests_with_inventory(
+    requests: list[Any],
+    inventory: Any,
+    target: str,
+    backend_url: str | None,
+) -> list[Any]:
+    merged: dict[str, Any] = {_request_key(req.method, req.url): req for req in requests}
+
+    for inv_req in _inventory_requests(inventory, target, backend_url):
+        key = _request_key(inv_req.method, inv_req.url)
+        existing = merged.get(key)
+        if existing is None:
+            merged[key] = inv_req
+            continue
+
+        _attach_inventory_metadata(existing, inv_req)
+        if not _has_auth_header(existing):
+            headers = dict(existing.headers or {})
+            headers["Authorization"] = inv_req.headers["Authorization"]
+            existing.headers = headers
+
+    return list(merged.values())
+
+
+def _attach_inventory_metadata(req: Any, inv_req: _InventoryRequest) -> None:
+    req.inventory_source = inv_req.inventory_source
+    req.inventory_confidence = inv_req.inventory_confidence
+    req.inventory_endpoint = inv_req.inventory_endpoint
+    req.inventory_risk_tags = inv_req.inventory_risk_tags
 
 
 class Scanner(BaseScanner):
@@ -117,8 +254,9 @@ class Scanner(BaseScanner):
         origin = frontend_origin(config)
 
         requests = [r for r in network.get_requests() if _is_api_url(r.url, target, backend_url)]
+        requests = _requests_with_inventory(requests, listeners.get("api_inventory"), target, backend_url)
 
-        self._check_security_headers(requests, target, stack, findings)
+        self._check_security_headers(requests, target, stack, findings, origin)
         self._check_unauth_access(requests, target, stack, findings, config, origin)
         self._check_rate_limiting(requests, target, stack, findings)
         self._probe_rate_limiting(requests, target, stack, findings, config, origin)
@@ -129,7 +267,7 @@ class Scanner(BaseScanner):
     # ------------------------------------------------------------------ #
 
     def _check_security_headers(
-        self, requests: list, target: str, stack: str, findings: list[Finding],
+        self, requests: list, target: str, stack: str, findings: list[Finding], origin: str | None,
     ) -> None:
         seen_fps: set[str] = set()
 
@@ -161,25 +299,78 @@ class Scanner(BaseScanner):
                     continue
                 seen_fps.add(fp)
 
+                recheck = _fetch_headers(req.url, origin=origin)
+                if recheck is not None:
+                    _status, rechecked_headers = recheck
+                    if header_key in rechecked_headers:
+                        continue
+
                 sev = Severity.LOW
                 if header_key == "strict-transport-security":
                     sev = Severity.MEDIUM
 
+                expected_str = f"{header_key}: {expected_val}" if expected_val else f"{header_key}: <value>"
+                if recheck is None:
+                    desc = (
+                        f"A passive network observation did not show the `{header_key}` HTTP security header, "
+                        "but Vibe Iterator could not directly revalidate the deployed response. Treat this as "
+                        "a sanity check before changing code or edge/CDN configuration."
+                    )
+                    findings.append(self.new_finding(
+                        scanner=self.name, severity=Severity.INFO,
+                        title=f"Sanity check: verify security header: {header_key}",
+                        description=desc,
+                        evidence={
+                            "endpoint": req.url,
+                            "test_performed": "header_revalidation",
+                            "proof_quality": "passive_header_observation_inconclusive",
+                            "confidence": "needs_review",
+                            "passive_observation_url": req.url,
+                            "revalidation_url": req.url,
+                            "request": {"method": req.method, "url": req.url},
+                            "response": {"status": getattr(req, "status_code", "?"), "headers": dict(lowered)},
+                            "expected_response": f"Response should include: {expected_str}",
+                        },
+                        llm_prompt=self.build_llm_prompt(
+                            title=f"Sanity check: verify security header: {header_key}",
+                            severity=Severity.INFO, scanner=self.name, page=req.url,
+                            category=self.category, description=desc,
+                            evidence_summary=(
+                                f"Passive observation did not include `{header_key}`, but direct "
+                                f"revalidation was inconclusive.\nExpected: {expected_str}\n"
+                                "Verify with curl/browser devtools before making changes."
+                            ),
+                            stack=stack,
+                        ),
+                        remediation=(
+                            f"**Sanity check:** Run `curl -I {req.url}` and verify whether "
+                            f"`{header_key}` is present on the live response.\n\n"
+                            "Only change app, proxy, or CDN configuration if the header is still missing."
+                        ),
+                        category=self.category, page=req.url,
+                    ))
+                    continue
+
+                _status, rechecked_headers = recheck
                 desc = (
                     f"The `{header_key}` HTTP security header is missing from API responses. "
                     f"This header provides browser-level protection against common web attacks. "
                     f"{'HSTS prevents downgrade attacks and cookie hijacking over HTTP.' if header_key == 'strict-transport-security' else 'This helps prevent MIME sniffing and framing attacks.'}"
                 )
-                expected_str = f"{header_key}: {expected_val}" if expected_val else f"{header_key}: <value>"
                 findings.append(self.new_finding(
                     scanner=self.name, severity=sev,
                     title=f"Missing security header: {header_key}",
                     description=desc,
                     evidence={
                         "endpoint": req.url,
-                        "test_performed": "header_inspection",
+                        "test_performed": "header_revalidation",
+                        "proof_quality": "direct_header_revalidation_missing",
+                        "confidence": "confirmed",
+                        "passive_observation_url": req.url,
+                        "revalidation_url": req.url,
                         "request": {"method": req.method, "url": req.url},
-                        "response": {"status": getattr(req, "status_code", "?"), "headers": dict(lowered)},
+                        "passive_response": {"status": getattr(req, "status_code", "?"), "headers": dict(lowered)},
+                        "response": {"status": _status, "headers": dict(rechecked_headers)},
                         "expected_response": f"Response should include: {expected_str}",
                     },
                     llm_prompt=self.build_llm_prompt(
@@ -211,8 +402,7 @@ class Scanner(BaseScanner):
 
         for req in requests:
             parsed = urlparse(req.url)
-            is_auth_path = any(frag in parsed.path.lower() for frag in _AUTH_PATHS)
-            if not is_auth_path:
+            if not _is_auth_rate_limit_candidate(req.method, parsed.path):
                 continue
             # Skip RSC prefetch variants and HTML page routes — same reasons as
             # _check_rate_limiting: page routes don't process credentials.
@@ -228,14 +418,20 @@ class Scanner(BaseScanner):
 
             # Send _RATE_LIMIT_PROBE_COUNT rapid requests; check if any return 429
             got_429 = False
+            status_codes: list[int] = []
             for _ in range(_RATE_LIMIT_PROBE_COUNT):
                 result = _fetch_without_auth(base_url, method="POST", origin=origin, timeout=3)
-                if result and result[0] == 429:
+                if result is None:
+                    break
+                status_codes.append(result[0])
+                if result[0] == 429:
                     got_429 = True
                     break
 
             if got_429:
                 continue  # rate limiting is working
+            if len(status_codes) < _RATE_LIMIT_PROBE_COUNT:
+                continue
 
             fp = self.make_fingerprint(self.name, "Rate limit probe: no 429 after burst", base_url)
             if fp in seen_fps:
@@ -254,9 +450,13 @@ class Scanner(BaseScanner):
                 evidence={
                     "endpoint": base_url,
                     "test_performed": "active_rate_limit_probe",
+                    "proof_quality": "repeated_auth_post_without_429",
+                    "confidence": "confirmed",
                     "requests_sent": _RATE_LIMIT_PROBE_COUNT,
+                    "response_codes_seen": status_codes,
                     "result": f"No 429 response after {_RATE_LIMIT_PROBE_COUNT} rapid requests",
                     "expected_response": "429 Too Many Requests after repeated attempts",
+                    **_inventory_evidence(req),
                 },
                 llm_prompt=self.build_llm_prompt(
                     title=f"Rate limiting not enforced: {parsed.path}",
@@ -340,6 +540,7 @@ class Scanner(BaseScanner):
                         "proof_quality": proof_quality,
                         "expected_response": "401 Unauthorized or 403 Forbidden",
                         "actual_response": f"{status} OK — endpoint accessible without auth",
+                        **_inventory_evidence(req),
                     },
                     llm_prompt=self.build_llm_prompt(
                         title=f"Unauthenticated access: {req.method} {base_parsed.path}",
@@ -369,6 +570,11 @@ class Scanner(BaseScanner):
     def _check_rate_limiting(
         self, requests: list, target: str, stack: str, findings: list[Finding],
     ) -> None:
+        # Missing rate-limit headers alone are not proof. Some platforms enforce
+        # throttling without exposing these headers, so vulnerability reporting is
+        # reserved for the active repeated-POST probe in _probe_rate_limiting.
+        return
+
         seen_fps: set[str] = set()
 
         for req in requests:

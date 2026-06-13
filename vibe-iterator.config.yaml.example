@@ -21,6 +21,10 @@ stages:
     scanners: [data_leakage, auth_check, client_tampering]
     # "Catch basics during development — fast feedback loop"
 
+  safe-live:
+    scanners: [data_leakage, api_key_exposure, cors_check, info_disclosure, open_redirect_check, websocket_check]
+    # "Reduced-risk live smoke scan - avoids writes, uploads, brute/pressure tests, and high-risk payloads"
+
   pre-deploy:
     scanners: [data_leakage, auth_check, client_tampering, rls_bypass, tier_escalation, bucket_limits, sql_injection, xss_check, api_exposure]
     # "Full audit before going live"

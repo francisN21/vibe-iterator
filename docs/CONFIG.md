@@ -49,6 +49,17 @@ Defines what pages to crawl, which scanners to run per stage, and technology det
 ```yaml
 target: ${VIBE_ITERATOR_TARGET}
 
+api_intelligence:
+  mode: auto # auto | safe | aggressive | off
+  max_route_candidates: 200
+  max_methods_per_route: 6
+  max_hidden_params_per_endpoint: 20
+  request_timeout_seconds: 3
+  total_timeout_seconds: 45
+  wordlists:
+    routes: builtin
+    params: builtin
+
 # Pages to crawl (order matters — login page should come first if auth is needed)
 pages:
   - /
@@ -61,17 +72,23 @@ pages:
 # Stage-specific scanner selection
 stages:
   dev:
-    scanners: [data_leakage, auth_check, client_tampering]
+    scanners: [data_leakage, auth_check, client_tampering, firebase_auth]
     description: "Catch basics during development"
+  safe-live:
+    scanners: [data_leakage, api_key_exposure, cors_check, info_disclosure, open_redirect_check, websocket_check]
+    description: "Reduced-risk live smoke scan"
   pre-deploy:
-    scanners: [data_leakage, auth_check, client_tampering, rls_bypass, tier_escalation, bucket_limits, sql_injection, xss_check, api_exposure]
+    scanners: [data_leakage, auth_check, client_tampering, rls_bypass, tier_escalation, bucket_limits, sql_injection, xss_check, api_exposure, mass_assignment, info_disclosure, idor_check, http_method_tampering, rate_limit_check, open_redirect_check, path_traversal_check, ssrf_check, csrf_check, graphql_check, webhook_check, websocket_check, unsafe_payload_check, file_upload_check, firebase_firestore, firebase_rtdb, firebase_storage, firebase_auth, firebase_functions]
     description: "Full audit before going live"
   post-deploy:
-    scanners: [cors_check, data_leakage, auth_check, api_exposure, bucket_limits, sql_injection]
+    scanners: [cors_check, data_leakage, auth_check, api_exposure, api_key_exposure, bucket_limits, sql_injection, mass_assignment, info_disclosure, idor_check, http_method_tampering, rate_limit_check, firebase_firestore, firebase_rtdb, firebase_storage, firebase_auth, firebase_functions]
     description: "External-facing checks on live site"
   all:
-    scanners: [data_leakage, rls_bypass, tier_escalation, bucket_limits, auth_check, client_tampering, sql_injection, cors_check, xss_check, api_exposure]
+    scanners: [data_leakage, rls_bypass, tier_escalation, bucket_limits, auth_check, client_tampering, sql_injection, cors_check, xss_check, api_exposure, api_key_exposure, mass_assignment, info_disclosure, idor_check, http_method_tampering, rate_limit_check, open_redirect_check, path_traversal_check, ssrf_check, csrf_check, graphql_check, webhook_check, websocket_check, unsafe_payload_check, file_upload_check, firebase_firestore, firebase_rtdb, firebase_storage, firebase_auth, firebase_functions]
     description: "Run every scanner regardless of stage"
+  firebase:
+    scanners: [firebase_firestore, firebase_rtdb, firebase_storage, firebase_auth, firebase_functions]
+    description: "Firebase-specific security audit"
 
 # Technology detection (auto-detect if not specified — see Auto-Detection section below)
 stack:
@@ -86,27 +103,34 @@ stack:
 
 ### DEV — "Catch basics during development"
 - **When:** During active development, run frequently
-- **Scanners:** `data_leakage`, `auth_check`, `client_tampering`
+- **Scanners:** `data_leakage`, `auth_check`, `client_tampering`, `firebase_auth`
 - **Focus:** Quick feedback loop — catch leaked tokens, weak auth, and client-side trust issues early
-- **Speed:** Fast (3 scanners)
+- **Speed:** Fast (4 scanners; Firebase Auth is skipped unless the target stack is Firebase)
 
 ### PRE-DEPLOY — "Full audit before going live"
 - **When:** Before deploying to production, run once before each release
-- **Scanners:** `data_leakage`, `auth_check`, `client_tampering`, `rls_bypass`, `tier_escalation`, `bucket_limits`, `sql_injection`, `xss_check`, `api_exposure`
+- **Scanners:** Generic pre-deploy scanner set plus all five Firebase scanners
 - **Focus:** Comprehensive — everything that could be exploited in production
-- **Speed:** Thorough (9 scanners)
+- **Speed:** Thorough (28 scanners; stack-specific scanners are skipped when unavailable)
+
+### SAFE LIVE — "Reduced-risk live smoke scan"
+- **When:** Shared environments, staging, or production smoke checks where writes, uploads, brute/pressure tests, and high-risk payloads should stay off by default
+- **Scanners:** `data_leakage`, `api_key_exposure`, `cors_check`, `info_disclosure`, `open_redirect_check`, `websocket_check`
+- **Focus:** Low-impact signals from passive inspection plus bounded header/redirect/handshake probes
+- **Speed:** Fast (6 scanners; still review report contents before sharing because read-only checks can capture sensitive data)
+- **Triggered by:** `SAFE LIVE` dashboard stage card or `--stage safe-live` CLI flag
 
 ### POST-DEPLOY — "External-facing checks on live site"
 - **When:** After deployment, run against the live URL
-- **Scanners:** `cors_check`, `data_leakage`, `auth_check`, `api_exposure`, `bucket_limits`, `sql_injection`
+- **Scanners:** Generic post-deploy scanner set plus all five Firebase scanners
 - **Focus:** External attack surface — what's visible and exploitable from outside
-- **Speed:** Moderate (6 scanners)
+- **Speed:** Moderate (17 scanners; stack-specific scanners are skipped when unavailable)
 
 ### ALL — "Run every scanner regardless of stage"
 - **When:** Deep audit, debugging, CI pipeline where you want maximum coverage
-- **Scanners:** All 10 scanners in a logical order (data first, auth second, injection last)
+- **Scanners:** Every registered scanner in a logical order (data first, auth second, injection last)
 - **Focus:** Complete — every check the tool can perform
-- **Speed:** Slow (all 10 scanners — expect 10–20 minutes on a typical app)
+- **Speed:** Slow (all scanners; stack-specific scanners are skipped when unavailable)
 - **Triggered by:** "ALL SCANNERS" toggle in the dashboard home, or `--stage all` CLI flag
 
 ### FIREBASE — "Firebase-specific security audit — all five Firebase scanners"
@@ -114,7 +138,7 @@ stack:
 - **Scanners:** `firebase_firestore`, `firebase_rtdb`, `firebase_storage`, `firebase_auth`, `firebase_functions`
 - **Focus:** Firebase-native attack surface — Security Rules misconfigurations, RTDB open access, unauthenticated Cloud Function calls, auth weaknesses, Storage rule bypasses
 - **Speed:** Moderate (5 scanners — expect 5–10 minutes)
-- **Triggered by:** Firebase panel in the dashboard home (shown only when `backend: firebase` is detected), or `--stage firebase` CLI flag
+- **Triggered by:** Firebase panel in the dashboard home, Firebase stage card, or `--stage firebase` CLI flag
 
 ### DISCOVER — "Spider stage — maps attack surface, writes vibe-iterator.discovered.yaml"
 - **When:** Before running any other stages; maps pages and API endpoints your app exposes
@@ -146,6 +170,38 @@ spider:
 
 ---
 
+### `api_intelligence` (optional)
+
+Configures API inventory generation and scanner expansion.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `mode` | string | `auto` | One of `auto`, `safe`, `aggressive`, or `off`. |
+| `max_route_candidates` | int | `200` | Maximum candidate routes considered during aggressive expansion. |
+| `max_methods_per_route` | int | `6` | Maximum HTTP methods tested per aggressive route candidate. |
+| `max_hidden_params_per_endpoint` | int | `20` | Maximum inferred or hidden parameters attached to each endpoint. |
+| `request_timeout_seconds` | int | `3` | Per-request timeout for bounded API intelligence probes. |
+| `total_timeout_seconds` | int | `45` | Overall time budget for aggressive API inventory expansion. |
+| `wordlists.routes` | string | `builtin` | Route wordlist source. |
+| `wordlists.params` | string | `builtin` | Parameter wordlist source. |
+
+Mode behavior:
+
+| Mode | Behavior |
+|------|----------|
+| `auto` | Resolves public domains to `safe`; resolves localhost, loopback, private IPs, and `.local` hosts to `aggressive`. |
+| `safe` | Builds inventory from observed browser traffic and inferred parameters without route brute forcing. |
+| `aggressive` | Adds bounded route, method, and hidden-parameter probing. Use on local or isolated targets you own. |
+| `off` | Skips API inventory generation and inventory-fed scanner expansion. |
+
+Aggressive mode can generate extra HTTP requests against candidate API routes and methods. Do not use it on production domains unless you have permission, test accounts, and rate-limit headroom.
+
+Inventory output includes method, URL, normalized path, status codes, content types, auth hints, source, confidence, risk tags, and parameters. It appears in the dashboard results, scan history, and exported HTML report.
+
+Inventory-fed scanners currently include `api_exposure`, `rate_limit_check`, `mass_assignment`, `idor_check`, `ssrf_check`, `path_traversal_check`, `open_redirect_check`, and `graphql_check`.
+
+---
+
 ## Stack Auto-Detection
 
 When `stack` is omitted from `vibe-iterator.config.yaml`, the engine auto-detects by inspecting network traffic captured during the initial page crawl:
@@ -159,7 +215,7 @@ When `stack` is omitted from `vibe-iterator.config.yaml`, the engine auto-detect
 | Firebase Storage requests (`firebasestorage.googleapis.com`) | `storage: firebase` |
 | None of the above | `backend: custom`, `auth: custom`, `storage: custom` |
 
-Auto-detection only affects which backend-specific scanners activate (`rls_bypass`, `tier_escalation`, `bucket_limits` require `backend: supabase`). All generic scanners (`xss_check`, `cors_check`, `api_exposure`, `data_leakage`, `auth_check`, `client_tampering`, `sql_injection`) run regardless of detected stack.
+Auto-detection only affects which backend-specific scanners activate (`rls_bypass`, `tier_escalation`, `bucket_limits` require `backend: supabase`). All generic scanners (`xss_check`, `cors_check`, `api_exposure`, `data_leakage`, `auth_check`, `client_tampering`, `sql_injection`, `open_redirect_check`, `path_traversal_check`, `ssrf_check`, `csrf_check`, `graphql_check`, `webhook_check`, `websocket_check`, `unsafe_payload_check`, `file_upload_check`) run regardless of detected stack.
 
 When auto-detection fires, the dashboard terminal emits: `[INFO] Detected stack: supabase / supabase-auth / supabase`.
 

@@ -8,8 +8,9 @@ from unittest.mock import MagicMock
 import pytest
 
 from tests.fixtures.vulnerable_app.app import VulnerableApp
-from vibe_iterator.scanners.mass_assignment import Scanner
+from vibe_iterator.api_inventory import ApiEndpoint, ApiInventory, ApiParameter
 from vibe_iterator.scanners.base import Severity
+from vibe_iterator.scanners.mass_assignment import Scanner
 
 
 @pytest.fixture(scope="module")
@@ -173,6 +174,60 @@ def test_backend_url_routes_mass_assignment_probe_with_frontend_origin(monkeypat
     assert all(url == "http://localhost:4001/api/profile" for url, _, _ in calls)
     assert all(method == "POST" for _, method, _ in calls)
     assert all(headers["Origin"] == "http://localhost:3000" for _, _, headers in calls)
+
+
+def test_mass_assignment_uses_inventory_body_parameters(monkeypatch: pytest.MonkeyPatch) -> None:
+    scanner = Scanner()
+    config = _make_config("https://example.com")
+    inv = ApiInventory(
+        generated_at="2026-06-06T00:00:00Z",
+        mode="safe",
+        resolved_mode="safe",
+        target="https://example.com",
+        endpoints=[
+            ApiEndpoint(
+                method="PATCH",
+                url="https://example.com/api/profile",
+                origin="https://example.com",
+                path="/api/profile",
+                normalized_path="/api/profile",
+                parameters=[
+                    ApiParameter(
+                        name="role",
+                        location="body",
+                        source="inferred",
+                        confidence="needs_review",
+                        sensitive_hint=True,
+                    )
+                ],
+                sources=["network", "hidden_param_probe"],
+                confidence="needs_review",
+            )
+        ],
+    )
+
+    def fake_request(url, method, data, headers, timeout=6):
+        body = json.loads(data.decode("utf-8"))
+        assert url == "https://example.com/api/profile"
+        assert method == "PATCH"
+        assert body["role"] == "admin"
+        return json.dumps({"id": 123, "role": "admin"}), 200, 0.01
+
+    monkeypatch.setattr("vibe_iterator.scanners.mass_assignment._make_request", fake_request)
+
+    findings = scanner.run(
+        session=None,
+        listeners={"network": _make_network([]), "api_inventory": inv},
+        config=config,
+    )
+
+    role_findings = [finding for finding in findings if finding.evidence.get("injected_field") == "role"]
+    assert role_findings
+    evidence = role_findings[0].evidence
+    assert evidence["inventory_source"] == "network,hidden_param_probe"
+    assert evidence["inventory_endpoint"] == "PATCH /api/profile"
+    assert evidence["inventory_confidence"] == "needs_review"
+    assert evidence["inventory_parameters_used"] == ["role"]
 
 
 # ---------------------------------------------------------------------------

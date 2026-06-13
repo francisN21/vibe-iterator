@@ -6,7 +6,11 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
-from selenium.common.exceptions import NoSuchElementException, TimeoutException
+from selenium.common.exceptions import (
+    ElementClickInterceptedException,
+    NoSuchElementException,
+    TimeoutException,
+)
 
 from vibe_iterator.crawler import auth, browser, navigator
 from vibe_iterator.crawler.browser import BrowserSession
@@ -108,6 +112,46 @@ def test_fill_login_form_raises_when_password_field_missing() -> None:
             auth._fill_login_form(session, email="test@example.com", password="pw")
 
 
+def test_fill_login_form_falls_back_to_js_click_when_submit_is_intercepted() -> None:
+    session = MagicMock()
+    email_field = MagicMock()
+    password_field = MagicMock()
+    submit = MagicMock()
+    submit.click.side_effect = ElementClickInterceptedException("covered")
+    wait = MagicMock()
+    wait.until.return_value = email_field
+    session.driver.find_element.side_effect = [password_field, submit]
+
+    with patch("vibe_iterator.crawler.auth.WebDriverWait", return_value=wait):
+        auth._fill_login_form(session, email="test@example.com", password="pw")
+
+    submit.click.assert_called_once()
+    session.driver.execute_script.assert_called_once_with("arguments[0].click();", submit)
+    password_field.submit.assert_not_called()
+
+
+def test_fill_login_form_dismisses_consent_banner_before_retrying_submit() -> None:
+    session = MagicMock()
+    email_field = MagicMock()
+    password_field = MagicMock()
+    submit = MagicMock()
+    consent = MagicMock()
+    consent.text = "Deny optional"
+    submit.click.side_effect = [ElementClickInterceptedException("covered"), None]
+    wait = MagicMock()
+    wait.until.return_value = email_field
+    session.driver.find_element.side_effect = [password_field, submit]
+    session.driver.find_elements.return_value = [consent]
+
+    with patch("vibe_iterator.crawler.auth.WebDriverWait", return_value=wait):
+        auth._fill_login_form(session, email="test@example.com", password="pw")
+
+    consent.click.assert_called_once()
+    assert submit.click.call_count == 2
+    session.driver.execute_script.assert_not_called()
+    password_field.submit.assert_not_called()
+
+
 def test_wait_for_auth_reports_rejected_credentials() -> None:
     session = MagicMock()
     session.driver.page_source = "Invalid password"
@@ -116,6 +160,39 @@ def test_wait_for_auth_reports_rejected_credentials() -> None:
 
     with patch("vibe_iterator.crawler.auth.WebDriverWait", return_value=wait):
         with pytest.raises(auth.AuthError, match="credentials rejected"):
+            auth._wait_for_auth(session, "http://localhost:3000")
+
+
+def test_wait_for_auth_accepts_session_cookie_without_navigation() -> None:
+    session = MagicMock()
+    session.driver.current_url = "http://localhost:3000/login"
+    session.driver.page_source = "Welcome back"
+    session.driver.get_cookies.return_value = [{"name": "next-auth.session-token", "value": "token"}]
+    session.driver.execute_script.return_value = {"localStorage": [], "sessionStorage": []}
+    wait = MagicMock()
+    wait.until.side_effect = TimeoutException("still on login route")
+
+    with patch("vibe_iterator.crawler.auth.WebDriverWait", return_value=wait):
+        auth._wait_for_auth(session, "http://localhost:3000")
+
+
+def test_wait_for_auth_reports_csp_script_blocking() -> None:
+    session = MagicMock()
+    session.driver.current_url = "http://localhost:3000/login"
+    session.driver.page_source = "Teacher Sign In"
+    session.driver.get_cookies.return_value = []
+    session.driver.execute_script.return_value = {"localStorage": [], "sessionStorage": []}
+    session.driver.get_log.return_value = [
+        {
+            "level": "SEVERE",
+            "message": "Executing inline script violates the following Content Security Policy directive 'script-src'",
+        }
+    ]
+    wait = MagicMock()
+    wait.until.side_effect = TimeoutException("still on login route")
+
+    with patch("vibe_iterator.crawler.auth.WebDriverWait", return_value=wait):
+        with pytest.raises(auth.AuthError, match="Content Security Policy"):
             auth._wait_for_auth(session, "http://localhost:3000")
 
 

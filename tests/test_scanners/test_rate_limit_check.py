@@ -3,10 +3,9 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
-from vibe_iterator.scanners.rate_limit_check import Scanner
+from vibe_iterator.api_inventory import ApiEndpoint, ApiInventory
 from vibe_iterator.scanners.base import Severity
+from vibe_iterator.scanners.rate_limit_check import Scanner, _find_active_path
 
 
 def _make_config(deep_scan: bool = False, backend_url: str | None = None) -> MagicMock:
@@ -97,7 +96,73 @@ def test_all_endpoints_404_no_findings():
     assert findings == []
 
 
+def test_find_active_path_skips_generic_auth_catchall() -> None:
+    """A generic 401 unauthorized catch-all is not enough route proof."""
+    with patch(
+        "vibe_iterator.scanners.rate_limit_check._post_full",
+        return_value=(401, {}, '{"error": "unauthorized"}'),
+    ):
+        assert _find_active_path("https://example.com", ["/api/auth/signup"], "https://app.example.com") is None
+
+
+def test_find_active_path_accepts_auth_specific_invalid_credentials() -> None:
+    """Auth-specific response text is enough to treat the route as active."""
+    with patch(
+        "vibe_iterator.scanners.rate_limit_check._post_full",
+        return_value=(401, {}, '{"error": "invalid credentials"}'),
+    ):
+        assert (
+            _find_active_path("https://example.com", ["/api/auth/login"], "https://app.example.com")
+            == "/api/auth/login"
+        )
+
+
 # ── Finding B ────────────────────────────────────────────────────────────────
+
+def test_find_active_path_skips_route_echo_for_unknown_verify_endpoint() -> None:
+    """A generic catch-all that echoes the requested path must not prove the route exists."""
+    with patch(
+        "vibe_iterator.scanners.rate_limit_check._post_full",
+        return_value=(401, {}, '{"error": "Cannot POST /api/auth/verify"}'),
+    ):
+        assert _find_active_path("https://example.com", ["/api/auth/verify"], "https://app.example.com") is None
+
+
+def test_find_active_path_skips_generic_auth_problem_json_with_instance_echo() -> None:
+    """Auth middleware problem JSON that only echoes the route instance is not route proof."""
+    body = (
+        '{"type":"https://api.example.com/problems/authentication-required",'
+        '"title":"Unauthorized","status":401,'
+        '"detail":"Authentication is required to access this resource.",'
+        '"instance":"/auth/verify"}'
+    )
+    with patch(
+        "vibe_iterator.scanners.rate_limit_check._post_full",
+        return_value=(401, {}, body),
+    ):
+        assert _find_active_path("https://example.com", ["/api/auth/verify"], "https://app.example.com") is None
+
+
+def test_find_active_path_skips_generic_bad_request_without_route_evidence() -> None:
+    """Generic 400 responses should not prove an auth route exists."""
+    with patch(
+        "vibe_iterator.scanners.rate_limit_check._post_full",
+        return_value=(400, {}, '{"error": "bad request"}'),
+    ):
+        assert _find_active_path("https://example.com", ["/api/auth/otp"], "https://app.example.com") is None
+
+
+def test_find_active_path_accepts_verification_specific_error() -> None:
+    """Route-specific verification errors are still enough to prove a real endpoint."""
+    with patch(
+        "vibe_iterator.scanners.rate_limit_check._post_full",
+        return_value=(401, {}, '{"error": "invalid verification code"}'),
+    ):
+        assert (
+            _find_active_path("https://example.com", ["/api/auth/verify"], "https://app.example.com")
+            == "/api/auth/verify"
+        )
+
 
 def test_lockout_detected_code_shift():
     """Attempts 1-4 return 401, attempt 5 returns 403 → Finding B, LOW."""
@@ -299,3 +364,82 @@ def test_backend_url_routes_probes_with_frontend_origin():
         "http://localhost:4001/api/auth/login",
         "http://localhost:3000",
     )
+
+
+def test_rate_limit_uses_inventory_auth_post_endpoint(monkeypatch) -> None:
+    inv = ApiInventory(
+        generated_at="now",
+        mode="auto",
+        resolved_mode="safe",
+        target="http://localhost:3000",
+        endpoints=[
+            ApiEndpoint(
+                method="POST",
+                url="http://localhost:3000/api/auth/login",
+                origin="http://localhost:3000",
+                path="/api/auth/login",
+                normalized_path="/api/auth/login",
+                sources=["route_wordlist"],
+                risk_tags=["auth", "state_changing"],
+                confidence="confirmed",
+            )
+        ],
+        summary={"endpoints": 1},
+        warnings=[],
+    )
+
+    monkeypatch.setattr(
+        "vibe_iterator.scanners.rate_limit_check._post_full",
+        lambda *args, **kwargs: (401, {}, '{"error":"invalid credentials"}'),
+    )
+
+    findings = Scanner().run(
+        session=None,
+        listeners={"network": _make_network([]), "api_inventory": inv},
+        config=_make_config(),
+    )
+
+    assert any(f.evidence.get("inventory_endpoint") == "POST /api/auth/login" for f in findings)
+
+
+def test_rate_limit_skips_builtin_discovery_for_inventory_path(monkeypatch) -> None:
+    inv = ApiInventory(
+        generated_at="now",
+        mode="auto",
+        resolved_mode="safe",
+        target="http://localhost:3000",
+        endpoints=[
+            ApiEndpoint(
+                method="POST",
+                url="http://localhost:3000/api/auth/login",
+                origin="http://localhost:3000",
+                path="/api/auth/login",
+                normalized_path="/api/auth/login",
+                sources=["route_wordlist"],
+                risk_tags=["auth", "state_changing"],
+                confidence="confirmed",
+            )
+        ],
+    )
+    active_calls: list[tuple[str, list[str], str]] = []
+    burst_calls: list[str] = []
+
+    def fake_find_active_path(base, variants, origin):
+        active_calls.append((base, variants, origin))
+        return None
+
+    def fake_post_full(url, origin):
+        burst_calls.append(url)
+        return 401, {}, '{"error":"invalid credentials"}'
+
+    monkeypatch.setattr("vibe_iterator.scanners.rate_limit_check._find_active_path", fake_find_active_path)
+    monkeypatch.setattr("vibe_iterator.scanners.rate_limit_check._post_full", fake_post_full)
+
+    Scanner().run(
+        session=None,
+        listeners={"network": _make_network([]), "api_inventory": inv},
+        config=_make_config(),
+    )
+
+    assert len([url for url in burst_calls if url.endswith("/api/auth/login")]) == 10
+    assert all("/api/auth/login" not in variants for _base, variants, _origin in active_calls)

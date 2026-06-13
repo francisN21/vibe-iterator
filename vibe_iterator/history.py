@@ -8,6 +8,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from vibe_iterator.api_inventory import inventory_to_dict
 from vibe_iterator.engine.runner import ScanResult
 from vibe_iterator.scanners.base import Finding
 
@@ -78,6 +79,11 @@ def serialize_result(result: ScanResult) -> dict:
             "pages": result.discovered_surface.pages,
             "api_endpoints": result.discovered_surface.api_endpoints,
             "discovered_at": result.discovered_surface.discovered_at,
+            "api_inventory": (
+                inventory_to_dict(result.discovered_surface.api_inventory)
+                if result.discovered_surface.api_inventory
+                else None
+            ),
         } if result.discovered_surface is not None else None,
     }
 

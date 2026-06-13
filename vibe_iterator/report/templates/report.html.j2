@@ -150,6 +150,59 @@ body { padding: 0; }
   </div>
   {% endif %}
 
+  <!-- ---- API inventory ---- -->
+  {% if api_inventory %}
+  {% set endpoint_count = api_inventory.summary.endpoints | default(api_inventory.endpoints | length) %}
+  <div class="section-title">API Inventory</div>
+  <div class="meta-grid">
+    <div class="meta-card">
+      <div class="label">Mode</div>
+      <div class="value">{{ api_inventory.mode }}</div>
+    </div>
+    <div class="meta-card">
+      <div class="label">Resolved Mode</div>
+      <div class="value">{{ api_inventory.resolved_mode }}</div>
+    </div>
+    <div class="meta-card">
+      <div class="label">Endpoints</div>
+      <div class="value">{{ endpoint_count }}</div>
+    </div>
+  </div>
+
+  {% if api_inventory.warnings %}
+  <div class="finding-section">
+    <div class="finding-section-label">Warnings</div>
+    <div class="llm-box">
+{% for warning in api_inventory.warnings %}{{ warning }}
+{% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <table class="scanner-table">
+    <thead>
+      <tr>
+        <th>Method</th>
+        <th>Path</th>
+        <th>Sources</th>
+        <th>Confidence</th>
+        <th>Risk Tags</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for endpoint in api_inventory.endpoints %}
+      <tr>
+        <td>{{ endpoint.method }}</td>
+        <td style="word-break:break-all;">{{ endpoint.normalized_path or endpoint.path }}</td>
+        <td style="word-break:break-all;">{% if endpoint.sources %}{{ endpoint.sources | join(', ') }}{% else %}&mdash;{% endif %}</td>
+        <td>{{ endpoint.confidence }}</td>
+        <td>{% if endpoint.risk_tags %}{{ endpoint.risk_tags | join(', ') }}{% else %}&mdash;{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
   <!-- ---- Findings by category ---- -->
   {% if findings_by_cat %}
   <div class="section-title">Findings</div>
